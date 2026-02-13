@@ -52,9 +52,9 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
       >
         <div className="p-4 sm:p-6 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <Building2 className="w-6 h-6 sm:w-8 sm:h-8" />
+            <img src="/Site Flow.png" alt="Site Flow" className="w-6 h-6 sm:w-8 sm:h-8 object-contain" />
             <div>
-              <h1 className="text-lg sm:text-xl font-bold">SiteFlow</h1>
+              <h1 className="text-lg sm:text-xl font-bold">Site Flow</h1>
               <p className="text-xs text-blue-200 hidden sm:block">Construction Management</p>
             </div>
           </div>
