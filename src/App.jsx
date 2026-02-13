@@ -9,6 +9,7 @@ import ProcessManagement from './pages/ProcessManagement'
 import Reports from './pages/Reports'
 import FirebaseDebugger from './components/FirebaseDebugger'
 import Sidebar from './components/Sidebar'
+import PWAInstallPrompt from './components/PWAInstallPrompt'
 import { AuthProvider, useAuth, LoginForm, UserMenu } from './components/Auth'
 
 const AppContent = () => {
@@ -81,6 +82,8 @@ const AppContent = () => {
           </motion.div>
         </AnimatePresence>
       </div>
+      
+      <PWAInstallPrompt />
     </div>
   )
 }
