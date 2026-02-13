@@ -18,18 +18,31 @@ export default defineConfig({
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
+        id: 'site-manager-app',
         icons: [
           {
             src: 'pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: 'pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any'
           }
-        ]
+        ],
+        categories: ['business', 'productivity', 'utilities'],
+        lang: 'en',
+        dir: 'ltr',
+        prefer_related_applications: false
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
@@ -57,6 +70,10 @@ export default defineConfig({
             }
           }
         ]
+      },
+      strategies: 'generateSW',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
       }
     })
   ],
