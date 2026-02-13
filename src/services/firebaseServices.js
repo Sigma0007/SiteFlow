@@ -124,11 +124,20 @@ export const attendanceServices = {
     return getDocs(q);
   },
   
+  // Get all attendance for a specific labour
+  getAttendanceByLabour: (labourId) => {
+    const q = query(attendanceCollection, where('labourId', '==', labourId));
+    return getDocs(q);
+  },
+  
   // Add new attendance record
   addAttendance: (attendanceData) => addDoc(attendanceCollection, attendanceData),
   
   // Update attendance record
   updateAttendance: (id, attendanceData) => updateDoc(doc(db, 'attendance', id), attendanceData),
+  
+  // Delete attendance record
+  deleteAttendance: (id) => deleteDoc(doc(db, 'attendance', id)),
   
   // Mark attendance (legacy function - now uses add/update)
   markAttendance: (attendanceData) => {

@@ -224,32 +224,34 @@ const MaterialManagement = ({ userRole }) => {
   const lowStockMaterials = materials.filter(m => m.currentStock <= m.minStock * 1.5)
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Material Management</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Material Management</h1>
           <p className="text-gray-600 mt-1">Track inventory and manage purchase orders</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           {(userRole === 'admin' || userRole === 'manager') && (
             <>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleAddMaterial}
-                className="btn-secondary flex items-center gap-2"
+                className="btn-secondary flex items-center justify-center gap-2 w-full sm:w-auto"
               >
                 <Plus className="w-5 h-5" />
-                Add Material
+                <span className="hidden sm:inline">Add Material</span>
+                <span className="sm:hidden">Add</span>
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowPOModal(true)}
-                className="btn-primary flex items-center gap-2"
+                className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
               >
                 <Plus className="w-5 h-5" />
-                Create Purchase Order
+                <span className="hidden sm:inline">Create PO</span>
+                <span className="sm:hidden">PO</span>
               </motion.button>
             </>
           )}
@@ -260,15 +262,15 @@ const MaterialManagement = ({ userRole }) => {
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3"
+          className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 sm:p-4 flex flex-col sm:flex-row sm:items-start gap-3"
         >
-          <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h3 className="font-semibold text-yellow-900 mb-1">Low Stock Alert</h3>
-            <p className="text-sm text-yellow-700">
+          <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-yellow-900 mb-1 text-sm sm:text-base">Low Stock Alert</h3>
+            <p className="text-xs sm:text-sm text-yellow-700">
               {lowStockMaterials.length} material(s) are running low on stock. Consider creating purchase orders.
             </p>
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex flex-wrap gap-1 sm:gap-2 mt-2">
               {lowStockMaterials.map(m => (
                 <span key={m.id} className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
                   {m.name}
@@ -311,19 +313,19 @@ const MaterialManagement = ({ userRole }) => {
                 <span className="ml-3 text-gray-600">Loading materials...</span>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <table className="w-full min-w-[600px] sm:min-w-0">
                   <thead>
                     <tr className="bg-gray-50">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Material</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Category</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Unit</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Current Stock</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Min Stock</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Unit Price</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Name</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden sm:table-cell">Category</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden md:table-cell">Unit</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Stock</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden lg:table-cell">Min Stock</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden lg:table-cell">Price</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                       {(userRole === 'admin' || userRole === 'manager') && (
-                        <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                        <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Actions</th>
                       )}
                     </tr>
                   </thead>
@@ -338,31 +340,36 @@ const MaterialManagement = ({ userRole }) => {
                           transition={{ delay: index * 0.05 }}
                           className="border-t border-gray-200 hover:bg-gray-50"
                         >
-                          <td className="py-3 px-4 font-medium text-gray-900">{material.name}</td>
-                          <td className="py-3 px-4 text-gray-600">{material.category}</td>
-                          <td className="py-3 px-4 text-gray-600">{material.unit}</td>
-                          <td className="py-3 px-4">
-                            <span className={`font-semibold ${
+                          <td className="py-3 px-2 sm:px-4">
+                            <div className="flex flex-col sm:block">
+                              <span className="font-medium text-gray-900 text-sm sm:text-base">{material.name}</span>
+                              <span className="text-xs text-gray-600 sm:hidden">{material.category}</span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-2 sm:px-4 text-gray-600 hidden sm:table-cell text-sm">{material.category}</td>
+                          <td className="py-3 px-2 sm:px-4 text-gray-600 hidden md:table-cell text-sm">{material.unit}</td>
+                          <td className="py-3 px-2 sm:px-4">
+                            <span className={`font-semibold text-sm ${
                               material.currentStock <= material.minStock ? 'text-red-600' : 'text-gray-900'
                             }`}>
                               {material.currentStock}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-gray-600">{material.minStock}</td>
-                          <td className="py-3 px-4 text-gray-900">${material.unitPrice}</td>
-                          <td className="py-3 px-4">
-                            <span className={`badge border ${stockStatus.color}`}>
+                          <td className="py-3 px-2 sm:px-4 text-gray-600 hidden lg:table-cell text-sm">{material.minStock}</td>
+                          <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">${material.unitPrice}</td>
+                          <td className="py-3 px-2 sm:px-4">
+                            <span className={`badge border text-xs ${stockStatus.color}`}>
                               {stockStatus.label}
                             </span>
                           </td>
                           {(userRole === 'admin' || userRole === 'manager') && (
-                            <td className="py-3 px-4">
-                              <div className="flex gap-2">
+                            <td className="py-3 px-2 sm:px-4">
+                              <div className="flex gap-1 sm:gap-2">
                                 <motion.button
                                   whileHover={{ scale: 1.05 }}
                                   whileTap={{ scale: 0.95 }}
                                   onClick={() => handleEditMaterial(material)}
-                                  className="text-blue-600 hover:text-blue-800"
+                                  className="text-blue-600 hover:text-blue-800 p-1"
                                 >
                                   <Edit2 className="w-4 h-4" />
                                 </motion.button>
@@ -370,7 +377,7 @@ const MaterialManagement = ({ userRole }) => {
                                   whileHover={{ scale: 1.05 }}
                                   whileTap={{ scale: 0.95 }}
                                   onClick={() => handleDeleteMaterial(material.id)}
-                                  className="text-red-600 hover:text-red-800"
+                                  className="text-red-600 hover:text-red-800 p-1"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </motion.button>

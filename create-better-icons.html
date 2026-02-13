@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Create Better PWA Icons</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        canvas { border: 1px solid #ccc; margin: 10px; }
+        button { background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #2563eb; }
+        .icon-preview { display: flex; gap: 20px; align-items: center; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>Site Manager - PWA Icon Generator</h1>
+    
+    <div class="icon-preview">
+        <div>
+            <h3>192x192 Icon</h3>
+            <canvas id="canvas192" width="192" height="192"></canvas>
+        </div>
+        <div>
+            <h3>512x512 Icon</h3>
+            <canvas id="canvas512" width="512" height="512"></canvas>
+        </div>
+    </div>
+    
+    <button onclick="createModernIcons()">Create Modern Icons</button>
+    <button onclick="createConstructionIcons()">Create Construction Icons</button>
+    <button onclick="createBuildingIcons()">Create Building Icons</button>
+    
+    <script>
+        function createModernIcons() {
+            createIcon('canvas192', 192, 'modern');
+            createIcon('canvas512', 512, 'modern');
+        }
+        
+        function createConstructionIcons() {
+            createIcon('canvas192', 192, 'construction');
+            createIcon('canvas512', 512, 'construction');
+        }
+        
+        function createBuildingIcons() {
+            createIcon('canvas192', 192, 'building');
+            createIcon('canvas512', 512, 'building');
+        }
+        
+        function createIcon(canvasId, size, type) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, size, size);
+            
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#3b82f6');
+            gradient.addColorStop(1, '#2563eb');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Add rounded corners
+            ctx.globalCompositeOperation = 'destination-in';
+            ctx.beginPath();
+            ctx.roundRect(0, 0, size, size, size * 0.15);
+            ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+            
+            // Add subtle shadow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            ctx.shadowBlur = size * 0.05;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = size * 0.02;
+            
+            if (type === 'modern') {
+                // Modern "SM" text with circle background
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.beginPath();
+                ctx.arc(size / 2, size / 2, size * 0.35, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${size * 0.35}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('SM', size / 2, size / 2);
+                
+            } else if (type === 'construction') {
+                // Construction helmet icon
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(size / 2, size * 0.45, size * 0.25, Math.PI, 0);
+                ctx.fill();
+                
+                // Helmet brim
+                ctx.fillRect(size * 0.25, size * 0.45, size * 0.5, size * 0.05);
+                
+                // Building tools
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = size * 0.03;
+                ctx.lineCap = 'round';
+                
+                // Hammer
+                ctx.beginPath();
+                ctx.moveTo(size * 0.35, size * 0.65);
+                ctx.lineTo(size * 0.45, size * 0.75);
+                ctx.stroke();
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(size * 0.32, size * 0.62, size * 0.06, size * 0.06);
+                
+            } else if (type === 'building') {
+                // Simple building icon
+                ctx.fillStyle = '#ffffff';
+                
+                // Main building
+                const buildingWidth = size * 0.4;
+                const buildingHeight = size * 0.5;
+                const buildingX = (size - buildingWidth) / 2;
+                const buildingY = (size - buildingHeight) / 2;
+                
+                ctx.fillRect(buildingX, buildingY, buildingWidth, buildingHeight);
+                
+                // Windows
+                const windowSize = size * 0.06;
+                const windowGap = size * 0.08;
+                const windowStartX = buildingX + size * 0.08;
+                const windowStartY = buildingY + size * 0.08;
+                
+                ctx.fillStyle = '#3b82f6';
+                for (let row = 0; row < 3; row++) {
+                    for (let col = 0; col < 2; col++) {
+                        ctx.fillRect(
+                            windowStartX + col * (windowSize + windowGap),
+                            windowStartY + row * (windowSize + windowGap),
+                            windowSize,
+                            windowSize
+                        );
+                    }
+                }
+                
+                // Door
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(
+                    buildingX + buildingWidth / 2 - size * 0.04,
+                    buildingY + buildingHeight - size * 0.15,
+                    size * 0.08,
+                    size * 0.15
+                );
+            }
+            
+            // Reset shadow
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            
+            // Download the image
+            canvas.toBlob(function(blob) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = canvasId === 'canvas192' ? 'pwa-192x192.png' : 'pwa-512x512.png';
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+        
+        // Auto-create modern icons on page load
+        window.onload = () => {
+            setTimeout(createModernIcons, 500);
+        };
+    </script>
+</body>
+</html>

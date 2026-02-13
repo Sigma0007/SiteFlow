@@ -1,7 +1,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -19,9 +19,21 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 
-// Initialize Firebase services
+// Initialize Firebase services with error handling
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+// Suppress Firestore BloomFilter warnings (internal optimization warnings)
+if (typeof window !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('BloomFilterError')) {
+      // Suppress BloomFilter warnings - these are internal Firestore optimization warnings
+      return;
+    }
+    originalError.apply(console, args);
+  };
+}
 
 // Enable authentication persistence
 setPersistence(auth, browserLocalPersistence);

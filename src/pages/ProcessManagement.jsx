@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit2, Trash2, CheckSquare, Square, ChevronDown, ChevronRight, MapPin, Building } from 'lucide-react'
+import { Plus, Edit2, Trash2, CheckSquare, Square, ChevronDown, ChevronRight, MapPin, Building, X } from 'lucide-react'
 import { siteServices, buildingServices, processServices, convertDocsToArray } from '../services/firebaseServices'
 
 const ProcessManagement = ({ userRole }) => {
@@ -16,6 +16,8 @@ const ProcessManagement = ({ userRole }) => {
   const [selectedProcessId, setSelectedProcessId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({ name: '', description: '', status: 'active', image: '' })
+  const [showImagePreview, setShowImagePreview] = useState(false)
+  const [previewImage, setPreviewImage] = useState('')
 
   // Default processes for new buildings
   const defaultProcesses = [
@@ -532,26 +534,28 @@ const ProcessManagement = ({ userRole }) => {
                 ({processes.length} {processes.length === 1 ? 'process' : 'processes'})
               </span>
             </h2>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               {(userRole === 'admin' || userRole === 'manager') && (
                 <>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={initializeDefaultProcesses}
-                    className="btn-secondary text-sm py-2 px-4 flex items-center gap-2"
+                    className="btn-secondary text-sm py-2 px-4 flex items-center justify-center gap-2 w-full sm:w-auto"
                   >
-                    <Plus className="w-4 h-4" />
-                    Initialize Default Processes
+                    <Plus className="w-4 h-4 flex-shrink-0" />
+                    <span className="hidden sm:inline">Initialize Default Processes</span>
+                    <span className="sm:hidden">Initialize</span>
                   </motion.button>
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={handleAddProcess}
-                    className="btn-primary flex items-center gap-2"
+                    className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
                   >
-                    <Plus className="w-5 h-5" />
-                    Add Process
+                    <Plus className="w-5 h-5 flex-shrink-0" />
+                    <span className="hidden sm:inline">Add Process</span>
+                    <span className="sm:hidden">Add</span>
                   </motion.button>
                 </>
               )}
@@ -577,10 +581,11 @@ const ProcessManagement = ({ userRole }) => {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleAddProcess}
-                  className="btn-primary flex items-center gap-2 mx-auto"
+                  className="btn-primary flex items-center justify-center gap-2 mx-auto w-full sm:w-auto max-w-xs"
                 >
-                  <Plus className="w-5 h-5" />
-                  Add First Process
+                  <Plus className="w-5 h-5 flex-shrink-0" />
+                  <span className="hidden sm:inline">Add First Process</span>
+                  <span className="sm:hidden">Add Process</span>
                 </motion.button>
               )}
             </div>
@@ -596,15 +601,15 @@ const ProcessManagement = ({ userRole }) => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.1 }}
-                    className="card border border-gray-200"
+                    className="card border border-gray-200 overflow-hidden"
                   >
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-start gap-3 flex-1">
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-4 mb-4 pr-20 lg:pr-0">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
                         <motion.button
                           whileHover={{ scale: 1.1 }}
                           whileTap={{ scale: 0.9 }}
                           onClick={() => toggleProcess(process.id)}
-                          className="p-1 hover:bg-gray-100 rounded transition-colors mt-1"
+                          className="p-1 hover:bg-gray-100 rounded transition-colors mt-1 flex-shrink-0"
                         >
                           {isExpanded ? (
                             <ChevronDown className="w-5 h-5 text-gray-600" />
@@ -612,29 +617,55 @@ const ProcessManagement = ({ userRole }) => {
                             <ChevronRight className="w-5 h-5 text-gray-600" />
                           )}
                         </motion.button>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-2">
                             {process.image && (
                               <img
                                 src={process.image}
                                 alt={process.name}
-                                className="h-12 w-12 object-cover rounded-lg"
+                                className="h-12 w-12 object-cover rounded-lg flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={() => {
+                                  setPreviewImage(process.image)
+                                  setShowImagePreview(true)
+                                }}
                               />
                             )}
-                            <div className="flex-1">
-                              <h3 className="text-lg font-semibold text-gray-900">{process.name}</h3>
-                              <p className="text-sm text-gray-600">{process.description}</p>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-lg font-semibold text-gray-900 truncate">{process.name}</h3>
+                              <p className="text-sm text-gray-600 line-clamp-2">{process.description}</p>
                             </div>
                             {(userRole === 'admin' || userRole === 'manager') && (
-                              <select
-                                value={process.status || 'active'}
-                                onChange={(e) => updateProcessStatus(process.id, e.target.value)}
-                                className={`text-xs px-2 py-1 rounded border ${getProcessStatusColor(process.status || 'active')} border-current font-medium`}
-                              >
-                                <option value="active">Active</option>
-                                <option value="hold">Hold</option>
-                                <option value="completed">Completed</option>
-                              </select>
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 flex-shrink-0">
+                                <select
+                                  value={process.status || 'active'}
+                                  onChange={(e) => updateProcessStatus(process.id, e.target.value)}
+                                  className={`text-xs px-2 py-1 rounded border ${getProcessStatusColor(process.status || 'active')} border-current font-medium`}
+                                >
+                                  <option value="active">Active</option>
+                                  <option value="hold">Hold</option>
+                                  <option value="completed">Completed</option>
+                                </select>
+                                <div className="flex gap-1 sm:gap-2">
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => handleEdit(process, 'process')}
+                                    className="p-1.5 sm:p-2 bg-white hover:bg-gray-100 rounded-lg shadow-md transition-colors"
+                                    title="Edit Process"
+                                  >
+                                    <Edit2 className="w-4 h-4 text-gray-600" />
+                                  </motion.button>
+                                  <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => handleDelete(process.id, 'process')}
+                                    className="p-1.5 sm:p-2 bg-white hover:bg-red-50 rounded-lg shadow-md transition-colors"
+                                    title="Delete Process"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                  </motion.button>
+                                </div>
+                              </div>
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-3">
@@ -644,26 +675,6 @@ const ProcessManagement = ({ userRole }) => {
                           </div>
                         </div>
                       </div>
-                      {(userRole === 'admin' || userRole === 'manager') && (
-                        <div className="flex gap-2">
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleEdit(process, 'process')}
-                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4 text-gray-600" />
-                          </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={() => handleDelete(process.id, 'process')}
-                            className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4 text-red-600" />
-                          </motion.button>
-                        </div>
-                      )}
                     </div>
 
                     <AnimatePresence>
@@ -683,10 +694,11 @@ const ProcessManagement = ({ userRole }) => {
                                   whileHover={{ scale: 1.05 }}
                                   whileTap={{ scale: 0.95 }}
                                   onClick={() => handleAddSubProcess(process.id)}
-                                  className="btn-secondary text-sm py-1 px-3 flex items-center gap-1"
+                                  className="btn-secondary text-sm py-1.5 px-3 flex items-center justify-center gap-1 w-full sm:w-auto"
                                 >
-                                  <Plus className="w-4 h-4" />
-                                  Add Sub-Process
+                                  <Plus className="w-4 h-4 flex-shrink-0" />
+                                  <span className="hidden sm:inline">Add Sub-Process</span>
+                                  <span className="sm:hidden">Add</span>
                                 </motion.button>
                               )}
                             </div>
@@ -727,17 +739,19 @@ const ProcessManagement = ({ userRole }) => {
                                           whileHover={{ scale: 1.1 }}
                                           whileTap={{ scale: 0.9 }}
                                           onClick={() => handleEdit(subProcess, 'subprocess', process.id)}
-                                          className="p-1.5 hover:bg-gray-200 rounded transition-colors"
+                                          className="p-1 sm:p-1.5 hover:bg-gray-200 rounded transition-colors"
+                                          title="Edit Sub-Process"
                                         >
-                                          <Edit2 className="w-4 h-4 text-gray-600" />
+                                          <Edit2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-600" />
                                         </motion.button>
                                         <motion.button
                                           whileHover={{ scale: 1.1 }}
                                           whileTap={{ scale: 0.9 }}
                                           onClick={() => handleDelete(subProcess.id, 'subprocess', process.id)}
-                                          className="p-1.5 hover:bg-red-100 rounded transition-colors"
+                                          className="p-1 sm:p-1.5 hover:bg-red-100 rounded transition-colors"
+                                          title="Delete Sub-Process"
                                         >
-                                          <Trash2 className="w-4 h-4 text-red-600" />
+                                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-600" />
                                         </motion.button>
                                       </div>
                                     )}
@@ -849,7 +863,11 @@ const ProcessManagement = ({ userRole }) => {
                             <img
                               src={formData.image}
                               alt="Process preview"
-                              className="h-12 w-12 object-cover rounded-lg"
+                              className="h-12 w-12 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => {
+                                setPreviewImage(formData.image)
+                                setShowImagePreview(true)
+                              }}
                             />
                             <button
                               type="button"
@@ -886,6 +904,36 @@ const ProcessManagement = ({ userRole }) => {
                   </motion.button>
                 </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showImagePreview && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowImagePreview(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative w-full h-full flex items-center justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={previewImage}
+                alt="Process preview"
+                className="max-w-full max-h-[90vh] w-auto h-auto object-contain rounded-lg shadow-2xl"
+              />
+              <button
+                onClick={() => setShowImagePreview(false)}
+                className="absolute top-4 right-4 p-3 bg-white rounded-full shadow-lg hover:bg-gray-100 transition-colors z-10"
+              >
+                <X className="w-6 h-6 text-gray-600" />
+              </button>
             </motion.div>
           </motion.div>
         )}

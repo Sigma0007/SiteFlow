@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Calendar, Users, DollarSign, CheckCircle, XCircle, Clock, Download, Plus, UserPlus, MapPin, Edit2, Save, X } from 'lucide-react'
+import { Calendar, Users, DollarSign, CheckCircle, XCircle, Clock, Download, Plus, UserPlus, MapPin, Edit2, Save, X, Trash2 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns'
 import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray } from '../services/firebaseServices'
 
@@ -12,6 +12,8 @@ const AttendanceModule = ({ userRole }) => {
   const [buildings, setBuildings] = useState([])
   const [showSummary, setShowSummary] = useState(false)
   const [showAddStaffModal, setShowAddStaffModal] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [staffToDelete, setStaffToDelete] = useState(null)
   const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '' })
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
@@ -162,11 +164,44 @@ const AttendanceModule = ({ userRole }) => {
           currentSite: 'Not Assigned',
           createdAt: new Date().toISOString()
         }
+        
         await labourServices.addLabour(staff)
         setNewStaff({ name: '', role: '', dailyWage: '', phone: '' })
         setShowAddStaffModal(false)
       } catch (error) {
         console.error('Error adding staff:', error)
+      }
+    }
+  }
+
+  const handleDeleteStaff = (staff) => {
+    setStaffToDelete(staff)
+    setShowDeleteConfirm(true)
+  }
+
+  const confirmDeleteStaff = async () => {
+    if (staffToDelete) {
+      try {
+        // Delete all attendance records for this staff
+        const attendanceSnapshot = await attendanceServices.getAttendanceByLabour(staffToDelete.id)
+        const attendanceRecords = convertDocsToArray(attendanceSnapshot)
+        
+        for (const record of attendanceRecords) {
+          await attendanceServices.deleteAttendance(record.id)
+        }
+        
+        // Delete the staff member
+        await labourServices.deleteLabour(staffToDelete.id)
+        
+        // Update local state
+        setLabourList(labourList.filter(l => l.id !== staffToDelete.id))
+        setAttendance(attendance.filter(a => a.labourId !== staffToDelete.id))
+        
+        // Close modal
+        setShowDeleteConfirm(false)
+        setStaffToDelete(null)
+      } catch (error) {
+        console.error('Error deleting staff:', error)
       }
     }
   }
@@ -456,6 +491,17 @@ const AttendanceModule = ({ userRole }) => {
                             >
                               <Clock className="w-5 h-5" />
                             </motion.button>
+                            {(userRole === 'admin' || userRole === 'manager') && (
+                              <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleDeleteStaff(labour)}
+                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                                title="Remove Staff"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </motion.button>
+                            )}
                           </div>
                         </td>
                       </motion.tr>
@@ -563,13 +609,24 @@ const AttendanceModule = ({ userRole }) => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                     <input
                       type="text"
-                      placeholder="Enter role"
+                      placeholder="Enter role (e.g., Mason, Carpenter)"
                       value={newStaff.role}
                       onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
                     />
                   </div>
               
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Daily Wage ($)</label>
+                    <input
+                      type="number"
+                      placeholder="Enter daily wage"
+                      value={newStaff.dailyWage}
+                      onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                     <input
@@ -602,6 +659,63 @@ const AttendanceModule = ({ userRole }) => {
                     onClick={() => {
                       setShowAddStaffModal(false)
                       setNewStaff({ name: '', role: '', dailyWage: '', phone: '' })
+                    }}
+                    className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition-all"
+                  >
+                    Cancel
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showDeleteConfirm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowDeleteConfirm(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-white rounded-lg p-6 w-full max-w-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Remove Staff Member</h3>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                <div className="mb-6">
+                  <p className="text-gray-600 mb-2">
+                    Are you sure you want to remove <span className="font-semibold text-gray-900">{staffToDelete?.name}</span> from the staff list?
+                  </p>
+                  <p className="text-sm text-red-600">
+                    This action will also delete all attendance records for this staff member and cannot be undone.
+                  </p>
+                </div>
+                
+                <div className="flex gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={confirmDeleteStaff}
+                    className="flex-1 bg-red-600 text-white py-2 rounded-lg font-medium hover:bg-red-700 transition-all"
+                  >
+                    Remove Staff
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setShowDeleteConfirm(false)
+                      setStaffToDelete(null)
                     }}
                     className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition-all"
                   >
