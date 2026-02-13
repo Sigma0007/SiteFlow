@@ -252,23 +252,23 @@ const Reports = ({ userRole }) => {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-600 mt-1">Generate and export detailed reports</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Reports</h1>
+          <p className="text-gray-600 mt-1 text-sm sm:text-base">Generate and export detailed reports</p>
         </div>
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="btn-primary flex items-center gap-2"
+          className="btn-primary flex items-center gap-2 w-full sm:w-auto justify-center"
         >
-          <Download className="w-5 h-5" />
-          Export Report
+          <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+          <span className="text-sm sm:text-base">Export Report</span>
         </motion.button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {reportTypes.map((report, index) => {
           const Icon = report.icon
           return (
@@ -278,18 +278,18 @@ const Reports = ({ userRole }) => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
               onClick={() => setSelectedReport(report.id)}
-              className={`card text-left transition-all duration-200 ${
+              className={`card text-left transition-all duration-200 mobile-card ${
                 selectedReport === report.id
                   ? 'ring-2 ring-primary shadow-lg'
                   : 'hover:shadow-md'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`${report.color} p-3 rounded-lg`}>
-                  <Icon className="w-6 h-6 text-white" />
+                <div className={`${report.color} p-2 sm:p-3 rounded-lg`}>
+                  <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">{report.name}</h3>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{report.name}</h3>
                 </div>
               </div>
             </motion.button>
@@ -297,27 +297,27 @@ const Reports = ({ userRole }) => {
         })}
       </div>
 
-      <div className="card">
-        <div className="flex flex-col md:flex-row gap-4 mb-6 pb-6 border-b border-gray-200">
+      <div className="card mobile-card">
+        <div className="flex flex-col gap-4 mb-4 sm:mb-6 pb-4 sm:pb-6 border-b border-gray-200">
           {selectedReport === 'attendance' && (
-            <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-gray-400" />
+                <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 flex-shrink-0" />
                 <select
                   value={dateViewMode}
                   onChange={(e) => setDateViewMode(e.target.value)}
-                  className="input-field"
+                  className="input-field text-sm sm:text-base"
                 >
                   <option value="monthly">Monthly View</option>
                   <option value="single">Single Date</option>
                 </select>
               </div>
               {dateViewMode === 'monthly' ? (
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    className="input-field"
+                    className="input-field text-sm sm:text-base w-full sm:w-auto"
                   >
                     <option value="0">January</option>
                     <option value="1">February</option>
@@ -335,7 +335,7 @@ const Reports = ({ userRole }) => {
                   <select
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    className="input-field"
+                    className="input-field text-sm sm:text-base w-full sm:w-auto"
                   >
                     <option value="2025">2025</option>
                     <option value="2026">2026</option>
@@ -347,7 +347,7 @@ const Reports = ({ userRole }) => {
                     type="date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="input-field"
+                    className="input-field text-sm sm:text-base"
                   />
                 </div>
               )}

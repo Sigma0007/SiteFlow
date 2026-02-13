@@ -13,8 +13,28 @@ import { AuthProvider, useAuth, LoginForm, UserMenu } from './components/Auth'
 
 const AppContent = () => {
   const { user, login, logout, loading } = useAuth()
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+
+  // Close sidebar on route change on mobile
+  useEffect(() => {
+    if (window.innerWidth < 1024) {
+      setSidebarOpen(false)
+    }
+  }, [location.pathname])
+
+  // Handle sidebar state based on screen size
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setSidebarOpen(true)
+      }
+    }
+
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
 
   if (loading) {
     return (
@@ -29,7 +49,7 @@ const AppContent = () => {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       <Sidebar 
         isOpen={sidebarOpen} 
         onToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -37,7 +57,7 @@ const AppContent = () => {
         userRole="admin"
       />
       
-      <div className={`flex-1 overflow-auto transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
+      <div className={`flex-1 overflow-auto transition-all duration-300 lg:ml-0 mobile-safe-area ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
