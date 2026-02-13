@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Site Flow - Construction Management App',
-        short_name: 'Site Flow',
+        name: 'Sites Flow - Construction Management App',
+        short_name: 'Sites Flow',
         description: 'Complete construction site management solution for tracking attendance, materials, and projects',
         theme_color: '#3b82f6',
         background_color: '#ffffff',
@@ -18,22 +18,22 @@ export default defineConfig({
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
-        id: 'site-flow-app',
+        id: 'sites-flow-app',
         icons: [
           {
-            src: 'Site Flow.png',
+            src: 'Sites Flow.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: 'Site Flow.png',
+            src: 'Sites Flow.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
           },
           {
-            src: 'Site Flow.png',
+            src: 'Sites Flow.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any'

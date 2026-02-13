@@ -1,8 +1,8 @@
 {
-  "name": "siteflow",
+  "name": "sitesflow",
   "private": true,
   "version": "0.0.0",
-  "description": "Site Flow - Complete construction site management solution",
+  "description": "Sites Flow - Complete construction site management solution",
   "type": "module",
   "scripts": {
     "dev": "vite",
