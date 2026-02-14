@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Edit2, Trash2, MapPin, Calendar, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X } from 'lucide-react'
 import { siteServices, labourServices, attendanceServices, buildingServices, processServices, convertDocsToArray } from '../services/firebaseServices'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subYears, addYears } from 'date-fns'
+import Footer from '../components/Footer'
+import storageService from '../services/storageService'
 
 const SiteManagement = ({ userRole }) => {
   // Default processes for new buildings
@@ -120,7 +122,9 @@ const SiteManagement = ({ userRole }) => {
     budget: 0,
     progress: 0,
     status: 'Active',
-    image: ''
+    image: '',
+    imagePath: '',
+    imageFileName: ''
   })
 
   // Image upload handler
@@ -141,26 +145,32 @@ const SiteManagement = ({ userRole }) => {
     }
 
     try {
-      // Create a unique filename
-      const timestamp = new Date().getTime()
-      const filename = `${formType}_${timestamp}_${file.name}`
+      let uploadResult
       
-      // For now, convert to base64 and store in Firestore
-      // In production, you'd want to use Firebase Storage
-      const reader = new FileReader()
-      reader.onload = async (event) => {
-        const base64String = event.target.result
-        
-        if (formType === 'site') {
-          setFormData(prev => ({ ...prev, image: base64String }))
-        } else if (formType === 'building') {
-          setBuildingForm(prev => ({ ...prev, image: base64String }))
-        }
+      if (formType === 'site') {
+        const siteId = editingSite?.id || `temp_${Date.now()}`
+        uploadResult = await storageService.uploadSiteImage(siteId, file)
+        setFormData(prev => ({ 
+          ...prev, 
+          image: uploadResult.url,
+          imagePath: uploadResult.path,
+          imageFileName: uploadResult.fileName
+        }))
+      } else if (formType === 'building') {
+        const buildingId = editingBuilding?.id || `temp_${Date.now()}`
+        uploadResult = await storageService.uploadBuildingImage(buildingId, file)
+        setBuildingForm(prev => ({ 
+          ...prev, 
+          image: uploadResult.url,
+          imagePath: uploadResult.path,
+          imageFileName: uploadResult.fileName
+        }))
       }
-      reader.readAsDataURL(file)
+      
+      console.log('✅ Image uploaded successfully:', uploadResult)
     } catch (error) {
       console.error('Error uploading image:', error)
-      alert('Error uploading image')
+      alert('Error uploading image: ' + error.message)
     }
   }
 
@@ -1247,6 +1257,7 @@ const SiteManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
+      <Footer />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Package, Plus, TrendingDown, AlertTriangle, FileText, CheckCircle, Clock, XCircle, Edit2, Trash2 } from 'lucide-react'
 import { materialServices, purchaseOrderServices, convertDocsToArray } from '../services/firebaseServices'
 import { materials as initialMaterials, purchaseOrders as initialPOs } from '../data/mockData'
+import Footer from '../components/Footer'
 
 const MaterialManagement = ({ userRole }) => {
   const [materials, setMaterials] = useState([])
@@ -743,6 +744,8 @@ const MaterialManagement = ({ userRole }) => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      <Footer />
     </div>
   )
 }

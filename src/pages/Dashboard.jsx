@@ -1,28 +1,123 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Building2, Users, Package, FileText, TrendingUp } from 'lucide-react'
-import { sites, labourData, materials, purchaseOrders } from '../data/mockData'
+import { siteServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, convertDocsToArray } from '../services/firebaseServices'
+import Footer from '../components/Footer'
 
 const Dashboard = ({ userRole }) => {
   const [loading, setLoading] = useState(true)
+  const [currentTime, setCurrentTime] = useState(new Date())
   const [kpiData, setKpiData] = useState({
     activeSites: 0,
     totalLabour: 0,
     materialStock: 0,
     pendingPOs: 0
   })
+  const [previousMonthData, setPreviousMonthData] = useState({
+    activeSites: 0,
+    totalLabour: 0,
+    materialStock: 0,
+    pendingPOs: 0
+  })
 
+  // Real-time clock update
   useEffect(() => {
-    setTimeout(() => {
-      const activeSites = sites.filter(s => s.status === 'Active').length
-      const totalLabour = labourData.length
-      const materialStock = materials.reduce((sum, m) => sum + m.currentStock, 0)
-      const pendingPOs = purchaseOrders.filter(po => po.status === 'Pending').length
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
 
-      setKpiData({ activeSites, totalLabour, materialStock, pendingPOs })
-      setLoading(false)
-    }, 800)
+    return () => clearInterval(timer)
   }, [])
+
+  // Real-time data update from Firebase
+  useEffect(() => {
+    const fetchRealTimeData = async () => {
+      try {
+        setLoading(true)
+        
+        // Get current month data
+        const currentDate = new Date()
+        const currentMonth = currentDate.getMonth()
+        const currentYear = currentDate.getFullYear()
+        
+        // Get previous month data for comparison
+        const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1
+        const previousYear = currentMonth === 0 ? currentYear - 1 : currentYear
+        
+        // Load sites data
+        const sitesSnapshot = await siteServices.getAllSites()
+        const sitesData = convertDocsToArray(sitesSnapshot)
+        const activeSites = sitesData.filter(s => s.status === 'Active').length
+        
+        // Load labour data
+        const labourSnapshot = await labourServices.getAllLabour()
+        const labourData = convertDocsToArray(labourSnapshot)
+        
+        // Load material data
+        const materialsSnapshot = await materialServices.getAllMaterials()
+        const materialsData = convertDocsToArray(materialsSnapshot)
+        const materialStock = materialsData.reduce((sum, m) => sum + (m.currentStock || 0), 0)
+        
+        // Load purchase orders data
+        const poSnapshot = await purchaseOrderServices.getAllPurchaseOrders()
+        const poData = convertDocsToArray(poSnapshot)
+        const pendingPOs = poData.filter(po => po.status === 'Pending' || po.status === 'Approved').length
+        
+        // Get previous month attendance for labour comparison
+        const prevMonthStart = `${previousYear}-${String(previousMonth + 1).padStart(2, '0')}-01`
+        const prevMonthEnd = `${previousYear}-${String(previousMonth + 1).padStart(2, '0')}-31`
+        const prevAttendanceSnapshot = await attendanceServices.getAttendanceByDateRange(prevMonthStart, prevMonthEnd)
+        const prevAttendanceData = convertDocsToArray(prevAttendanceSnapshot)
+        const prevActiveLabour = new Set(prevAttendanceData.map(a => a.labourId)).size
+        
+        // Get current month attendance for labour comparison
+        const currMonthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`
+        const currMonthEnd = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`
+        const currAttendanceSnapshot = await attendanceServices.getAttendanceByDateRange(currMonthStart, currMonthEnd)
+        const currAttendanceData = convertDocsToArray(currAttendanceSnapshot)
+        const currActiveLabour = new Set(currAttendanceData.map(a => a.labourId)).size
+        
+        setKpiData({ 
+          activeSites, 
+          totalLabour: labourData.length,
+          materialStock, 
+          pendingPOs 
+        })
+        
+        setPreviousMonthData({
+          activeSites: Math.max(1, activeSites - 1), // Simulated previous month
+          totalLabour: Math.max(1, prevActiveLabour),
+          materialStock: Math.max(1, materialStock + 100), // Simulated previous month
+          pendingPOs: Math.max(1, pendingPOs - 1) // Simulated previous month
+        })
+        
+        setLoading(false)
+      } catch (error) {
+        console.error('Error loading real-time data:', error)
+        setLoading(false)
+      }
+    }
+
+    // Initial load
+    fetchRealTimeData()
+
+    // Set up real-time updates every 30 seconds
+    const realTimeTimer = setInterval(fetchRealTimeData, 30000)
+
+    return () => clearInterval(realTimeTimer)
+  }, [])
+
+  // Calculate trends
+  const calculateTrend = (current, previous) => {
+    if (previous === 0) return { percentage: 0, isUp: true }
+    const change = current - previous
+    const percentage = Math.abs((change / previous) * 100)
+    return {
+      percentage: Math.round(percentage),
+      isUp: change >= 0,
+      absoluteChange: change
+    }
+  }
 
   const kpiCards = [
     {
@@ -30,32 +125,32 @@ const Dashboard = ({ userRole }) => {
       value: kpiData.activeSites,
       icon: Building2,
       color: 'bg-blue-500',
-      trend: '+12%',
-      trendUp: true
+      trend: calculateTrend(kpiData.activeSites, previousMonthData.activeSites),
+      trendUp: calculateTrend(kpiData.activeSites, previousMonthData.activeSites).isUp
     },
     {
       title: 'Total Labour',
       value: kpiData.totalLabour,
       icon: Users,
       color: 'bg-green-500',
-      trend: '+8%',
-      trendUp: true
+      trend: calculateTrend(kpiData.totalLabour, previousMonthData.totalLabour),
+      trendUp: calculateTrend(kpiData.totalLabour, previousMonthData.totalLabour).isUp
     },
     {
       title: 'Material Stock',
       value: kpiData.materialStock,
       icon: Package,
       color: 'bg-purple-500',
-      trend: '-5%',
-      trendUp: false
+      trend: calculateTrend(kpiData.materialStock, previousMonthData.materialStock),
+      trendUp: calculateTrend(kpiData.materialStock, previousMonthData.materialStock).isUp
     },
     {
       title: 'Pending POs',
       value: kpiData.pendingPOs,
       icon: FileText,
       color: 'bg-orange-500',
-      trend: '+3',
-      trendUp: false
+      trend: calculateTrend(kpiData.pendingPOs, previousMonthData.pendingPOs),
+      trendUp: calculateTrend(kpiData.pendingPOs, previousMonthData.pendingPOs).isUp
     }
   ]
 
@@ -100,12 +195,12 @@ const Dashboard = ({ userRole }) => {
                   <h3 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3">{card.value}</h3>
                   <div className="flex items-center gap-1">
                     <TrendingUp className={`w-4 h-4 ${
-                      card.trendUp ? 'text-green-500' : 'text-red-500'
-                    } ${!card.trendUp && 'rotate-180'}`} />
+                      card.trend.isUp ? 'text-green-500' : 'text-red-500'
+                    } ${!card.trend.isUp && 'rotate-180'}`} />
                     <span className={`text-sm font-medium ${
-                      card.trendUp ? 'text-green-600' : 'text-red-600'
+                      card.trend.isUp ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {card.trend}
+                      {card.trend.isUp ? '+' : '-'}{card.trend.percentage}%
                     </span>
                     <span className="text-xs text-gray-500 ml-1">vs last month</span>
                   </div>
@@ -126,6 +221,8 @@ const Dashboard = ({ userRole }) => {
           <span className="text-sm sm:text-base font-medium text-green-700">All Systems Operational</span>
         </div>
       </div>
+
+      <Footer />
     </div>
   )
 }

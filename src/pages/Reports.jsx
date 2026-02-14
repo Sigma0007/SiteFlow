@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { FileText, Download, Calendar, TrendingUp, Users, Package, DollarSign, Filter } from 'lucide-react'
 import { labourServices, attendanceServices, materialServices, convertDocsToArray } from '../services/firebaseServices'
 import { sites, materials, purchaseOrders } from '../data/mockData'
+import Footer from '../components/Footer'
 
 const Reports = ({ userRole }) => {
   const [selectedReport, setSelectedReport] = useState('attendance')
@@ -153,6 +154,75 @@ const Reports = ({ userRole }) => {
     }
   }
 
+  const exportToCSV = (data, filename) => {
+    const headers = Object.keys(data[0])
+    const csvHeaders = headers.join(',')
+    const csvData = data.map(row => 
+      headers.map(header => `"${row[header]}"`).join(',')
+    ).join('\n')
+    
+    const csvContent = `${csvHeaders}\n${csvData}`
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    
+    link.setAttribute('href', url)
+    link.setAttribute('download', filename)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const exportAttendanceReport = () => {
+    const attendanceData = generateAttendanceData()
+    const exportData = attendanceData.map(data => ({
+      'Name': data.name,
+      'Role': data.role,
+      'Present Days': data.present,
+      'Absent Days': data.absent,
+      'Leave Days': data.leave,
+      'Total Days': data.totalDays,
+      'Salary Earned': `₹${data.salary}`
+    }))
+    
+    const dateRange = dateViewMode === 'monthly' 
+      ? `${new Date(selectedYear, selectedMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`
+      : selectedDate
+    
+    const filename = `Attendance_Report_${dateRange.replace(/\s+/g, '_')}.csv`
+    exportToCSV(exportData, filename)
+  }
+
+  const exportMaterialReport = () => {
+    const materialData = generateMaterialData()
+    const exportData = materialData.map(material => ({
+      'Material Name': material.name,
+      'Category': material.category,
+      'Current Stock': material.currentStock,
+      'Minimum Stock': material.minStock,
+      'Unit Price': `₹${material.unitPrice}`,
+      'Total Value': `₹${material.totalValue}`,
+      'Status': material.status
+    }))
+    
+    const filename = `Material_Usage_Report_${new Date().toISOString().split('T')[0]}.csv`
+    exportToCSV(exportData, filename)
+  }
+
+  const handleExportReport = () => {
+    switch (selectedReport) {
+      case 'attendance':
+        exportAttendanceReport()
+        break
+      case 'material':
+        exportMaterialReport()
+        break
+      default:
+        break
+    }
+  }
+
   const renderReportContent = () => {
     switch (selectedReport) {
       case 'attendance':
@@ -261,6 +331,7 @@ const Reports = ({ userRole }) => {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
+          onClick={handleExportReport}
           className="btn-primary flex items-center gap-2 w-full sm:w-auto justify-center"
         >
           <Download className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -357,6 +428,7 @@ const Reports = ({ userRole }) => {
       </div>
 
       {renderReportContent()}
+      <Footer />
     </div>
   )
 }

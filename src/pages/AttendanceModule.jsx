@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Calendar, Users, DollarSign, CheckCircle, XCircle, Clock, Download, Plus, UserPlus, MapPin, Edit2, Save, X, Trash2 } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns'
 import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray } from '../services/firebaseServices'
+import Footer from '../components/Footer'
 
 const AttendanceModule = ({ userRole }) => {
   const [selectedDate, setSelectedDate] = useState(new Date())
@@ -12,9 +13,12 @@ const AttendanceModule = ({ userRole }) => {
   const [buildings, setBuildings] = useState([])
   const [showSummary, setShowSummary] = useState(false)
   const [showAddStaffModal, setShowAddStaffModal] = useState(false)
+  const [showEditStaffModal, setShowEditStaffModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [staffToDelete, setStaffToDelete] = useState(null)
+  const [staffToEdit, setStaffToEdit] = useState(null)
   const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '' })
+  const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '' })
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
 
@@ -179,6 +183,17 @@ const AttendanceModule = ({ userRole }) => {
     setShowDeleteConfirm(true)
   }
 
+  const handleEditStaff = (staff) => {
+    setStaffToEdit(staff)
+    setEditStaff({
+      name: staff.name,
+      role: staff.role,
+      dailyWage: staff.dailyWage || '',
+      phone: staff.phone || ''
+    })
+    setShowEditStaffModal(true)
+  }
+
   const confirmDeleteStaff = async () => {
     if (staffToDelete) {
       try {
@@ -202,6 +217,32 @@ const AttendanceModule = ({ userRole }) => {
         setStaffToDelete(null)
       } catch (error) {
         console.error('Error deleting staff:', error)
+      }
+    }
+  }
+
+  const confirmEditStaff = async () => {
+    if (staffToEdit) {
+      try {
+        await labourServices.updateLabour(staffToEdit.id, {
+          ...staffToEdit,
+          ...editStaff,
+          dailyWage: parseFloat(editStaff.dailyWage) || 0
+        })
+        
+        // Update local state
+        setLabourList(labourList.map(l => 
+          l.id === staffToEdit.id 
+            ? { ...l, ...editStaff, dailyWage: parseFloat(editStaff.dailyWage) || 0 }
+            : l
+        ))
+        
+        // Close modal
+        setShowEditStaffModal(false)
+        setStaffToEdit(null)
+        setEditStaff({ name: '', role: '', dailyWage: '', phone: '' })
+      } catch (error) {
+        console.error('Error updating staff:', error)
       }
     }
   }
@@ -492,15 +533,26 @@ const AttendanceModule = ({ userRole }) => {
                               <Clock className="w-5 h-5" />
                             </motion.button>
                             {(userRole === 'admin' || userRole === 'manager') && (
-                              <motion.button
-                                whileHover={{ scale: 1.1 }}
-                                whileTap={{ scale: 0.9 }}
-                                onClick={() => handleDeleteStaff(labour)}
-                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
-                                title="Remove Staff"
-                              >
-                                <Trash2 className="w-5 h-5" />
-                              </motion.button>
+                              <>
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleEditStaff(labour)}
+                                  className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
+                                  title="Edit Staff"
+                                >
+                                  <Edit2 className="w-5 h-5" />
+                                </motion.button>
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  onClick={() => handleDeleteStaff(labour)}
+                                  className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                                  title="Remove Staff"
+                                >
+                                  <Trash2 className="w-5 h-5" />
+                                </motion.button>
+                              </>
                             )}
                           </div>
                         </td>
@@ -616,16 +668,6 @@ const AttendanceModule = ({ userRole }) => {
                     />
                   </div>
               
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Daily Wage ($)</label>
-                    <input
-                      type="number"
-                      placeholder="Enter daily wage"
-                      value={newStaff.dailyWage}
-                      onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
-                    />
-                  </div>
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
@@ -659,6 +701,98 @@ const AttendanceModule = ({ userRole }) => {
                     onClick={() => {
                       setShowAddStaffModal(false)
                       setNewStaff({ name: '', role: '', dailyWage: '', phone: '' })
+                    }}
+                    className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition-all"
+                  >
+                    Cancel
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* Edit Staff Modal */}
+          {showEditStaffModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowEditStaffModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-white rounded-lg p-6 w-full max-w-md"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Edit Staff Details</h3>
+                  <button
+                    onClick={() => setShowEditStaffModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      placeholder="Enter full name"
+                      value={editStaff.name}
+                      onChange={(e) => setEditStaff({ ...editStaff, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                    <input
+                      type="text"
+                      placeholder="Enter role (e.g., Mason, Carpenter)"
+                      value={editStaff.role}
+                      onChange={(e) => setEditStaff({ ...editStaff, role: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="Enter phone number"
+                      value={editStaff.phone}
+                      onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+                
+                <div className="flex gap-3 mt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={confirmEditStaff}
+                    disabled={!editStaff.name || !editStaff.role || !editStaff.phone}
+                    className={`flex-1 py-2 rounded-lg font-medium transition-all ${
+                      editStaff.name && editStaff.role && editStaff.phone
+                        ? 'bg-primary text-white hover:bg-primary-dark'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    Update Staff
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                      setShowEditStaffModal(false)
+                      setStaffToEdit(null)
+                      setEditStaff({ name: '', role: '', dailyWage: '', phone: '' })
                     }}
                     className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition-all"
                   >
@@ -727,6 +861,8 @@ const AttendanceModule = ({ userRole }) => {
           )}
         </>
       )}
+      
+      <Footer />
     </div>
   )
 }
