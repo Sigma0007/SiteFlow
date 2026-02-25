@@ -36,8 +36,25 @@ export const siteServices = {
   // Update site
   updateSite: (id, siteData) => updateDoc(doc(db, 'sites', id), siteData),
   
-  // Delete site
-  deleteSite: (id) => deleteDoc(doc(db, 'sites', id)),
+  // Delete site (with cascade delete for DPRs)
+  deleteSite: async (id) => {
+    try {
+      // First, delete all related DPRs
+      await dprServices.deleteDPRsBySiteId(id)
+      
+      // Then delete the site
+      return deleteDoc(doc(db, 'sites', id))
+    } catch (error) {
+      console.error('Error deleting site and related DPRs:', error)
+      throw error
+    }
+  },
+  
+  // Soft delete site (mark as deleted without removing DPRs)
+  softDeleteSite: (id) => updateDoc(doc(db, 'sites', id), { 
+    is_deleted: true, 
+    deletedAt: new Date().toISOString() 
+  }),
   
   // Real-time listener for sites
   onSitesChange: (callback) => onSnapshot(sitesCollection, callback)
@@ -252,10 +269,25 @@ export const processServices = {
     );
     return getDocs(q);
   },
-  
+
+  // Get processes by site (for site-level processes)
+  getProcessesBySite: (siteId) => {
+    const q = query(
+      processesCollection, 
+      where('siteId', '==', siteId),
+      where('buildingId', '==', 'site-level')
+    );
+    return getDocs(q);
+  },
+
   // Get process by ID
   getProcessById: (siteId, buildingId, processId) => {
     return getDoc(doc(db, 'processes', processId));
+  },
+
+  // Add process (works for both building and site level)
+  addProcess: (siteId, buildingId, processData) => {
+    return addDoc(collection(db, 'processes'), processData);
   },
   
   // Add new process
@@ -341,8 +373,65 @@ export const processServices = {
       where('buildingId', '==', buildingId)
     );
     return onSnapshot(q, callback);
-  }
+  },
+
+  // Real-time listener for site-level processes
+  onSiteProcessesChange: (siteId, callback) => {
+    const q = query(
+      processesCollection, 
+      where('siteId', '==', siteId),
+      where('buildingId', '==', 'site-level')
+    );
+    return onSnapshot(q, callback);
+  },
 };
+
+// DPR Collection
+const dprCollection = collection(db, 'dpr')
+
+export const dprServices = {
+  // Get all DPR
+  getAllDPR: () => getDocs(dprCollection),
+  
+  // Get DPR by date
+  getDPRByDate: (date) => {
+    const q = query(dprCollection, where('date', '==', date))
+    return getDocs(q)
+  },
+  
+  // Get DPR by site
+  getDPRBySite: (siteName) => {
+    const q = query(dprCollection, where('siteName', '==', siteName))
+    return getDocs(q)
+  },
+  
+  // Get DPR by site ID
+  getDPRBySiteId: (siteId) => {
+    const q = query(dprCollection, where('siteId', '==', siteId))
+    return getDocs(q)
+  },
+  
+  // Add new DPR
+  addDPR: (dprData) => addDoc(dprCollection, dprData),
+  
+  // Update DPR
+  updateDPR: (id, dprData) => updateDoc(doc(db, 'dpr', id), dprData),
+  
+  // Delete DPR
+  deleteDPR: (id) => deleteDoc(doc(db, 'dpr', id)),
+  
+  // Delete all DPRs for a site (cascade delete)
+  deleteDPRsBySiteId: async (siteId) => {
+    const q = query(dprCollection, where('siteId', '==', siteId))
+    const snapshot = await getDocs(q)
+    
+    const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
+    return Promise.all(deletePromises)
+  },
+  
+  // Real-time listener for DPR
+  onDPRChange: (callback) => onSnapshot(dprCollection, callback)
+}
 
 // Utility function to convert Firestore docs to objects
 export const convertDocsToArray = (snapshot) => {

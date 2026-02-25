@@ -10,15 +10,17 @@ import {
   FileText, 
   LogOut,
   Menu,
-  X
+  X,
+  HardDrive
 } from 'lucide-react'
 
 const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
   const menuItems = [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-     { path: '/attendance', icon: Users, label: 'Attendance' },
+    { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'Site Management' },
     { path: '/materials', icon: Package, label: 'Materials' },
+    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
     { path: '/processes', icon: ListChecks, label: 'Processes' },
     { path: '/reports', icon: FileText, label: 'Reports' }
   ]

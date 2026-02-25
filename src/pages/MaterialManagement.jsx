@@ -21,12 +21,55 @@ const MaterialManagement = ({ userRole }) => {
   })
   const [materialForm, setMaterialForm] = useState({
     name: '',
-    category: '',
+    category: 'material', 
     unit: '',
     currentStock: 0,
-    minStock: 10,
-    unitPrice: 0
+    unitPrice: 0,
+    description: '',
+    location: 'godown', 
+    lastIssued: null,
+    condition: 'good' 
   })
+
+  // Dynamic categories - will be updated from materials
+  const [categories, setCategories] = useState([
+    { value: 'material', label: 'Materials', description: 'Raw materials and supplies' },
+    { value: 'tool-durable', label: 'Durable Tools', description: 'Long-lasting tools (drills, saws, etc.)' },
+    { value: 'tool-consumable', label: 'Consumable Tools', description: 'Single-use tools (blades, bits, etc.)' }
+  ])
+
+  // Extract unique categories from materials and merge with default categories
+  useEffect(() => {
+    const uniqueCategories = new Set(categories.map(cat => cat.value))
+    
+    materials.forEach(material => {
+      if (material.category && !uniqueCategories.has(material.category)) {
+        uniqueCategories.add(material.category)
+        // Add new category to the list
+        setCategories(prev => [...prev, {
+          value: material.category,
+          label: material.category.charAt(0).toUpperCase() + material.category.slice(1),
+          description: `Custom category: ${material.category}`
+        }])
+      }
+    })
+  }, [materials])
+
+  // Tool conditions for durable tools
+  const toolConditions = [
+    { value: 'excellent', label: 'Excellent', color: 'text-green-600' },
+    { value: 'good', label: 'Good', color: 'text-blue-600' },
+    { value: 'fair', label: 'Fair', color: 'text-yellow-600' },
+    { value: 'poor', label: 'Poor', color: 'text-red-600' }
+  ]
+
+  // Storage locations
+  const storageLocations = [
+    { value: 'godown', label: 'Godown' },
+    { value: 'site', label: 'On Site' },
+    { value: 'workshop', label: 'Workshop' },
+    { value: 'vehicle', label: 'Vehicle' }
+  ]
 
   // Load materials and purchase orders from Firebase on component mount
   useEffect(() => {
@@ -72,11 +115,14 @@ const MaterialManagement = ({ userRole }) => {
     setEditingMaterial(null)
     setMaterialForm({
       name: '',
-      category: '',
+      category: 'material',
       unit: '',
       currentStock: 0,
-      minStock: 10,
-      unitPrice: 0
+      unitPrice: 0,
+      description: '',
+      location: 'godown',
+      lastIssued: null,
+      condition: 'good'
     })
     setShowMaterialModal(true)
   }
@@ -104,7 +150,6 @@ const MaterialManagement = ({ userRole }) => {
       const materialData = {
         ...materialForm,
         currentStock: parseInt(materialForm.currentStock) || 0,
-        minStock: parseInt(materialForm.minStock) || 10,
         unitPrice: parseFloat(materialForm.unitPrice) || 0,
         createdAt: new Date().toISOString()
       }
@@ -118,11 +163,14 @@ const MaterialManagement = ({ userRole }) => {
       setShowMaterialModal(false)
       setMaterialForm({
         name: '',
-        category: '',
+        category: 'material',
         unit: '',
         currentStock: 0,
-        minStock: 10,
-        unitPrice: 0
+        unitPrice: 0,
+        description: '',
+        location: 'godown',
+        lastIssued: null,
+        condition: 'good'
       })
       setEditingMaterial(null)
     } catch (error) {
@@ -194,12 +242,12 @@ const MaterialManagement = ({ userRole }) => {
   }
 
   const getStockStatus = (material) => {
-    if (material.currentStock <= material.minStock) {
-      return { label: 'Critical', color: 'bg-red-100 text-red-700 border-red-200' }
-    } else if (material.currentStock <= material.minStock * 1.5) {
+    if (material.currentStock === 0) {
+      return { label: 'Out of Stock', color: 'bg-red-100 text-red-700 border-red-200' }
+    } else if (material.currentStock <= 5) {
       return { label: 'Low', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' }
     }
-    return { label: 'Good', color: 'bg-green-100 text-green-700 border-green-200' }
+    return { label: 'Available', color: 'bg-green-100 text-green-700 border-green-200' }
   }
 
   const getPOStatusColor = (status) => {
@@ -222,41 +270,39 @@ const MaterialManagement = ({ userRole }) => {
     }
   }
 
-  const lowStockMaterials = materials.filter(m => m.currentStock <= m.minStock * 1.5)
+  const lowStockMaterials = materials.filter(m => m.currentStock <= 5)
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Material Management</h1>
-          <p className="text-gray-600 mt-1">Track inventory and manage purchase orders</p>
+          <h1 className="text-2xl font-bold text-gray-900">Material Management</h1>
+          <p className="text-gray-600">Track inventory, quantities, and supply chain</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2">
-          {(userRole === 'admin' || userRole === 'manager') && (
-            <>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleAddMaterial}
-                className="btn-secondary flex items-center justify-center gap-2 w-full sm:w-auto"
-              >
-                <Plus className="w-5 h-5" />
-                <span className="hidden sm:inline">Add Material</span>
-                <span className="sm:hidden">Add</span>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowPOModal(true)}
-                className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
-              >
-                <Plus className="w-5 h-5" />
-                <span className="hidden sm:inline">Create PO</span>
-                <span className="sm:hidden">PO</span>
-              </motion.button>
-            </>
-          )}
-        </div>
+        {(userRole === 'admin' || (userRole === 'supervisor' && true)) && (
+          <div className="flex gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowMaterialModal(true)}
+              className="btn-secondary flex items-center justify-center gap-2 w-full sm:w-auto"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Add Material</span>
+              <span className="sm:hidden">Add</span>
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowPOModal(true)}
+              className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Create PO</span>
+              <span className="sm:hidden">PO</span>
+            </motion.button>
+          </div>
+        )}
       </div>
 
       {lowStockMaterials.length > 0 && (
@@ -322,7 +368,6 @@ const MaterialManagement = ({ userRole }) => {
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden sm:table-cell">Category</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden md:table-cell">Unit</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Stock</th>
-                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden lg:table-cell">Min Stock</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden lg:table-cell">Price</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                       {(userRole === 'admin' || userRole === 'manager') && (
@@ -351,13 +396,12 @@ const MaterialManagement = ({ userRole }) => {
                           <td className="py-3 px-2 sm:px-4 text-gray-600 hidden md:table-cell text-sm">{material.unit}</td>
                           <td className="py-3 px-2 sm:px-4">
                             <span className={`font-semibold text-sm ${
-                              material.currentStock <= material.minStock ? 'text-red-600' : 'text-gray-900'
+                              material.currentStock <= 5 ? 'text-red-600' : 'text-gray-900'
                             }`}>
                               {material.currentStock}
                             </span>
                           </td>
-                          <td className="py-3 px-2 sm:px-4 text-gray-600 hidden lg:table-cell text-sm">{material.minStock}</td>
-                          <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">${material.unitPrice}</td>
+                          <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">₹{material.unitPrice}</td>
                           <td className="py-3 px-2 sm:px-4">
                             <span className={`badge border text-xs ${stockStatus.color}`}>
                               {stockStatus.label}
@@ -449,50 +493,47 @@ const MaterialManagement = ({ userRole }) => {
                   <div className="flex items-center justify-between pt-3 border-t border-gray-200">
                     <div>
                       <p className="text-sm text-gray-600">Total Amount</p>
-                      <p className="text-xl font-bold text-primary">${po.totalAmount.toLocaleString()}</p>
+                      <p className="text-xl font-bold text-primary">₹{po.totalAmount.toLocaleString()}</p>
                     </div>
                     {(userRole === 'admin' || userRole === 'manager') && po.status !== 'Received' && po.status !== 'Cancelled' && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-3 sm:mt-0">
                         {po.status === 'Pending' && (
                           <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
                             onClick={() => handlePOStatusUpdate(po.id, 'Approved')}
-                            className="btn-secondary text-sm"
+                            className="flex-1 sm:flex-initial px-3 py-2 sm:px-4 sm:py-2.5 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium text-xs sm:text-sm transition-colors min-w-[80px] sm:min-w-[90px] whitespace-nowrap"
                           >
                             Approve
                           </motion.button>
                         )}
                         {po.status === 'Approved' && (
                           <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
                             onClick={() => handlePOStatusUpdate(po.id, 'Received')}
-                            className="btn-primary text-sm"
+                            className="flex-1 sm:flex-initial px-3 py-2 sm:px-4 sm:py-2.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-xs sm:text-sm transition-colors min-w-[80px] sm:min-w-[90px] whitespace-nowrap"
                           >
                             Mark as Received
                           </motion.button>
                         )}
                         <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
                           onClick={() => handlePOStatusUpdate(po.id, 'Cancelled')}
-                          className="px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors text-sm"
+                          className="flex-1 sm:flex-initial px-3 py-2 sm:px-4 sm:py-2.5 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium text-xs sm:text-sm transition-colors min-w-[80px] sm:min-w-[90px] whitespace-nowrap"
                         >
                           Cancel
                         </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => handleDeletePO(po.id)}
+                          className="flex-1 sm:flex-initial px-3 py-2 sm:px-4 sm:py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium text-xs sm:text-sm transition-colors min-w-[80px] sm:min-w-[90px] whitespace-nowrap"
+                        >
+                          Delete
+                        </motion.button>
                       </div>
-                    )}
-                    {(userRole === 'admin' || userRole === 'manager') && (
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleDeletePO(po.id)}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm flex items-center gap-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </motion.button>
                     )}
                   </div>
                 </motion.div>
@@ -638,25 +679,22 @@ const MaterialManagement = ({ userRole }) => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Category *</label>
-                  <select
+                  <input
+                    type="text"
                     required
                     value={materialForm.category}
                     onChange={(e) => setMaterialForm({ ...materialForm, category: e.target.value })}
                     className="input-field"
-                  >
-                    <option value="">Select category</option>
-                    <option>Cement</option>
-                    <option>Steel</option>
-                    <option>Bricks</option>
-                    <option>Sand</option>
-                    <option>Aggregate</option>
-                    <option>Wood</option>
-                    <option>Paint</option>
-                    <option>Electrical</option>
-                    <option>Plumbing</option>
-                    <option>Tools</option>
-                    <option>Other</option>
-                  </select>
+                    placeholder="Enter category (e.g., material, tool-durable, tool-consumable)"
+                    list="categories-list"
+                  />
+                  <datalist id="categories-list">
+                    {categories.map(cat => (
+                      <option key={cat.value} value={cat.value}>
+                        {cat.label} - {cat.description}
+                      </option>
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>
@@ -692,22 +730,11 @@ const MaterialManagement = ({ userRole }) => {
                       placeholder="0"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Min Stock *</label>
-                    <input
-                      type="number"
-                      required
-                      min="1"
-                      value={materialForm.minStock}
-                      onChange={(e) => setMaterialForm({ ...materialForm, minStock: e.target.value })}
-                      className="input-field"
-                      placeholder="10"
-                    />
-                  </div>
+              
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit Price ($) *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit Price (₹) *</label>
                   <input
                     type="number"
                     required

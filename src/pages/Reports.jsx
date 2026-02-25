@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { FileText, Download, Calendar, TrendingUp, Users, Package, DollarSign, Filter } from 'lucide-react'
+import { FileText, Download, Calendar, TrendingUp, Users, Package, DollarSign, Filter, Building2 } from 'lucide-react'
 import { labourServices, attendanceServices, materialServices, convertDocsToArray } from '../services/firebaseServices'
 import { sites, materials, purchaseOrders } from '../data/mockData'
 import Footer from '../components/Footer'
@@ -88,6 +88,7 @@ const Reports = ({ userRole }) => {
   }, [selectedMonth, selectedYear, selectedDate, dateViewMode])
 
   const reportTypes = [
+    { id: 'sites', name: 'Total Sites Report', icon: Building2, color: 'bg-blue-500' },
     { id: 'attendance', name: 'Attendance Report', icon: Users, color: 'bg-green-500' },
     { id: 'material', name: 'Material Usage Report', icon: Package, color: 'bg-purple-500' }
   ]
@@ -174,6 +175,21 @@ const Reports = ({ userRole }) => {
     document.body.removeChild(link)
   }
 
+  const exportSitesReport = () => {
+    const sitesData = generateSiteProgressData()
+    const exportData = sitesData.map(site => ({
+      'Site Name': site.site,
+      'Progress (%)': site.progress,
+      'Status': site.status,
+      'Budget (₹)': site.budget,
+      'Start Date': site.startDate,
+      'End Date': site.endDate
+    }))
+    
+    const filename = `Total_Sites_Report_${new Date().toISOString().split('T')[0]}.csv`
+    exportToCSV(exportData, filename)
+  }
+
   const exportAttendanceReport = () => {
     const attendanceData = generateAttendanceData()
     const exportData = attendanceData.map(data => ({
@@ -212,6 +228,9 @@ const Reports = ({ userRole }) => {
 
   const handleExportReport = () => {
     switch (selectedReport) {
+      case 'sites':
+        exportSitesReport()
+        break
       case 'attendance':
         exportAttendanceReport()
         break
@@ -223,8 +242,68 @@ const Reports = ({ userRole }) => {
     }
   }
 
-  const renderReportContent = () => {
+  const generateReport = () => {
     switch (selectedReport) {
+      case 'sites':
+        if (loading) {
+          return (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <span className="ml-3 text-gray-600">Loading site data...</span>
+            </div>
+          )
+        }
+        
+        const sitesData = generateSiteProgressData()
+        return (
+          <div>
+            <div className="overflow-x-auto mb-6">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Site Name</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Progress</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Budget</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">Start Date</th>
+                    <th className="text-left py-3 px-4 font-semibold text-gray-700">End Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sitesData.map((site, index) => (
+                    <tr key={index} className="border-t border-gray-200">
+                      <td className="py-3 px-4 font-medium text-gray-900">{site.site}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full" 
+                              style={{ width: `${site.progress}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-sm text-gray-600">{site.progress}%</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          site.status === 'Active' ? 'bg-green-100 text-green-700' :
+                          site.status === 'Completed' ? 'bg-blue-100 text-blue-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {site.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-gray-900">₹{site.budget.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-gray-600">{site.startDate}</td>
+                      <td className="py-3 px-4 text-gray-600">{site.endDate}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+
       case 'attendance':
         if (loading) {
           return (

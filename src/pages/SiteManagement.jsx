@@ -268,6 +268,7 @@ const SiteManagement = ({ userRole }) => {
         await siteServices.deleteSite(id)
       } catch (error) {
         console.error('Error deleting site:', error)
+        alert('Error deleting site: ' + error.message)
       }
     }
   }
@@ -276,25 +277,44 @@ const SiteManagement = ({ userRole }) => {
     e.preventDefault()
     
     try {
-      const siteData = {
-        name: formData.name,
-        location: formData.location,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        budget: parseInt(formData.budget) || 0,
-        progress: parseInt(formData.progress) || 0,
-        status: formData.status,
-        image: formData.image || '',
-        createdAt: new Date().toISOString()
-      }
+      let siteData;
       
-      let siteId;
       if (editingSite) {
+        // Update existing site - preserve original createdAt and add updatedAt
+        siteData = {
+          name: formData.name,
+          location: formData.location,
+          startDate: formData.startDate || null, // Handle undefined
+          endDate: formData.endDate || null,     // Handle undefined
+          budget: parseInt(formData.budget) || 0,
+          progress: parseInt(formData.progress) || 0,
+          status: formData.status,
+          image: formData.image || '',
+          createdAt: editingSite.createdAt, // Preserve original creation date
+          updatedAt: new Date().toISOString() // Add update timestamp
+        }
+        
+        console.log('Updating site:', editingSite.id, siteData)
         await siteServices.updateSite(editingSite.id, siteData)
-        siteId = editingSite.id
+        console.log('✅ Site updated successfully')
+        
       } else {
+        // Create new site
+        siteData = {
+          name: formData.name,
+          location: formData.location,
+          startDate: formData.startDate,
+          endDate: formData.endDate,
+          budget: parseInt(formData.budget) || 0,
+          progress: parseInt(formData.progress) || 0,
+          status: formData.status,
+          image: formData.image || '',
+          createdAt: new Date().toISOString()
+        }
+        
         const siteRef = await siteServices.addSite(siteData)
-        siteId = siteRef.id
+        const siteId = siteRef.id
+        console.log('✅ Site created with ID:', siteId)
         
         // Create building with form data for new sites
         const buildingData = {
@@ -317,6 +337,7 @@ const SiteManagement = ({ userRole }) => {
       }
       
       setShowModal(false)
+      setEditingSite(null)
       setFormData({
         name: '',
         location: '',
@@ -334,9 +355,10 @@ const SiteManagement = ({ userRole }) => {
         buildingProgress: 0,
         buildingStatus: 'Active'
       })
-      setEditingSite(null)
+      
     } catch (error) {
       console.error('Error saving site:', error)
+      alert('Error saving site: ' + error.message)
     }
   }
 
@@ -379,20 +401,39 @@ const SiteManagement = ({ userRole }) => {
     e.preventDefault()
     
     try {
-      const buildingData = {
-        ...buildingForm,
-        siteId: selectedSiteForBuilding,
-        floors: parseInt(buildingForm.floors) || 0,
-        units: parseInt(buildingForm.units) || 0,
-        area: parseInt(buildingForm.area) || 0,
-        budget: parseInt(buildingForm.budget) || 0,
-        progress: parseInt(buildingForm.progress) || 0,
-        createdAt: new Date().toISOString()
-      }
+      let buildingData;
       
       if (editingBuilding) {
+        // Update existing building - preserve original createdAt and add updatedAt
+        buildingData = {
+          ...buildingForm,
+          siteId: selectedSiteForBuilding,
+          floors: parseInt(buildingForm.floors) || 0,
+          units: parseInt(buildingForm.units) || 0,
+          area: parseInt(buildingForm.area) || 0,
+          budget: parseInt(buildingForm.budget) || 0,
+          progress: parseInt(buildingForm.progress) || 0,
+          createdAt: editingBuilding.createdAt, // Preserve original creation date
+          updatedAt: new Date().toISOString() // Add update timestamp
+        }
+        
+        console.log('Updating building:', editingBuilding.id, buildingData)
         await buildingServices.updateBuilding(editingBuilding.id, buildingData)
+        console.log('✅ Building updated successfully')
+        
       } else {
+        // Create new building
+        buildingData = {
+          ...buildingForm,
+          siteId: selectedSiteForBuilding,
+          floors: parseInt(buildingForm.floors) || 0,
+          units: parseInt(buildingForm.units) || 0,
+          area: parseInt(buildingForm.area) || 0,
+          budget: parseInt(buildingForm.budget) || 0,
+          progress: parseInt(buildingForm.progress) || 0,
+          createdAt: new Date().toISOString()
+        }
+        
         const result = await buildingServices.addBuilding(buildingData)
         console.log('✅ Building created with ID:', result.id)
         
@@ -410,12 +451,16 @@ const SiteManagement = ({ userRole }) => {
         budget: 0,
         progress: 0,
         status: 'Active',
-        image: ''
+        image: '',
+        imagePath: '',
+        imageFileName: ''
       })
       setEditingBuilding(null)
       setSelectedSiteForBuilding(null)
+      
     } catch (error) {
       console.error('Error saving building:', error)
+      alert('Error saving building: ' + error.message)
     }
   }
 
@@ -605,26 +650,26 @@ const SiteManagement = ({ userRole }) => {
                 </div>
 
                 <div className="space-y-3 mb-4">
-                  <div className="flex items-center justify-between text-sm">
+                  {/* <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       Start Date
                     </span>
-                    <span className="font-medium text-gray-900">{site.startDate}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-gray-900">{site.startDate || 'Not set'}</span>
+                  </div> */}
+                  {/* <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
                       End Date
                     </span>
-                    <span className="font-medium text-gray-900">{site.endDate}</span>
-                  </div>
+                    <span className="font-medium text-gray-900">{site.endDate || 'Not set'}</span>
+                  </div> */}
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 flex items-center gap-1">
                       <DollarSign className="w-4 h-4" />
                       Budget
                     </span>
-                    <span className="font-medium text-gray-900">${site.budget.toLocaleString()}</span>
+                    <span className="font-medium text-gray-900">${site.budget ? site.budget.toLocaleString() : '0'}</span>
                   </div>
                 </div>
 
@@ -869,7 +914,7 @@ const SiteManagement = ({ userRole }) => {
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                {/* <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Start Date *</label>
                     <input
@@ -889,7 +934,7 @@ const SiteManagement = ({ userRole }) => {
                       className="input-field"
                     />
                   </div>
-                </div>
+                </div> */}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>

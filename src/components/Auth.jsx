@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Lock, Mail, LogOut, User } from 'lucide-react';
+import { Lock, Mail, LogOut, User, Eye, EyeOff } from 'lucide-react';
 
 const AuthContext = React.createContext();
 
@@ -16,11 +16,26 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        // Firebase user is logged in
+        setUser(firebaseUser);
+        // Determine role based on email
+        if (firebaseUser.email === 'aodedra259@rku.ac.in') {
+          setUserRole('supervisor');
+        } else if (firebaseUser.email === 'odedraarjun928@gmail.com') {
+          setUserRole('admin');
+        } else {
+          setUserRole('admin'); // Default to admin for other Firebase users
+        }
+      } else {
+        setUser(null);
+        setUserRole(null);
+      }
       setLoading(false);
     });
 
@@ -29,23 +44,31 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      // Use Firebase Authentication directly
       const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Role will be set by onAuthStateChanged
       return result;
     } catch (error) {
-      throw error;
+      throw new Error('Invalid email or password');
     }
   };
 
   const logout = async () => {
     try {
       await signOut(auth);
+      setUser(null);
+      setUserRole(null);
     } catch (error) {
-      throw error;
+      // Even if Firebase logout fails, clear local state
+      setUser(null);
+      setUserRole(null);
     }
   };
 
   const value = {
     user,
+    userRole,
     login,
     logout,
     loading
@@ -63,6 +86,7 @@ export const LoginForm = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -126,15 +150,27 @@ export const LoginForm = ({ onLogin }) => {
               Password
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 z-10" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
                 placeholder="Enter your password"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none transition-colors duration-200"
+                tabIndex="-1"
+              >
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
+              </button>
             </div>
           </div>
 
