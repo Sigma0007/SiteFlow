@@ -3,6 +3,62 @@ import { motion } from 'framer-motion';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Lock, Mail, LogOut, User, Eye, EyeOff } from 'lucide-react';
+import { supervisorServices } from '../services/firebaseServices';
+
+// Immediate role determination function
+const determineRoleByEmail = (email) => {
+  if (email === 'odedraarjun928@gmail.com') return 'admin';
+  if (email === 'aodedra259@rku.ac.in') return 'supervisor';
+  
+  // 👇 ADD YOUR 3 SUPERVISOR EMAILS HERE 👇
+  // Replace the placeholder emails with your actual supervisor emails from Firestore
+  if (email === 'odedraarjun0007@gmail.com') return 'supervisor'; // Replace with actual email
+  if (email === 'supervisor2@company.com') return 'supervisor'; // Replace with actual email
+  if (email === 'supervisor3@company.com') return 'supervisor'; // Replace with actual email
+  
+  return null; // No access for other users
+};
+
+// Background role validation function
+const validateRoleAsync = async (email, assumedRole, setUserRole) => {
+  try {
+    const supervisorSnapshot = await supervisorServices.getSupervisorByEmail(email);
+    const supervisors = supervisorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    console.log('Background validation for:', email);
+    console.log('Found supervisors:', supervisors.length);
+    
+    let actualRole = assumedRole;
+    
+    if (supervisors.length > 0) {
+      const supervisor = supervisors[0];
+      console.log('Confirmed supervisor:', supervisor.name);
+      actualRole = 'supervisor';
+      
+      // Update supervisor status if pending
+      if (supervisor.status === 'pending') {
+        await supervisorServices.updateSupervisor(supervisor.id, {
+          status: 'active',
+          lastLogin: new Date().toISOString()
+        });
+      }
+    } else if (email === 'odedraarjun928@gmail.com') {
+      console.log('Confirmed admin role');
+      actualRole = 'admin';
+    } else {
+      console.log('No access - user not authorized');
+      actualRole = null;
+    }
+    
+    // Silent role correction if needed
+    if (actualRole !== assumedRole) {
+      console.log('Correcting role from', assumedRole, 'to', actualRole);
+      setUserRole(actualRole);
+    }
+  } catch (error) {
+    console.error('Background role validation failed:', error);
+  }
+};
 
 const AuthContext = React.createContext();
 
@@ -20,23 +76,31 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // Firebase user is logged in
         setUser(firebaseUser);
-        // Determine role based on email
-        if (firebaseUser.email === 'aodedra259@rku.ac.in') {
-          setUserRole('supervisor');
-        } else if (firebaseUser.email === 'odedraarjun928@gmail.com') {
-          setUserRole('admin');
+        
+        // Immediate role determination for existing sessions
+        const immediateRole = determineRoleByEmail(firebaseUser.email);
+        setUserRole(immediateRole);
+        setLoading(false); // Stop loading immediately
+        
+        console.log('Session restored for:', firebaseUser.email);
+        console.log('Immediate role:', immediateRole);
+        
+        // Only allow access if role is determined
+        if (immediateRole) {
+          // Background validation (non-blocking)
+          validateRoleAsync(firebaseUser.email, immediateRole, setUserRole);
         } else {
-          setUserRole('admin'); // Default to admin for other Firebase users
+          console.log('Access denied - user not authorized');
         }
       } else {
         setUser(null);
         setUserRole(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return unsubscribe;
@@ -44,12 +108,33 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      // Use Firebase Authentication directly
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      // Immediate role determination before Firebase auth
+      const immediateRole = determineRoleByEmail(email);
       
-      // Role will be set by onAuthStateChanged
+      if (!immediateRole) {
+        throw new Error('Access denied - user not authorized');
+      }
+      
+      setUserRole(immediateRole);
+      setLoading(false); // Stop loading immediately
+      
+      console.log('Login attempt for:', email);
+      console.log('Immediate role assignment:', immediateRole);
+      
+      // Firebase Authentication
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      setUser(result.user);
+      
+      // Background validation (non-blocking)
+      validateRoleAsync(email, immediateRole, setUserRole);
+      
       return result;
     } catch (error) {
+      // Reset role on login failure
+      setUserRole(null);
+      if (error.message.includes('Access denied')) {
+        throw error;
+      }
       throw new Error('Invalid email or password');
     }
   };
@@ -87,19 +172,34 @@ export const LoginForm = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loginRole, setLoginRole] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    
+    // Determine role for loading message
+    const role = determineRoleByEmail(email);
+    setLoginRole(role);
 
     try {
       await onLogin(email, password);
     } catch (error) {
       setError('Invalid email or password');
+      setLoginRole('');
     } finally {
       setLoading(false);
     }
+  };
+
+  const getLoadingMessage = () => {
+    if (loginRole === 'admin') {
+      return 'Setting up admin dashboard...';
+    } else if (loginRole === 'supervisor') {
+      return 'Loading supervisor interface...';
+    }
+    return 'Signing in...';
   };
 
   return (
@@ -181,7 +281,14 @@ export const LoginForm = ({ onLogin }) => {
             disabled={loading}
             className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                {getLoadingMessage()}
+              </div>
+            ) : (
+              'Sign In'
+            )}
           </motion.button>
         </form>
 
