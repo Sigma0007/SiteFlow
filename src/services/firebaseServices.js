@@ -11,7 +11,12 @@ import {
   orderBy,
   onSnapshot 
 } from 'firebase/firestore';
-import { db } from '../firebase.js';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail 
+} from 'firebase/auth';
+import { db, auth } from '../firebase.js';
 
 // Collection references
 const sitesCollection = collection(db, 'sites');
@@ -21,6 +26,7 @@ const buildingsCollection = collection(db, 'buildings');
 const materialsCollection = collection(db, 'materials');
 const purchaseOrdersCollection = collection(db, 'purchaseOrders');
 const processesCollection = collection(db, 'processes');
+const supervisorsCollection = collection(db, 'supervisors');
 
 // Site Management Services
 export const siteServices = {
@@ -444,4 +450,170 @@ export const convertDocsToArray = (snapshot) => {
 // Utility function to get today's date string
 export const getTodayString = () => {
   return new Date().toISOString().split('T')[0];
+};
+
+// Initialize sample supervisor data
+export const initializeSampleSupervisor = async () => {
+  try {
+    // Check if supervisor already exists
+    const existingSupervisor = await supervisorServices.getSupervisorByEmail('aodedra259@rku.ac.in');
+    if (existingSupervisor.docs.length > 0) {
+      console.log('Sample supervisor already exists');
+      return;
+    }
+
+    // Create sample supervisor
+    const supervisorData = {
+      name: 'Sample Supervisor',
+      email: 'aodedra259@rku.ac.in',
+      phone: '+1234567890',
+      assignedSites: [], // Will be assigned by admin
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+
+    await supervisorServices.addSupervisor(supervisorData);
+    console.log('Sample supervisor created successfully');
+  } catch (error) {
+    console.error('Error creating sample supervisor:', error);
+  }
+};
+
+// Supervisor Management Services
+export const supervisorServices = {
+  // Get all supervisors
+  getAllSupervisors: () => getDocs(supervisorsCollection),
+  
+  // Get supervisor by ID
+  getSupervisorById: (id) => getDoc(doc(db, 'supervisors', id)),
+  
+  // Get supervisor by email
+  getSupervisorByEmail: (email) => {
+    const q = query(supervisorsCollection, where('email', '==', email));
+    return getDocs(q);
+  },
+  
+  // Add new supervisor
+  addSupervisor: (supervisorData) => addDoc(supervisorsCollection, supervisorData),
+  
+  // Update supervisor
+  updateSupervisor: (id, supervisorData) => updateDoc(doc(db, 'supervisors', id), supervisorData),
+  
+  // Delete supervisor
+  deleteSupervisor: (id) => deleteDoc(doc(db, 'supervisors', id)),
+  
+  // Get supervisors by site
+  getSupervisorsBySite: (siteId) => {
+    const q = query(supervisorsCollection, where('assignedSites', 'array-contains', siteId));
+    return getDocs(q);
+  },
+  
+  // Real-time listener for supervisors
+  onSupervisorsChange: (callback) => onSnapshot(supervisorsCollection, callback),
+  
+  // PO Request functions
+  getPORequests: () => getDocs(purchaseOrdersCollection),
+  
+  createPORequest: (poData) => addDoc(purchaseOrdersCollection, poData),
+  
+  updatePORequest: (id, poData) => updateDoc(doc(db, 'purchaseOrders', id), poData),
+  
+  deletePORequest: (id) => deleteDoc(doc(db, 'purchaseOrders', id)),
+  
+  // Enhanced supervisor creation with Firebase Auth
+  createSupervisorWithAuth: async (supervisorData) => {
+    try {
+      // Generate secure temporary password
+      const tempPassword = generateSecurePassword();
+      
+      // Create Firebase Auth account
+      const userCredential = await createUserWithEmailAndPassword(
+        auth, 
+        supervisorData.email, 
+        tempPassword
+      );
+      
+      // Add supervisor to Firestore with Firebase UID
+      const supervisorWithAuth = {
+        ...supervisorData,
+        firebaseUid: userCredential.user.uid,
+        status: 'pending', // Pending first login
+        tempPassword: tempPassword, // Store temporarily for welcome email
+        createdAt: new Date().toISOString()
+      };
+      
+      const supervisorDoc = await addDoc(supervisorsCollection, supervisorWithAuth);
+      
+      // Send password reset email for secure first login
+      await sendPasswordResetEmail(auth, supervisorData.email);
+      
+      return {
+        success: true,
+        supervisorId: supervisorDoc.id,
+        tempPassword: tempPassword,
+        message: 'Supervisor account created successfully. Password reset email sent.'
+      };
+      
+    } catch (error) {
+      console.error('Error creating supervisor with auth:', error);
+      throw error;
+    }
+  },
+  
+  // Check if email is available for supervisor
+  checkEmailAvailability: async (email) => {
+    try {
+      // Check in supervisors collection
+      const supervisorSnapshot = await getSupervisorByEmail(email);
+      if (supervisorSnapshot.docs.length > 0) {
+        return { available: false, reason: 'Email already registered as supervisor' };
+      }
+      
+      // Check if admin email
+      if (email === 'odedraarjun928@gmail.com') {
+        return { available: false, reason: 'Email is reserved for admin' };
+      }
+      
+      return { available: true };
+    } catch (error) {
+      console.error('Error checking email availability:', error);
+      return { available: false, reason: 'Error checking email availability' };
+    }
+  }
+};
+
+// Generate secure password
+const generateSecurePassword = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < 12; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+};
+
+// Site Assignment Services
+export const siteAssignmentServices = {
+  // Update site with supervisor assignments
+  assignSupervisorsToSite: (siteId, supervisorIds) => {
+    return updateDoc(doc(db, 'sites', siteId), {
+      assignedSupervisors: supervisorIds,
+      updatedAt: new Date().toISOString()
+    });
+  },
+  
+  // Get sites assigned to supervisor
+  getSitesBySupervisor: (supervisorId) => {
+    const q = query(sitesCollection, where('assignedSupervisors', 'array-contains', supervisorId));
+    return getDocs(q);
+  },
+  
+  // Update site completion percentage
+  updateSiteCompletion: (siteId, completionPercentage, updatedBy) => {
+    return updateDoc(doc(db, 'sites', siteId), {
+      completionPercentage: completionPercentage,
+      lastUpdatedBy: updatedBy,
+      lastUpdatedTimestamp: new Date().toISOString()
+    });
+  }
 };

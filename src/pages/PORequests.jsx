@@ -11,8 +11,10 @@ import {
   Package,
   User,
   Search,
-  Filter
+  Filter,
+  Trash2
 } from 'lucide-react'
+import { supervisorServices, siteAssignmentServices, convertDocsToArray } from '../services/firebaseServices'
 
 const PORequests = ({ userRole = 'admin' }) => {
   const [poRequests, setPORequests] = useState([])
@@ -29,112 +31,148 @@ const PORequests = ({ userRole = 'admin' }) => {
     expectedDate: ''
   })
 
-  const mockRequests = [
-    {
-      id: 1,
-      materialName: 'Cement',
-      quantity: 100,
-      unit: 'bags',
-      urgency: 'high',
-      reason: 'Urgent need for Downtown Tower project',
-      expectedDate: '2024-02-25',
-      requestedBy: 'aodedra259@rku.ac.in',
-      requestDate: '2024-02-23',
-      status: 'pending',
-      adminNotes: ''
-    },
-    {
-      id: 2,
-      materialName: 'Steel',
-      quantity: 5,
-      unit: 'tons',
-      urgency: 'normal',
-      reason: 'Regular stock replenishment',
-      expectedDate: '2024-03-01',
-      requestedBy: 'aodedra259@rku.ac.in',
-      requestDate: '2024-02-22',
-      status: 'approved',
-      approvedBy: 'odedraarjun928@gmail.com',
-      approvedDate: '2024-02-23',
-      adminNotes: 'Approved for Q1 requirements'
-    },
-    {
-      id: 3,
-      materialName: 'Bricks',
-      quantity: 2000,
-      unit: 'pieces',
-      urgency: 'low',
-      reason: 'Backup stock for upcoming project',
-      expectedDate: '2024-03-15',
-      requestedBy: 'aodedra259@rku.ac.in',
-      requestDate: '2024-02-21',
-      status: 'rejected',
-      rejectedBy: 'odedraarjun928@gmail.com',
-      rejectedDate: '2024-02-22',
-      adminNotes: 'Current stock sufficient. Request next month.'
-    }
-  ]
-
   useEffect(() => {
-    setPORequests(mockRequests)
-    setLoading(false)
-  }, [])
+    const loadPORequests = async () => {
+      try {
+        setLoading(true)
+        const requestsSnapshot = await supervisorServices.getPORequests()
+        const requests = convertDocsToArray(requestsSnapshot)
+        
+        if (userRole === 'supervisor') {
+          // For supervisors, show only their own requests
+          const supervisorEmail = 'aodedra259@rku.ac.in'; // This should come from auth context
+          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
+          setPORequests(supervisorRequests);
+        } else {
+          // Admin sees all requests
+          setPORequests(requests);
+        }
+      } catch (error) {
+        console.error('Error loading PO requests:', error);
+        setPORequests([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const handleSubmitRequest = (e) => {
+    loadPORequests();
+  }, [userRole]);
+
+  const handleSubmitRequest = async (e) => {
     e.preventDefault()
     
-    const newRequest = {
-      id: poRequests.length + 1,
-      ...formData,
-      requestedBy: 'aodedra259@rku.ac.in',
-      requestDate: new Date().toISOString().split('T')[0],
-      status: 'pending',
-      adminNotes: ''
+    try {
+      const newRequest = {
+        ...formData,
+        requestedBy: 'aodedra259@rku.ac.in', // This should come from auth context
+        requestDate: new Date().toISOString().split('T')[0],
+        status: 'pending',
+        adminNotes: ''
+      }
+
+      await supervisorServices.createPORequest(newRequest)
+      
+      // Reload the requests to show the new one
+      const requestsSnapshot = await supervisorServices.getPORequests()
+      const requests = convertDocsToArray(requestsSnapshot)
+      if (userRole === 'supervisor') {
+        const supervisorEmail = 'aodedra259@rku.ac.in';
+        const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
+        setPORequests(supervisorRequests);
+      } else {
+        setPORequests(requests);
+      }
+      
+      setShowCreateModal(false)
+      setFormData({
+        materialName: '',
+        quantity: '',
+        unit: '',
+        urgency: 'normal',
+        reason: '',
+        expectedDate: ''
+      })
+    } catch (error) {
+      console.error('Error creating PO request:', error)
+      alert('Error creating PO request. Please try again.')
     }
-
-    setPORequests([...poRequests, newRequest])
-    setShowCreateModal(false)
-    setFormData({
-      materialName: '',
-      quantity: '',
-      unit: '',
-      urgency: 'normal',
-      reason: '',
-      expectedDate: ''
-    })
   }
 
-  const handleApprove = (requestId) => {
-    setPORequests(prev => 
-      prev.map(req => 
-        req.id === requestId 
-          ? { 
-              ...req, 
-              status: 'approved',
-              approvedBy: 'odedraarjun928@gmail.com',
-              approvedDate: new Date().toISOString().split('T')[0]
-            }
-          : req
-      )
-    )
+  const handleApprove = async (requestId) => {
+    try {
+      const updateData = {
+        status: 'approved',
+        approvedBy: 'odedraarjun928@gmail.com', // This should come from auth context
+        approvedDate: new Date().toISOString().split('T')[0]
+      }
+      
+      await supervisorServices.updatePORequest(requestId, updateData)
+      
+      // Reload the requests to show the updated status
+      const requestsSnapshot = await supervisorServices.getPORequests()
+      const requests = convertDocsToArray(requestsSnapshot)
+      if (userRole === 'supervisor') {
+        const supervisorEmail = 'aodedra259@rku.ac.in';
+        const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
+        setPORequests(supervisorRequests);
+      } else {
+        setPORequests(requests);
+      }
+    } catch (error) {
+      console.error('Error approving PO request:', error)
+      alert('Error approving PO request. Please try again.')
+    }
   }
 
-  const handleReject = (requestId, notes) => {
+  const handleReject = async (requestId, notes) => {
     const rejectNotes = prompt('Please provide rejection reason:', notes || '')
     if (rejectNotes !== null) {
-      setPORequests(prev => 
-        prev.map(req => 
-          req.id === requestId 
-            ? { 
-                ...req, 
-                status: 'rejected',
-                rejectedBy: 'odedraarjun928@gmail.com',
-                rejectedDate: new Date().toISOString().split('T')[0],
-                adminNotes: rejectNotes
-              }
-            : req
-        )
-      )
+      try {
+        const updateData = {
+          status: 'rejected',
+          rejectedBy: 'odedraarjun928@gmail.com', // This should come from auth context
+          rejectedDate: new Date().toISOString().split('T')[0],
+          adminNotes: rejectNotes
+        }
+        
+        await supervisorServices.updatePORequest(requestId, updateData)
+        
+        // Reload the requests to show the updated status
+        const requestsSnapshot = await supervisorServices.getPORequests()
+        const requests = convertDocsToArray(requestsSnapshot)
+        if (userRole === 'supervisor') {
+          const supervisorEmail = 'aodedra259@rku.ac.in';
+          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
+          setPORequests(supervisorRequests);
+        } else {
+          setPORequests(requests);
+        }
+      } catch (error) {
+        console.error('Error rejecting PO request:', error)
+        alert('Error rejecting PO request. Please try again.')
+      }
+    }
+  }
+
+  const handleDelete = async (requestId) => {
+    if (window.confirm('Are you sure you want to delete this PO request? This action cannot be undone.')) {
+      try {
+        await supervisorServices.deletePORequest(requestId)
+        
+        // Reload the requests to show the updated list
+        const requestsSnapshot = await supervisorServices.getPORequests()
+        const requests = convertDocsToArray(requestsSnapshot)
+        if (userRole === 'supervisor') {
+          const supervisorEmail = 'aodedra259@rku.ac.in';
+          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
+          setPORequests(supervisorRequests);
+        } else {
+          setPORequests(requests);
+        }
+      } catch (error) {
+        console.error('Error deleting PO request:', error)
+        alert('Error deleting PO request. Please try again.')
+      }
     }
   }
 
@@ -391,6 +429,21 @@ const PORequests = ({ userRole = 'admin' }) => {
                   >
                     <XCircle className="w-4 h-4 inline mr-2" />
                     Reject
+                  </motion.button>
+                </div>
+              )}
+
+              {/* Delete button - Admin can delete any, Supervisor can delete their own */}
+              {(userRole === 'admin' || (userRole === 'supervisor' && request.requestedBy === 'aodedra259@rku.ac.in')) && (
+                <div className="flex gap-3 pt-2">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleDelete(request.id)}
+                    className="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg font-medium"
+                  >
+                    <Trash2 className="w-4 h-4 inline mr-2" />
+                    Delete
                   </motion.button>
                 </div>
               )}
