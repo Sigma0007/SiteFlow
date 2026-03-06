@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { 
-  Users, 
-  Calendar, 
-  CheckCircle, 
-  XCircle, 
+import {
+  Users,
+  Calendar,
+  CheckCircle,
+  XCircle,
   Clock,
   Search,
   Filter,
@@ -17,28 +17,31 @@ import {
   Save,
   UserPlus
 } from 'lucide-react'
-import { labourServices, attendanceServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
+import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray, query, where, getDocs, onSnapshot, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
+import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import Footer from '../components/Footer'
 
 const AttendanceSimple = ({ userRole = 'admin' }) => {
+  const { currentSupervisor, assignedSites } = useSupervisor()
   const [attendance, setAttendance] = useState([])
   const [employees, setEmployees] = useState([])
   const [sites, setSites] = useState([])
+  const [buildings, setBuildings] = useState([])
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [loading, setLoading] = useState(true)
   const [submittedToday, setSubmittedToday] = useState(false)
-  
+
   // Staff management states
   const [showAddStaffModal, setShowAddStaffModal] = useState(false)
   const [showEditStaffModal, setShowEditStaffModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [staffToDelete, setStaffToDelete] = useState(null)
   const [staffToEdit, setStaffToEdit] = useState(null)
-  const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '' })
-  const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '' })
-  
+  const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
+  const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
+
   // Attendance editing states
   const [editingAttendance, setEditingAttendance] = useState(null)
   const [editAttendanceData, setEditAttendanceData] = useState({})
@@ -48,29 +51,71 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const loadData = async () => {
       try {
         setLoading(true)
-        
-        // Load labour data
-        const labourSnapshot = await labourServices.getAllLabour()
-        const labourData = convertDocsToArray(labourSnapshot)
-        setEmployees(labourData)
-        
-        // Load attendance for selected date
-        const attendanceSnapshot = await attendanceServices.getAttendanceByDate(selectedDate)
+
+        // Guard: Firestore rejects 'in []' queries; wait until sites resolve.
+        if (userRole === 'supervisor' && assignedSites.length === 0) {
+          setLoading(false)
+          return
+        }
+
+        const accessibleSites = userRole === 'supervisor' ? assignedSites : null
+        const siteIds = accessibleSites?.map(s => s.id) || []
+
+        // Load staff
+        let staffQuery
+        if (userRole === 'supervisor' && siteIds.length > 0) {
+          staffQuery = query(labourCollection, where('siteId', 'in', siteIds))
+        } else {
+          staffQuery = labourCollection
+        }
+        const staffSnapshot = await getDocs(staffQuery)
+        setEmployees(convertDocsToArray(staffSnapshot))
+
+        if (userRole === 'supervisor') {
+          setSites(assignedSites)
+        }
+        // (admin sites come from the real-time listener below)
+
+        // Load buildings (used for labour.buildingId selection)
+        let buildingsQuery
+        if (userRole === 'supervisor' && siteIds.length > 0) {
+          buildingsQuery = query(buildingsCollection, where('siteId', 'in', siteIds))
+        } else {
+          buildingsQuery = buildingsCollection
+        }
+        const buildingsSnapshot = await getDocs(buildingsQuery)
+        setBuildings(convertDocsToArray(buildingsSnapshot))
+
+        // Load attendance
+        let attendanceQuery
+        if (userRole === 'supervisor' && siteIds.length > 0) {
+          attendanceQuery = query(
+            attendanceCollection,
+            where('date', '==', selectedDate),
+            where('siteId', 'in', siteIds)
+          )
+        } else {
+          attendanceQuery = query(attendanceCollection, where('date', '==', selectedDate))
+        }
+        const attendanceSnapshot = await getDocs(attendanceQuery)
         const attendanceData = convertDocsToArray(attendanceSnapshot)
         setAttendance(attendanceData)
-        
-        // Load sites data
-        const sitesSnapshot = await siteServices.getAllSites()
-        setSites(convertDocsToArray(sitesSnapshot))
-        
+
         // Check if supervisor has already submitted attendance today
         if (userRole === 'supervisor') {
-          const supervisorAttendance = attendanceData.filter(record => 
-            record.date === selectedDate && record.markedBy === 'supervisor'
+          const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
+          setSubmittedToday(
+            attendanceData.some(r => {
+              if (r.date !== selectedDate) return false
+              const submitted = !!r.submittedAt || !!r.isSubmitted
+              if (!submitted) return false
+              if (supervisorId && r.supervisorId === supervisorId) return true
+              // Back-compat
+              return r.markedBy === currentSupervisor?.email || r.markedBy === currentSupervisor?.name
+            })
           )
-          setSubmittedToday(supervisorAttendance.length > 0)
         }
-        
+
       } catch (error) {
         console.error('Error loading data:', error)
       } finally {
@@ -79,58 +124,120 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
 
     loadData()
-  }, [selectedDate, userRole])
+  }, [selectedDate, userRole, assignedSites])
 
   // Set up real-time listeners
   useEffect(() => {
-    const unsubscribeLabour = labourServices.onLabourChange((snapshot) => {
+    // Guard: don't set up listeners until sites are resolved
+    if (userRole === 'supervisor' && assignedSites.length === 0) return
+
+    const accessibleSites = userRole === 'supervisor' ? assignedSites : null
+    const siteIds = accessibleSites?.map(s => s.id) || []
+    const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
+
+    const labourQuery = userRole === 'supervisor' && siteIds.length > 0
+      ? query(labourCollection, where('siteId', 'in', siteIds))
+      : labourCollection
+
+    const attendanceQuery = userRole === 'supervisor' && siteIds.length > 0
+      ? query(attendanceCollection, where('date', '==', selectedDate), where('siteId', 'in', siteIds))
+      : query(attendanceCollection, where('date', '==', selectedDate))
+
+    const buildingsQuery = userRole === 'supervisor' && siteIds.length > 0
+      ? query(buildingsCollection, where('siteId', 'in', siteIds))
+      : buildingsCollection
+
+    const unsubscribeLabour = onSnapshot(labourQuery, (snapshot) => {
       setEmployees(convertDocsToArray(snapshot))
     })
 
-    const unsubscribeAttendance = attendanceServices.onAttendanceChange((snapshot) => {
-      const attendanceData = convertDocsToArray(snapshot).filter(record => record.date === selectedDate)
+    const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
+      const attendanceData = convertDocsToArray(snapshot)
       setAttendance(attendanceData)
-      
-      // Update submittedToday status for supervisors
+
       if (userRole === 'supervisor') {
-        const supervisorAttendance = attendanceData.filter(record => 
-          record.date === selectedDate && record.markedBy === 'supervisor'
+        setSubmittedToday(
+          attendanceData.some(r => {
+            const submitted = !!r.submittedAt || !!r.isSubmitted
+            if (!submitted) return false
+            if (supervisorId && r.supervisorId === supervisorId) return true
+            return r.markedBy === currentSupervisor?.email || r.markedBy === currentSupervisor?.name
+          })
         )
-        setSubmittedToday(supervisorAttendance.length > 0)
       }
     })
 
-    const unsubscribeSites = siteServices.onSitesChange((snapshot) => {
-      setSites(convertDocsToArray(snapshot))
+    const unsubscribeBuildings = onSnapshot(buildingsQuery, (snapshot) => {
+      setBuildings(convertDocsToArray(snapshot))
     })
+
+    // Admin-only: keep sites up to date via real-time listener
+    // Supervisor sites come from SupervisorContext, not this listener
+    const unsubscribeSites = userRole !== 'supervisor'
+      ? siteServices.onSitesChange((snapshot) => { setSites(convertDocsToArray(snapshot)) })
+      : null
 
     return () => {
       unsubscribeLabour()
       unsubscribeAttendance()
-      unsubscribeSites()
+      unsubscribeBuildings()
+      if (unsubscribeSites) unsubscribeSites()
     }
-  }, [selectedDate, userRole])
+  }, [selectedDate, userRole, currentSupervisor])
 
   const handleAttendanceChange = async (employeeId, newStatus) => {
-    // Check if supervisor and already submitted today
-    if (userRole === 'supervisor' && submittedToday) {
-      alert('Attendance already submitted for today. Changes are not allowed.');
-      return;
+    const employee = employees.find(emp => emp.id === employeeId)
+    if (!employee) return
+    if (!employee.siteId || !employee.buildingId) {
+      alert('This staff member is missing site/building assignment. Please edit staff and set both before marking attendance.')
+      return
+    }
+
+    // Check if supervisor
+    if (userRole === 'supervisor') {
+      // Check if employee is at assigned site
+      if (!employee.siteId || !currentSupervisor?.assignedSites?.includes(employee.siteId)) {
+        alert('You can only mark attendance for staff at your assigned sites.')
+        return
+      }
+
+      // Check if already submitted today
+      if (submittedToday) {
+        alert('Attendance already submitted for today. Changes are not allowed.')
+        return
+      }
+
+      // Check if trying to modify existing attendance
+      const existingRecord = attendance.find(record =>
+        record.employeeId === employeeId &&
+        record.date === selectedDate
+      )
+
+      if (existingRecord && existingRecord.status !== newStatus) {
+        alert('You cannot modify attendance after submission.')
+        return
+      }
     }
 
     try {
+      const supervisorId = userRole === 'supervisor'
+        ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null)
+        : (currentSupervisor?.firebaseUid || null)
+
       const attendanceData = {
         employeeId,
+        siteId: employee.siteId || null,
+        buildingId: employee.buildingId || null,
+        supervisorId: userRole === 'supervisor' ? supervisorId : null,
         date: selectedDate,
         status: newStatus,
         checkIn: newStatus === 'present' ? new Date().toTimeString().slice(0, 5) : null,
         checkOut: newStatus === 'present' ? '17:30' : null,
-        markedBy: userRole,
-        timestamp: new Date().toISOString()
+        updatedAt: new Date().toISOString()
       };
 
       // Check if attendance record already exists
-      const existingRecord = attendance.find(record => 
+      const existingRecord = attendance.find(record =>
         record.employeeId === employeeId && record.date === selectedDate
       );
 
@@ -139,7 +246,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         await attendanceServices.updateAttendance(existingRecord.id, attendanceData);
       } else {
         // Create new record using addAttendance
-        await attendanceServices.addAttendance(attendanceData);
+        await attendanceServices.addAttendance({
+          ...attendanceData,
+          createdAt: new Date().toISOString()
+        });
       }
     } catch (error) {
       console.error('Error updating attendance:', error);
@@ -150,22 +260,25 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const submitAttendance = async () => {
     if (userRole === 'supervisor') {
       try {
+        const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
         // Mark all attendance records as submitted by supervisor
-        const todayAttendance = attendance.filter(record => record.date === selectedDate);
-        
+        const todayAttendance = attendance.filter(record => record.date === selectedDate)
+
         for (const record of todayAttendance) {
           await attendanceServices.updateAttendance(record.id, {
             ...record,
-            submitted: true,
-            submittedAt: new Date().toISOString()
-          });
+            supervisorId: record.supervisorId || supervisorId,
+            submittedAt: new Date().toISOString(),
+            submittedBy: supervisorId,
+            updatedAt: new Date().toISOString()
+          })
         }
-        
-        setSubmittedToday(true);
-        alert('Attendance submitted successfully for today!');
+
+        setSubmittedToday(true)
+        alert('Attendance submitted successfully!')
       } catch (error) {
-        console.error('Error submitting attendance:', error);
-        alert('Error submitting attendance. Please try again.');
+        console.error('Error submitting attendance:', error)
+        alert('Error submitting attendance. Please try again.')
       }
     }
   }
@@ -187,26 +300,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const present = todayRecords.filter(record => record.status === 'present').length
     const absent = todayRecords.filter(record => record.status === 'absent').length
     const total = todayRecords.length
-    
+
     return { present, absent, total, percentage: total > 0 ? (present / total * 100).toFixed(1) : 0 }
   }
 
   // Staff Management Functions
   const handleAddStaff = async () => {
     try {
+      if (!newStaff.siteId || !newStaff.buildingId) {
+        alert('Please select both site and building for the staff member.')
+        return
+      }
       // Generate unique number ID for the staff member
       const uniqueNumber = Date.now() + Math.floor(Math.random() * 1000)
-      
+
       const staffData = {
         ...newStaff,
         id: uniqueNumber.toString(),
+        joinDate: new Date().toISOString().split('T')[0],
+        dailyWage: newStaff.dailyWage ? parseFloat(newStaff.dailyWage) : 0,
         createdAt: new Date().toISOString(),
         createdBy: userRole,
         status: 'active'
       }
-      
+
       await labourServices.addLabour(staffData)
-      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '' })
+      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
       setShowAddStaffModal(false)
       alert('Staff added successfully!')
     } catch (error) {
@@ -217,17 +336,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   const handleEditStaff = async () => {
     try {
+      if (!editStaff.siteId || !editStaff.buildingId) {
+        alert('Please select both site and building for the staff member.')
+        return
+      }
       const staffData = {
         ...editStaff,
         dailyWage: parseFloat(editStaff.dailyWage),
         updatedAt: new Date().toISOString(),
         updatedBy: userRole
       }
-      
+
       await labourServices.updateLabour(staffToEdit.id, staffData)
       setShowEditStaffModal(false)
       setStaffToEdit(null)
-      setEditStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '' })
+      setEditStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
       alert('Staff updated successfully!')
     } catch (error) {
       console.error('Error updating staff:', error)
@@ -254,7 +377,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       role: staff.role,
       dailyWage: staff.dailyWage.toString(),
       phone: staff.phone || '',
-      siteId: staff.siteId || ''
+      siteId: staff.siteId || '',
+      buildingId: staff.buildingId || ''
     })
     setShowEditStaffModal(true)
   }
@@ -276,7 +400,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         ...editAttendanceData,
         updatedAt: new Date().toISOString()
       })
-      
+
       setEditingAttendance(null)
       setEditAttendanceData({})
       alert('Attendance updated successfully!')
@@ -297,19 +421,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   }
 
   const filteredEmployees = employees.filter(employee => {
-    const attendanceRecord = attendance.find(record => 
+    const attendanceRecord = attendance.find(record =>
       record.employeeId === employee.id && record.date === selectedDate
     )
     const status = attendanceRecord?.status || 'not-marked'
-    
+
     // Get site name from sites data
     const siteName = sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
-    
+
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         siteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         employee.role.toLowerCase().includes(searchTerm.toLowerCase())
+      siteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      employee.role.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || status === filterStatus
-    
+
     return matchesSearch && matchesFilter
   }).map(employee => ({
     ...employee,
@@ -478,31 +602,28 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         <div className="flex gap-2">
           <button
             onClick={() => setFilterStatus('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'all' 
-                ? 'bg-blue-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'all'
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             All
           </button>
           <button
             onClick={() => setFilterStatus('present')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'present' 
-                ? 'bg-green-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'present'
+              ? 'bg-green-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             Present
           </button>
           <button
             onClick={() => setFilterStatus('absent')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'absent' 
-                ? 'bg-red-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'absent'
+              ? 'bg-red-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             Absent
           </button>
@@ -524,11 +645,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             </thead>
             <tbody>
               {filteredEmployees.map((employee, index) => {
-                const attendanceRecord = attendance.find(record => 
+                const attendanceRecord = attendance.find(record =>
                   record.employeeId === employee.id && record.date === selectedDate
                 )
                 const status = attendanceRecord?.status || 'not-marked'
-                
+
                 return (
                   <motion.tr
                     key={employee.id}
@@ -573,11 +694,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => handleAttendanceChange(employee.id, 'present')}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-                            status === 'present' 
-                              ? 'bg-green-500 text-white' 
-                              : 'bg-gray-200 text-gray-700 hover:bg-green-100'
-                          } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'present'
+                            ? 'bg-green-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-green-100'
+                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
                           title="Mark Present"
                           disabled={userRole === 'supervisor' && submittedToday}
                         >
@@ -587,17 +707,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => handleAttendanceChange(employee.id, 'absent')}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${
-                            status === 'absent' 
-                              ? 'bg-red-500 text-white' 
-                              : 'bg-gray-200 text-gray-700 hover:bg-red-100'
-                          } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'absent'
+                            ? 'bg-red-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-red-100'
+                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
                           title="Mark Absent"
                           disabled={userRole === 'supervisor' && submittedToday}
                         >
                           A
                         </motion.button>
-                        
+
                         {/* Staff Management (Admin Only) */}
                         {userRole === 'admin' && (
                           <div className="flex gap-1 border-l pl-2 ml-2">
@@ -644,31 +763,55 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 type="text"
                 placeholder="Name"
                 value={newStaff.name}
-                onChange={(e) => setNewStaff({...newStaff, name: e.target.value})}
+                onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="text"
                 placeholder="Role"
                 value={newStaff.role}
-                onChange={(e) => setNewStaff({...newStaff, role: e.target.value})}
+                onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="number"
                 placeholder="Salary"
                 value={newStaff.dailyWage}
-                onChange={(e) => setNewStaff({...newStaff, dailyWage: e.target.value})}
+                onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="text"
                 placeholder="Phone"
                 value={newStaff.phone}
-                onChange={(e) => setNewStaff({...newStaff, phone: e.target.value})}
+                onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-             
+              <select
+                value={newStaff.siteId}
+                onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select Site</option>
+                {sites.map(site => (
+                  <option key={site.id} value={site.id}>{site.name}</option>
+                ))}
+              </select>
+              <select
+                value={newStaff.buildingId}
+                onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })}
+                disabled={!newStaff.siteId}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                <option value="">Select Building</option>
+                {buildings
+                  .filter(b => b.siteId === newStaff.siteId)
+                  .map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+              </select>
+
             </div>
             <div className="flex gap-3 mt-6">
               <button
@@ -698,31 +841,55 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 type="text"
                 placeholder="Name"
                 value={editStaff.name}
-                onChange={(e) => setEditStaff({...editStaff, name: e.target.value})}
+                onChange={(e) => setEditStaff({ ...editStaff, name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="text"
                 placeholder="Role"
                 value={editStaff.role}
-                onChange={(e) => setEditStaff({...editStaff, role: e.target.value})}
+                onChange={(e) => setEditStaff({ ...editStaff, role: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="number"
                 placeholder="Salary"
                 value={editStaff.dailyWage}
-                onChange={(e) => setEditStaff({...editStaff, dailyWage: e.target.value})}
+                onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="text"
                 placeholder="Phone"
                 value={editStaff.phone}
-                onChange={(e) => setEditStaff({...editStaff, phone: e.target.value})}
+                onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            
+              <select
+                value={editStaff.siteId}
+                onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select Site</option>
+                {sites.map(site => (
+                  <option key={site.id} value={site.id}>{site.name}</option>
+                ))}
+              </select>
+              <select
+                value={editStaff.buildingId}
+                onChange={(e) => setEditStaff({ ...editStaff, buildingId: e.target.value })}
+                disabled={!editStaff.siteId}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                <option value="">Select Building</option>
+                {buildings
+                  .filter(b => b.siteId === editStaff.siteId)
+                  .map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+              </select>
+
             </div>
             <div className="flex gap-3 mt-6">
               <button
@@ -778,7 +945,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                 <select
                   value={editAttendanceData.status}
-                  onChange={(e) => setEditAttendanceData({...editAttendanceData, status: e.target.value})}
+                  onChange={(e) => setEditAttendanceData({ ...editAttendanceData, status: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="present">Present</option>
@@ -804,7 +971,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         </div>
       )}
-      
+
       <Footer />
     </div>
   )

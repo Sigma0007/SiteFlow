@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Package, Plus, TrendingDown, AlertTriangle, FileText, CheckCircle, Clock, XCircle, Edit2, Trash2 } from 'lucide-react'
-import { materialServices, purchaseOrderServices, convertDocsToArray } from '../services/firebaseServices'
-import { materials as initialMaterials, purchaseOrders as initialPOs } from '../data/mockData'
+import { materialServices, purchaseOrderServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
 import Footer from '../components/Footer'
+import { auth } from '../firebase'
 
 const MaterialManagement = ({ userRole }) => {
   const [materials, setMaterials] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [sites, setSites] = useState([])
   const [activeTab, setActiveTab] = useState('materials')
   const [showPOModal, setShowPOModal] = useState(false)
   const [showMaterialModal, setShowMaterialModal] = useState(false)
   const [editingMaterial, setEditingMaterial] = useState(null)
   const [loading, setLoading] = useState(true)
   const [poFormData, setPoFormData] = useState({
+    siteId: '',
     materialId: '',
     quantity: '',
     supplier: '',
@@ -21,14 +23,14 @@ const MaterialManagement = ({ userRole }) => {
   })
   const [materialForm, setMaterialForm] = useState({
     name: '',
-    category: 'material', 
+    category: 'material',
     unit: '',
     currentStock: 0,
     unitPrice: 0,
     description: '',
-    location: 'godown', 
+    location: 'godown',
     lastIssued: null,
-    condition: 'good' 
+    condition: 'good'
   })
 
   // Dynamic categories - will be updated from materials
@@ -41,7 +43,7 @@ const MaterialManagement = ({ userRole }) => {
   // Extract unique categories from materials and merge with default categories
   useEffect(() => {
     const uniqueCategories = new Set(categories.map(cat => cat.value))
-    
+
     materials.forEach(material => {
       if (material.category && !uniqueCategories.has(material.category)) {
         uniqueCategories.add(material.category)
@@ -76,15 +78,19 @@ const MaterialManagement = ({ userRole }) => {
     const loadData = async () => {
       try {
         setLoading(true)
-        
+
         // Load materials
         const materialsSnapshot = await materialServices.getAllMaterials()
         setMaterials(convertDocsToArray(materialsSnapshot))
-        
+
         // Load purchase orders
         const purchaseOrdersSnapshot = await purchaseOrderServices.getAllPurchaseOrders()
         setPurchaseOrders(convertDocsToArray(purchaseOrdersSnapshot))
-        
+
+        // Load sites (purchaseOrders require siteId)
+        const sitesSnapshot = userRole === 'supervisor' ? await siteServices.getSitesForSupervisor(auth.currentUser?.uid) : await siteServices.getAllSites()
+        setSites(convertDocsToArray(sitesSnapshot))
+
       } catch (error) {
         console.error('Error loading data:', error)
       } finally {
@@ -145,7 +151,7 @@ const MaterialManagement = ({ userRole }) => {
 
   const handleMaterialSubmit = async (e) => {
     e.preventDefault()
-    
+
     try {
       const materialData = {
         ...materialForm,
@@ -153,13 +159,13 @@ const MaterialManagement = ({ userRole }) => {
         unitPrice: parseFloat(materialForm.unitPrice) || 0,
         createdAt: new Date().toISOString()
       }
-      
+
       if (editingMaterial) {
         await materialServices.updateMaterial(editingMaterial.id, materialData)
       } else {
         await materialServices.addMaterial(materialData)
       }
-      
+
       setShowMaterialModal(false)
       setMaterialForm({
         name: '',
@@ -186,20 +192,24 @@ const MaterialManagement = ({ userRole }) => {
     try {
       const poData = {
         poNumber: `PO-${Date.now()}`,
+        siteId: poFormData.siteId,
         materialName: material.name,
         materialId: material.id,
         quantity: parseInt(poFormData.quantity),
+        unit: material.unit || '',
         supplier: poFormData.supplier,
         orderDate: new Date().toISOString().split('T')[0],
         expectedDate: poFormData.expectedDate,
         status: 'Pending',
         totalAmount: material.unitPrice * parseInt(poFormData.quantity),
+        requestedBy: userRole || '',
+        approvedBy: '',
         createdAt: new Date().toISOString()
       }
 
       await purchaseOrderServices.addPurchaseOrder(poData)
       setShowPOModal(false)
-      setPoFormData({ materialId: '', quantity: '', supplier: '', expectedDate: '' })
+      setPoFormData({ siteId: '', materialId: '', quantity: '', supplier: '', expectedDate: '' })
     } catch (error) {
       console.error('Error creating purchase order:', error)
     }
@@ -210,7 +220,7 @@ const MaterialManagement = ({ userRole }) => {
       const po = purchaseOrders.find(p => p.id === poId)
       if (!po) return
 
-      await purchaseOrderServices.updatePurchaseOrder(poId, { 
+      await purchaseOrderServices.updatePurchaseOrder(poId, {
         status: newStatus,
         updatedAt: new Date().toISOString()
       })
@@ -332,21 +342,19 @@ const MaterialManagement = ({ userRole }) => {
         <div className="flex border-b border-gray-200 mb-6">
           <button
             onClick={() => setActiveTab('materials')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              activeTab === 'materials'
-                ? 'text-primary border-b-2 border-primary'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`px-6 py-3 font-medium transition-colors ${activeTab === 'materials'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             Materials Inventory
           </button>
           <button
             onClick={() => setActiveTab('purchase-orders')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              activeTab === 'purchase-orders'
-                ? 'text-primary border-b-2 border-primary'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`px-6 py-3 font-medium transition-colors ${activeTab === 'purchase-orders'
+              ? 'text-primary border-b-2 border-primary'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             Purchase Orders
           </button>
@@ -395,9 +403,8 @@ const MaterialManagement = ({ userRole }) => {
                           <td className="py-3 px-2 sm:px-4 text-gray-600 hidden sm:table-cell text-sm">{material.category}</td>
                           <td className="py-3 px-2 sm:px-4 text-gray-600 hidden md:table-cell text-sm">{material.unit}</td>
                           <td className="py-3 px-2 sm:px-4">
-                            <span className={`font-semibold text-sm ${
-                              material.currentStock <= 5 ? 'text-red-600' : 'text-gray-900'
-                            }`}>
+                            <span className={`font-semibold text-sm ${material.currentStock <= 5 ? 'text-red-600' : 'text-gray-900'
+                              }`}>
                               {material.currentStock}
                             </span>
                           </td>
@@ -565,6 +572,23 @@ const MaterialManagement = ({ userRole }) => {
 
               <form onSubmit={handleCreatePO} className="p-6 space-y-4">
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
+                  <select
+                    required
+                    value={poFormData.siteId}
+                    onChange={(e) => setPoFormData({ ...poFormData, siteId: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="">Select site</option>
+                    {sites.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Material *</label>
                   <select
                     required
@@ -730,7 +754,7 @@ const MaterialManagement = ({ userRole }) => {
                       placeholder="0"
                     />
                   </div>
-              
+
                 </div>
 
                 <div>
@@ -771,7 +795,7 @@ const MaterialManagement = ({ userRole }) => {
           </motion.div>
         )}
       </AnimatePresence>
-      
+
       <Footer />
     </div>
   )

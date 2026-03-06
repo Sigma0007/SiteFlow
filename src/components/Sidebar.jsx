@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { 
@@ -11,19 +11,65 @@ import {
   LogOut,
   Menu,
   X,
-  HardDrive
+  HardDrive,
+  User
 } from 'lucide-react'
+import { useAuth } from './Auth'
+import { supervisorServices, convertDocsToArray } from '../services/firebaseServices'
 
 const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
-  const menuItems = [
+  const { user } = useAuth()
+  const [currentSupervisor, setCurrentSupervisor] = useState(null)
+
+  // Get supervisor name by email
+  const getSupervisorName = (email) => {
+    const supervisorNames = {
+      'aodedra259@rku.ac.in': 'Ashish Sakariya',
+      'odedraarjun0007@gmail.com': 'Arjun Odedra'
+    }
+    return supervisorNames[email] || email?.split('@')[0] || 'Supervisor'
+  }
+
+  // Fetch supervisor data from Firebase using auth email (commented out - using name mapping instead)
+  // useEffect(() => {
+  //   const fetchSupervisorData = async () => {
+  //     if (userRole === 'supervisor' && user?.email) {
+  //       try {
+  //         console.log('🔍 Fetching supervisor data for email:', user.email)
+  //         const supervisorsSnapshot = await supervisorServices.getAllSupervisors()
+  //         const supervisorsData = convertDocsToArray(supervisorsSnapshot)
+  //         const supervisor = supervisorsData.find(s => s.email === user.email)
+  //         setCurrentSupervisor(supervisor)
+  //         console.log('👷 Found supervisor in Firebase:', supervisor?.name)
+  //       } catch (error) {
+  //         console.error('Error fetching supervisor data from Firebase:', error)
+  //       }
+  //     }
+  //   }
+  //   fetchSupervisorData()
+  // }, [userRole, user?.email])
+
+  // Role-based menu items
+  const getSupervisorMenuItems = () => [
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/attendance', icon: Users, label: 'Attendance' },
+    { path: '/sites', icon: Building2, label: 'My Sites' },
+    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
+    { path: '/processes', icon: ListChecks, label: 'Processes' }
+  ];
+
+  const getAdminMenuItems = () => [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'Site Management' },
     { path: '/materials', icon: Package, label: 'Materials' },
     { path: '/po-requests', icon: FileText, label: 'PO Requests' },
     { path: '/processes', icon: ListChecks, label: 'Processes' },
-    { path: '/reports', icon: FileText, label: 'Reports' }
-  ]
+    // { path: '/reports', icon: FileText, label: 'Reports' },
+    { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
+  ];
+
+  const menuItems = userRole === 'supervisor' ? getSupervisorMenuItems() : getAdminMenuItems();
 
   return (
     <>
@@ -60,9 +106,15 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
 
         <div className="p-3 sm:p-4 border-b border-white/10">
           <div className="bg-white/10 rounded-lg p-2 sm:p-3">
-            <p className="text-xs text-blue-200 mb-1">Logged in as</p>
-            <p className="font-semibold capitalize text-sm sm:text-base">
-              {userRole === 'admin' ? 'Administrator' : userRole === 'manager' ? 'Site Manager' : 'Supervisor'}
+            <div className="flex items-center gap-2 mb-2">
+              <User className="w-4 h-4 text-blue-200" />
+              <p className="text-xs text-blue-200">Logged in as</p>
+            </div>
+            <p className="font-semibold text-sm sm:text-base mb-1">
+              {userRole === 'supervisor' ? getSupervisorName(user?.email) : (user?.displayName || user?.email?.split('@')[0] || (userRole === 'admin' ? 'Administrator' : userRole === 'manager' ? 'Site Manager' : 'Supervisor'))}
+            </p>
+            <p className="text-xs text-blue-200 capitalize">
+              {userRole} • {user?.email}
             </p>
           </div>
         </div>

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { 
-  FileText, 
-  Plus, 
-  Clock, 
-  CheckCircle, 
-  XCircle, 
+import {
+  FileText,
+  Plus,
+  Clock,
+  CheckCircle,
+  XCircle,
   AlertTriangle,
   Calendar,
   Package,
@@ -14,15 +14,21 @@ import {
   Filter,
   Trash2
 } from 'lucide-react'
-import { supervisorServices, siteAssignmentServices, convertDocsToArray } from '../services/firebaseServices'
+import { supervisorServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
+import { useSupervisor } from '../contexts/SupervisorContext.jsx'
+import { useAuth } from '../components/Auth'
 
 const PORequests = ({ userRole = 'admin' }) => {
+  const { currentSupervisor, assignedSites } = useSupervisor()
+  const { user } = useAuth()
   const [poRequests, setPORequests] = useState([])
+  const [sites, setSites] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
+    siteId: '',
     materialName: '',
     quantity: '',
     unit: '',
@@ -31,67 +37,64 @@ const PORequests = ({ userRole = 'admin' }) => {
     expectedDate: ''
   })
 
+  // Helper – reload PO list and apply role filter
+  const reloadRequests = async () => {
+    const snapshot = await supervisorServices.getPORequests()
+    const all = convertDocsToArray(snapshot)
+    if (userRole === 'supervisor') {
+      const allowedSiteIds = new Set((assignedSites || []).map(s => s.id))
+      setPORequests(all.filter(r =>
+        r.requestedBy === (currentSupervisor?.email || user?.email) &&
+        (!r.siteId || allowedSiteIds.has(r.siteId))
+      ))
+    } else {
+      setPORequests(all)
+    }
+  }
+
   useEffect(() => {
     const loadPORequests = async () => {
       try {
         setLoading(true)
-        const requestsSnapshot = await supervisorServices.getPORequests()
-        const requests = convertDocsToArray(requestsSnapshot)
-        
         if (userRole === 'supervisor') {
-          // For supervisors, show only their own requests
-          const supervisorEmail = 'aodedra259@rku.ac.in'; // This should come from auth context
-          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
-          setPORequests(supervisorRequests);
+          // Wait until context has resolved sites
+          if (assignedSites.length === 0 && !currentSupervisor) return
+          setSites(assignedSites || [])
         } else {
-          // Admin sees all requests
-          setPORequests(requests);
+          const sitesSnapshot = await siteServices.getAllSites()
+          setSites(convertDocsToArray(sitesSnapshot))
         }
+        await reloadRequests()
       } catch (error) {
-        console.error('Error loading PO requests:', error);
-        setPORequests([]);
+        console.error('Error loading PO requests:', error)
+        setPORequests([])
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
-
-    loadPORequests();
-  }, [userRole]);
+    }
+    loadPORequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userRole, currentSupervisor, assignedSites])
 
   const handleSubmitRequest = async (e) => {
     e.preventDefault()
-    
     try {
+      if (!formData.siteId) {
+        alert('Please select a site for this request.')
+        return
+      }
       const newRequest = {
         ...formData,
-        requestedBy: 'aodedra259@rku.ac.in', // This should come from auth context
+        requestedBy: currentSupervisor?.email || user?.email || '',
         requestDate: new Date().toISOString().split('T')[0],
         status: 'pending',
+        approvedBy: '',
         adminNotes: ''
       }
-
       await supervisorServices.createPORequest(newRequest)
-      
-      // Reload the requests to show the new one
-      const requestsSnapshot = await supervisorServices.getPORequests()
-      const requests = convertDocsToArray(requestsSnapshot)
-      if (userRole === 'supervisor') {
-        const supervisorEmail = 'aodedra259@rku.ac.in';
-        const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
-        setPORequests(supervisorRequests);
-      } else {
-        setPORequests(requests);
-      }
-      
+      await reloadRequests()
       setShowCreateModal(false)
-      setFormData({
-        materialName: '',
-        quantity: '',
-        unit: '',
-        urgency: 'normal',
-        reason: '',
-        expectedDate: ''
-      })
+      setFormData({ siteId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
     } catch (error) {
       console.error('Error creating PO request:', error)
       alert('Error creating PO request. Please try again.')
@@ -102,22 +105,11 @@ const PORequests = ({ userRole = 'admin' }) => {
     try {
       const updateData = {
         status: 'approved',
-        approvedBy: 'odedraarjun928@gmail.com', // This should come from auth context
+        approvedBy: user?.email || 'admin',
         approvedDate: new Date().toISOString().split('T')[0]
       }
-      
       await supervisorServices.updatePORequest(requestId, updateData)
-      
-      // Reload the requests to show the updated status
-      const requestsSnapshot = await supervisorServices.getPORequests()
-      const requests = convertDocsToArray(requestsSnapshot)
-      if (userRole === 'supervisor') {
-        const supervisorEmail = 'aodedra259@rku.ac.in';
-        const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
-        setPORequests(supervisorRequests);
-      } else {
-        setPORequests(requests);
-      }
+      await reloadRequests()
     } catch (error) {
       console.error('Error approving PO request:', error)
       alert('Error approving PO request. Please try again.')
@@ -128,25 +120,13 @@ const PORequests = ({ userRole = 'admin' }) => {
     const rejectNotes = prompt('Please provide rejection reason:', notes || '')
     if (rejectNotes !== null) {
       try {
-        const updateData = {
+        await supervisorServices.updatePORequest(requestId, {
           status: 'rejected',
-          rejectedBy: 'odedraarjun928@gmail.com', // This should come from auth context
+          rejectedBy: user?.email || 'admin',
           rejectedDate: new Date().toISOString().split('T')[0],
           adminNotes: rejectNotes
-        }
-        
-        await supervisorServices.updatePORequest(requestId, updateData)
-        
-        // Reload the requests to show the updated status
-        const requestsSnapshot = await supervisorServices.getPORequests()
-        const requests = convertDocsToArray(requestsSnapshot)
-        if (userRole === 'supervisor') {
-          const supervisorEmail = 'aodedra259@rku.ac.in';
-          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
-          setPORequests(supervisorRequests);
-        } else {
-          setPORequests(requests);
-        }
+        })
+        await reloadRequests()
       } catch (error) {
         console.error('Error rejecting PO request:', error)
         alert('Error rejecting PO request. Please try again.')
@@ -158,17 +138,7 @@ const PORequests = ({ userRole = 'admin' }) => {
     if (window.confirm('Are you sure you want to delete this PO request? This action cannot be undone.')) {
       try {
         await supervisorServices.deletePORequest(requestId)
-        
-        // Reload the requests to show the updated list
-        const requestsSnapshot = await supervisorServices.getPORequests()
-        const requests = convertDocsToArray(requestsSnapshot)
-        if (userRole === 'supervisor') {
-          const supervisorEmail = 'aodedra259@rku.ac.in';
-          const supervisorRequests = requests.filter(req => req.requestedBy === supervisorEmail);
-          setPORequests(supervisorRequests);
-        } else {
-          setPORequests(requests);
-        }
+        await reloadRequests()
       } catch (error) {
         console.error('Error deleting PO request:', error)
         alert('Error deleting PO request. Please try again.')
@@ -205,7 +175,7 @@ const PORequests = ({ userRole = 'admin' }) => {
 
   const filteredRequests = poRequests.filter(request => {
     const matchesSearch = request.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         request.reason.toLowerCase().includes(searchTerm.toLowerCase())
+      request.reason.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || request.status === filterStatus
     return matchesSearch && matchesFilter
   })
@@ -305,41 +275,37 @@ const PORequests = ({ userRole = 'admin' }) => {
         <div className="flex gap-2">
           <button
             onClick={() => setFilterStatus('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'all' 
-                ? 'bg-blue-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'all'
+              ? 'bg-blue-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             All
           </button>
           <button
             onClick={() => setFilterStatus('pending')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'pending' 
-                ? 'bg-yellow-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'pending'
+              ? 'bg-yellow-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             Pending
           </button>
           <button
             onClick={() => setFilterStatus('approved')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'approved' 
-                ? 'bg-green-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'approved'
+              ? 'bg-green-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             Approved
           </button>
           <button
             onClick={() => setFilterStatus('rejected')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              filterStatus === 'rejected' 
-                ? 'bg-red-500 text-white' 
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'rejected'
+              ? 'bg-red-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
           >
             Rejected
           </button>
@@ -360,14 +326,12 @@ const PORequests = ({ userRole = 'admin' }) => {
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg ${
-                    request.status === 'pending' ? 'bg-yellow-100' :
+                  <div className={`p-3 rounded-lg ${request.status === 'pending' ? 'bg-yellow-100' :
                     request.status === 'approved' ? 'bg-green-100' : 'bg-red-100'
-                  }`}>
-                    <StatusIcon className={`w-6 h-6 ${
-                      request.status === 'pending' ? 'text-yellow-600' :
+                    }`}>
+                    <StatusIcon className={`w-6 h-6 ${request.status === 'pending' ? 'text-yellow-600' :
                       request.status === 'approved' ? 'text-green-600' : 'text-red-600'
-                    }`} />
+                      }`} />
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">{request.materialName}</h3>
@@ -434,7 +398,7 @@ const PORequests = ({ userRole = 'admin' }) => {
               )}
 
               {/* Delete button - Admin can delete any, Supervisor can delete their own */}
-              {(userRole === 'admin' || (userRole === 'supervisor' && request.requestedBy === 'aodedra259@rku.ac.in')) && (
+              {(userRole === 'admin' || (userRole === 'supervisor' && request.requestedBy === currentSupervisor?.email)) && (
                 <div className="flex gap-3 pt-2">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
@@ -479,7 +443,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                     type="text"
                     required
                     value={formData.materialName}
-                    onChange={(e) => setFormData({...formData, materialName: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, materialName: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., Cement"
                   />
@@ -491,7 +455,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                     required
                     min="1"
                     value={formData.quantity}
-                    onChange={(e) => setFormData({...formData, quantity: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., 100"
                   />
@@ -505,12 +469,26 @@ const PORequests = ({ userRole = 'admin' }) => {
                     type="text"
                     required
                     value={formData.unit}
-                    onChange={(e) => setFormData({...formData, unit: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="e.g., bags, tons, pieces"
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
+                  <select
+                    required
+                    value={formData.siteId}
+                    onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">Select site</option>
+                    {sites.map(site => (
+                      <option key={site.id} value={site.id}>{site.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Expected Date *</label>
                   <input
                     type="date"
@@ -519,10 +497,10 @@ const PORequests = ({ userRole = 'admin' }) => {
                     onChange={(e) => setFormData({...formData, expectedDate: e.target.value})}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
-                </div>
+                </div> */}
               </div>
 
-              <div>
+              {/* <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Urgency *</label>
                 <select
                   required
@@ -534,7 +512,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <option value="normal">Normal</option>
                   <option value="high">High</option>
                 </select>
-              </div>
+              </div> */}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Reason *</label>
@@ -542,7 +520,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                   required
                   rows={3}
                   value={formData.reason}
-                  onChange={(e) => setFormData({...formData, reason: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Explain why this material is needed..."
                 />

@@ -1,38 +1,88 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow read/write access for authenticated users with specific email
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role;
+    }
+
+    function isAdmin() {
+      return getUserRole() == "admin";
+    }
+
+    function isSupervisor() {
+      return getUserRole() == "supervisor";
+    }
+
+    // ── Sites ──────────────────────────────────────────────────────────────────
+    match /sites/{siteId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Buildings ──────────────────────────────────────────────────────────────
+    // Supervisors may read (client filters to assigned sites).
+    // Writes require admin only.
+    match /buildings/{buildingId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Labour ────────────────────────────────────────────────────────────────
+    match /labour/{labourId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Attendance ────────────────────────────────────────────────────────────
+    match /attendance/{attendanceId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Materials ─────────────────────────────────────────────────────────────
+    match /materials/{materialId} {
+      allow read:  if isAuthenticated();
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Purchase Orders ───────────────────────────────────────────────────────
+    match /purchaseOrders/{poId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Processes ─────────────────────────────────────────────────────────────
+    match /processes/{processId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── DPR ───────────────────────────────────────────────────────────────────
+    match /dpr/{dprId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+    match /users/{email} {
+      allow read:  if isAuthenticated() && (request.auth.token.email == email || isAdmin());
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Supervisors ───────────────────────────────────────────────────────────
+    match /supervisors/{supId} {
+      allow read:  if isAuthenticated() && (isAdmin() || request.auth.uid == supId || request.auth.token.email == resource.data.email);
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Deny everything else ──────────────────────────────────────────────────
     match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
-    
-    // More specific rules for better debugging
-    match /sites/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /labour/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /attendance/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /buildings/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /materials/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /purchaseOrders/{document} {
-      allow read, write: if request.auth != null;
-    }
-    
-    match /processes/{document} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

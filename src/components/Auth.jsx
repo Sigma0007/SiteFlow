@@ -1,73 +1,78 @@
-import React, { useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase';
 import { motion } from 'framer-motion';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase';
 import { Lock, Mail, LogOut, User, Eye, EyeOff } from 'lucide-react';
-import { supervisorServices } from '../services/firebaseServices';
 
-// Immediate role determination function
-const determineRoleByEmail = (email) => {
-  if (email === 'odedraarjun928@gmail.com') return 'admin';
-  if (email === 'aodedra259@rku.ac.in') return 'supervisor';
-  
-  // 👇 ADD YOUR 3 SUPERVISOR EMAILS HERE 👇
-  // Replace the placeholder emails with your actual supervisor emails from Firestore
-  if (email === 'odedraarjun0007@gmail.com') return 'supervisor'; // Replace with actual email
-  if (email === 'supervisor2@company.com') return 'supervisor'; // Replace with actual email
-  if (email === 'supervisor3@company.com') return 'supervisor'; // Replace with actual email
-  
-  return null; // No access for other users
-};
-
-// Background role validation function
-const validateRoleAsync = async (email, assumedRole, setUserRole) => {
-  try {
-    const supervisorSnapshot = await supervisorServices.getSupervisorByEmail(email);
-    const supervisors = supervisorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    
-    console.log('Background validation for:', email);
-    console.log('Found supervisors:', supervisors.length);
-    
-    let actualRole = assumedRole;
-    
-    if (supervisors.length > 0) {
-      const supervisor = supervisors[0];
-      console.log('Confirmed supervisor:', supervisor.name);
-      actualRole = 'supervisor';
-      
-      // Update supervisor status if pending
-      if (supervisor.status === 'pending') {
-        await supervisorServices.updateSupervisor(supervisor.id, {
-          status: 'active',
-          lastLogin: new Date().toISOString()
-        });
-      }
-    } else if (email === 'odedraarjun928@gmail.com') {
-      console.log('Confirmed admin role');
-      actualRole = 'admin';
-    } else {
-      console.log('No access - user not authorized');
-      actualRole = null;
-    }
-    
-    // Silent role correction if needed
-    if (actualRole !== assumedRole) {
-      console.log('Correcting role from', assumedRole, 'to', actualRole);
-      setUserRole(actualRole);
-    }
-  } catch (error) {
-    console.error('Background role validation failed:', error);
-  }
-};
-
-const AuthContext = React.createContext();
+const AuthContext = createContext();
 
 export const useAuth = () => {
-  const context = React.useContext(AuthContext);
+  const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+};
+
+// Role guard helper functions
+export const isAdmin = (userRole) => {
+  return userRole === 'admin';
+};
+
+export const isSupervisor = (userRole) => {
+  return userRole === 'supervisor';
+};
+
+// Hook-based role guards for convenience
+export const useIsAdmin = () => {
+  const { userRole } = useAuth();
+  return isAdmin(userRole);
+};
+
+export const useIsSupervisor = () => {
+  const { userRole } = useAuth();
+  return isSupervisor(userRole);
+};
+
+// Function to determine role from Firestore
+const determineRoleFromFirestore = async (email) => {
+  try {
+    console.log('🔍 Checking user document for:', email);
+    
+    const userDoc = await getDoc(doc(db, 'users', email));
+    
+    if (!userDoc.exists()) {
+      console.log('❌ User document not found for:', email);
+      return null;
+    }
+    
+    const userData = userDoc.data();
+    console.log('📄 User document found:', userData);
+    
+    // Strict role validation
+    if (userData.role !== 'admin' && userData.role !== 'supervisor') {
+      console.log('❌ Invalid role in user document:', userData.role, '- Must be "admin" or "supervisor"');
+      return null;
+    }
+    
+    // Strict status validation
+    if (userData.status !== 'active') {
+      console.log('❌ User account is not active:', userData.status, '- Account status must be "active"');
+      return null;
+    }
+    
+    console.log('✅ Valid role and status found in Firestore:', userData.role, userData.status);
+    return userData.role;
+    
+  } catch (error) {
+    console.error('❌ Error fetching user document:', error);
+    return null;
+  }
 };
 
 export const AuthProvider = ({ children }) => {
@@ -81,21 +86,27 @@ export const AuthProvider = ({ children }) => {
         // Firebase user is logged in
         setUser(firebaseUser);
         
-        // Immediate role determination for existing sessions
-        const immediateRole = determineRoleByEmail(firebaseUser.email);
-        setUserRole(immediateRole);
-        setLoading(false); // Stop loading immediately
+        console.log('Session restore for:', firebaseUser.email);
         
-        console.log('Session restored for:', firebaseUser.email);
-        console.log('Immediate role:', immediateRole);
+        // Check if user document exists and validate role/status
+        console.log('🔍 Checking user document and validating role/status for session restore...');
+        const firestoreRole = await determineRoleFromFirestore(firebaseUser.email);
         
-        // Only allow access if role is determined
-        if (immediateRole) {
-          // Background validation (non-blocking)
-          validateRoleAsync(firebaseUser.email, immediateRole, setUserRole);
-        } else {
-          console.log('Access denied - user not authorized');
+        if (!firestoreRole) {
+          // If validation fails, sign out user with specific error
+          await signOut(auth);
+          setUser(null);
+          setUserRole(null);
+          setLoading(false);
+          console.log('❌ Session restore denied - User validation failed for:', firebaseUser.email);
+          return;
         }
+        
+        // Set the validated role from Firestore
+        setUserRole(firestoreRole);
+        setLoading(false);
+        
+        console.log('✅ Session restored with validated role:', firestoreRole, 'for:', firebaseUser.email);
       } else {
         setUser(null);
         setUserRole(null);
@@ -108,34 +119,51 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      // Immediate role determination before Firebase auth
-      const immediateRole = determineRoleByEmail(email);
+      console.log('Login attempt for:', email);
       
-      if (!immediateRole) {
-        throw new Error('Access denied - user not authorized');
+      // Firebase Authentication first
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      const user = result.user;
+      setUser(user);
+      
+      console.log('✅ Firebase auth successful for:', user.email);
+      
+      // Check if user document exists and validate role/status
+      console.log('🔍 Checking user document and validating role/status in Firestore...');
+      const firestoreRole = await determineRoleFromFirestore(user.email);
+      
+      if (!firestoreRole) {
+        // If validation fails, sign out user with specific error
+        await signOut(auth);
+        setUser(null);
+        setUserRole(null);
+        console.log('❌ Access denied - User validation failed for:', user.email);
+        throw new Error('Access denied - Account not found, invalid role, or account not active. Please contact administrator.');
       }
       
-      setUserRole(immediateRole);
-      setLoading(false); // Stop loading immediately
+      // Set the validated role from Firestore
+      setUserRole(firestoreRole);
+      setLoading(false);
       
-      console.log('Login attempt for:', email);
-      console.log('Immediate role assignment:', immediateRole);
-      
-      // Firebase Authentication
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      setUser(result.user);
-      
-      // Background validation (non-blocking)
-      validateRoleAsync(email, immediateRole, setUserRole);
+      console.log('✅ Login successful with validated role:', firestoreRole, 'for:', user.email);
       
       return result;
     } catch (error) {
       // Reset role on login failure
       setUserRole(null);
+      setUser(null);
+      
+      // Pass through our custom error messages
       if (error.message.includes('Access denied')) {
         throw error;
       }
-      throw new Error('Invalid email or password');
+      
+      // Handle Firebase auth errors
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        throw new Error('Invalid email or password');
+      }
+      
+      throw new Error('Login failed: ' + error.message);
     }
   };
 
@@ -179,9 +207,8 @@ export const LoginForm = ({ onLogin }) => {
     setError('');
     setLoading(true);
     
-    // Determine role for loading message
-    const role = determineRoleByEmail(email);
-    setLoginRole(role);
+    // Role will be determined from Firestore after successful authentication
+    setLoginRole('Loading...');
 
     try {
       await onLogin(email, password);

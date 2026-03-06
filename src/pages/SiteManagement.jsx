@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Edit2, Trash2, MapPin, Calendar, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X } from 'lucide-react'
-import { siteServices, labourServices, attendanceServices, buildingServices, processServices, convertDocsToArray } from '../services/firebaseServices'
+import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, siteAssignmentServices, convertDocsToArray, query, where, syncSiteToSupervisors, syncStaffToSite } from '../services/firebaseServices'
+import { doc, updateDoc, arrayUnion, getDocs as fbGetDocs, collection } from 'firebase/firestore'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subYears, addYears } from 'date-fns'
 import Footer from '../components/Footer'
 import storageService from '../services/storageService'
+import { useSupervisor } from '../contexts/SupervisorContext.jsx'
+import { db } from '../firebase'
+import { useAuth } from '../components/Auth'
 
 const SiteManagement = ({ userRole }) => {
+  const { assignedSites } = useSupervisor();
+  const { user } = useAuth();
   // Default processes for new buildings
   const defaultProcesses = [
     {
@@ -64,7 +70,7 @@ const SiteManagement = ({ userRole }) => {
     try {
       console.log('🏗️ Creating default processes for new building:', buildingId)
       console.log('📍 Site ID:', siteId)
-      
+
       // Add default processes for the new building
       for (const defaultProcess of defaultProcesses) {
         const processToAdd = {
@@ -95,6 +101,8 @@ const SiteManagement = ({ userRole }) => {
   const [filterStatus, setFilterStatus] = useState('All')
   const [loading, setLoading] = useState(true)
   const [showBuildingsForSite, setShowBuildingsForSite] = useState(null)
+  const [availableSupervisors, setAvailableSupervisors] = useState([])
+  const [availableStaff, setAvailableStaff] = useState([])
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -104,6 +112,8 @@ const SiteManagement = ({ userRole }) => {
     progress: 0,
     status: 'Active',
     image: '',
+    assignedSupervisors: [], // Add supervisor assignment
+    assignedStaff: [], // Add staff assignment
     buildingName: '',
     buildingType: '',
     buildingFloors: 1,
@@ -146,12 +156,12 @@ const SiteManagement = ({ userRole }) => {
 
     try {
       let uploadResult
-      
+
       if (formType === 'site') {
         const siteId = editingSite?.id || `temp_${Date.now()}`
         uploadResult = await storageService.uploadSiteImage(siteId, file)
-        setFormData(prev => ({ 
-          ...prev, 
+        setFormData(prev => ({
+          ...prev,
           image: uploadResult.url,
           imagePath: uploadResult.path,
           imageFileName: uploadResult.fileName
@@ -159,14 +169,14 @@ const SiteManagement = ({ userRole }) => {
       } else if (formType === 'building') {
         const buildingId = editingBuilding?.id || `temp_${Date.now()}`
         uploadResult = await storageService.uploadBuildingImage(buildingId, file)
-        setBuildingForm(prev => ({ 
-          ...prev, 
+        setBuildingForm(prev => ({
+          ...prev,
           image: uploadResult.url,
           imagePath: uploadResult.path,
           imageFileName: uploadResult.fileName
         }))
       }
-      
+
       console.log('✅ Image uploaded successfully:', uploadResult)
     } catch (error) {
       console.error('Error uploading image:', error)
@@ -179,24 +189,89 @@ const SiteManagement = ({ userRole }) => {
     const loadData = async () => {
       try {
         setLoading(true)
-        
-        // Load sites
-        const sitesSnapshot = await siteServices.getAllSites()
-        setSites(convertDocsToArray(sitesSnapshot))
-        
-        // Load labour
-        const labourSnapshot = await labourServices.getAllLabour()
-        setLabour(convertDocsToArray(labourSnapshot))
-        
-        // Load today's attendance
-        const today = format(new Date(), 'yyyy-MM-dd')
-        const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
-        setAttendance(convertDocsToArray(attendanceSnapshot))
-        
-        // Load buildings
-        const buildingsSnapshot = await buildingServices.getAllBuildings()
-        setBuildings(convertDocsToArray(buildingsSnapshot))
-        
+
+        console.log('🔍 Site Management - Current user role:', userRole)
+        console.log('🔍 Site Management - Current user email:', user?.email)
+
+        let sitesData = []
+        let labourData = []
+        let attendanceData = []
+        let buildingsData = []
+
+        if (userRole === 'supervisor') {
+          // For supervisors, use the assignedSites already resolved by SupervisorContext
+          // (which handles both supervisor.assignedSites IDs and site.assignedSupervisors refs)
+          console.log('👷 Supervisor – using context assignedSites:', assignedSites.length)
+          sitesData = assignedSites.filter(s => !s.is_deleted)
+
+          if (sitesData.length > 0) {
+            const siteIds = sitesData.map(site => site.id)
+            const siteNames = sitesData.map(site => site.name)
+
+            // Load labour for assigned sites (labour now stores siteId)
+            const labourQuery = query(
+              collection(db, 'labour'),
+              where('siteId', 'in', siteIds)
+            )
+            const labourSnapshot = await fbGetDocs(labourQuery)
+            labourData = convertDocsToArray(labourSnapshot)
+
+            // Load attendance for assigned sites
+            const attendanceQuery = query(
+              collection(db, 'attendance'),
+              where('siteId', 'in', siteIds)
+            )
+            const attendanceSnapshot = await fbGetDocs(attendanceQuery)
+            attendanceData = convertDocsToArray(attendanceSnapshot)
+
+            // Load buildings for assigned sites
+            const buildingsQuery = query(
+              collection(db, 'buildings'),
+              where('siteId', 'in', siteIds)
+            )
+            const buildingsSnapshot = await fbGetDocs(buildingsQuery)
+            buildingsData = convertDocsToArray(buildingsSnapshot)
+          }
+
+        } else {
+          // For admins, load all data
+          console.log('Loading data for admin...')
+
+          const sitesSnapshot = await siteServices.getAllSites()
+          sitesData = convertDocsToArray(sitesSnapshot)
+
+          const labourSnapshot = await labourServices.getAllLabour()
+          labourData = convertDocsToArray(labourSnapshot)
+
+          const today = format(new Date(), 'yyyy-MM-dd')
+          const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
+          attendanceData = convertDocsToArray(attendanceSnapshot)
+
+          const buildingsSnapshot = await buildingServices.getAllBuildings()
+          buildingsData = convertDocsToArray(buildingsSnapshot)
+          console.log('🏗️ Site Management - Buildings count:', buildingsData.length)
+
+          try {
+            const supervisorsSnapshot = await supervisorServices.getAllSupervisors()
+            const supervisorsData = convertDocsToArray(supervisorsSnapshot)
+            setAvailableSupervisors(supervisorsData.filter(s => s.status === 'active' && s.email !== user?.email))
+          } catch (error) {
+            console.error('Error loading supervisors:', error)
+          }
+
+          try {
+            const staffSnapshot = await labourServices.getAllLabour()
+            setAvailableStaff(convertDocsToArray(staffSnapshot).filter(s => s.status === 'active'))
+          } catch (error) {
+            console.error('Error loading staff:', error)
+          }
+        }
+
+        setSites(sitesData)
+        setLabour(labourData)
+        setAttendance(attendanceData)
+        setBuildings(buildingsData)
+
       } catch (error) {
         console.error('Error loading data:', error)
       } finally {
@@ -204,34 +279,8 @@ const SiteManagement = ({ userRole }) => {
       }
     }
 
-    loadData()
-  }, [])
-
-  // Set up real-time listeners
-  useEffect(() => {
-    const unsubscribeSites = siteServices.onSitesChange((snapshot) => {
-      setSites(convertDocsToArray(snapshot))
-    })
-
-    const unsubscribeLabour = labourServices.onLabourChange((snapshot) => {
-      setLabour(convertDocsToArray(snapshot))
-    })
-
-    const unsubscribeAttendance = attendanceServices.onAttendanceChange((snapshot) => {
-      setAttendance(convertDocsToArray(snapshot))
-    })
-
-    const unsubscribeBuildings = buildingServices.onBuildingsChange((snapshot) => {
-      setBuildings(convertDocsToArray(snapshot))
-    })
-
-    return () => {
-      unsubscribeSites()
-      unsubscribeLabour()
-      unsubscribeAttendance()
-      unsubscribeBuildings()
-    }
-  }, [])
+    loadData();
+  }, [userRole, user?.email, assignedSites])
 
   const handleAdd = () => {
     setEditingSite(null)
@@ -244,6 +293,8 @@ const SiteManagement = ({ userRole }) => {
       progress: 0,
       status: 'Active',
       image: '',
+      assignedSupervisors: [], // Add supervisor assignment
+      assignedStaff: [], // Add staff assignment
       buildingName: '',
       buildingType: '',
       buildingFloors: 1,
@@ -253,12 +304,6 @@ const SiteManagement = ({ userRole }) => {
       buildingProgress: 0,
       buildingStatus: 'Active'
     })
-    setShowModal(true)
-  }
-
-  const handleEdit = (site) => {
-    setEditingSite(site)
-    setFormData(site)
     setShowModal(true)
   }
 
@@ -275,29 +320,41 @@ const SiteManagement = ({ userRole }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
     try {
       let siteData;
-      
+
       if (editingSite) {
         // Update existing site - preserve original createdAt and add updatedAt
         siteData = {
           name: formData.name,
           location: formData.location,
-          startDate: formData.startDate || null, // Handle undefined
-          endDate: formData.endDate || null,     // Handle undefined
+          startDate: formData.startDate || null,
+          endDate: formData.endDate || null,
           budget: parseInt(formData.budget) || 0,
           progress: parseInt(formData.progress) || 0,
           status: formData.status,
           image: formData.image || '',
-          createdAt: editingSite.createdAt, // Preserve original creation date
-          updatedAt: new Date().toISOString() // Add update timestamp
+          assignedSupervisors: formData.assignedSupervisors || [],
+          assignedStaff: formData.assignedStaff || [],
+          createdAt: editingSite.createdAt,
+          updatedAt: new Date().toISOString()
         }
-        
+
         console.log('Updating site:', editingSite.id, siteData)
         await siteServices.updateSite(editingSite.id, siteData)
         console.log('✅ Site updated successfully')
-        
+
+        // Sync supervisors for updated site
+        if (siteData.assignedSupervisors.length > 0) {
+          await syncSiteToSupervisors(editingSite.id, siteData.assignedSupervisors)
+        }
+
+        // Sync staff siteId so they appear in supervisor's Attendance page
+        if (siteData.assignedStaff.length > 0) {
+          await syncStaffToSite(editingSite.id, siteData.assignedStaff)
+        }
+
       } else {
         // Create new site
         siteData = {
@@ -309,13 +366,37 @@ const SiteManagement = ({ userRole }) => {
           progress: parseInt(formData.progress) || 0,
           status: formData.status,
           image: formData.image || '',
+          assignedSupervisors: formData.assignedSupervisors || [],
+          assignedStaff: formData.assignedStaff || [],
+          createdBy: user?.uid, // Add createdBy field
           createdAt: new Date().toISOString()
         }
-        
+
+        // Validation: Admin should not be assigned as supervisor
+        if (userRole === 'admin' && siteData.assignedSupervisors.includes(user?.uid)) {
+          console.warn('⚠️ Admin should not be assigned as supervisor to their own sites')
+          // Remove admin from assigned supervisors if present
+          siteData.assignedSupervisors = siteData.assignedSupervisors.filter(uid => uid !== user?.uid)
+        }
+
+        console.log('📝 Creating site with assigned supervisors:', siteData.assignedSupervisors)
+        console.log('📝 Creating site with assigned staff:', siteData.assignedStaff)
+        console.log('🔄 Site should now be visible to assigned supervisors:', siteData.assignedSupervisors)
+
         const siteRef = await siteServices.addSite(siteData)
         const siteId = siteRef.id
         console.log('✅ Site created with ID:', siteId)
-        
+
+        // Bidirectional sync: use shared utility so all paths stay consistent
+        if (siteData.assignedSupervisors && siteData.assignedSupervisors.length > 0) {
+          await syncSiteToSupervisors(siteId, siteData.assignedSupervisors)
+        }
+
+        // Sync staff siteId so they appear in supervisor's Attendance page
+        if (siteData.assignedStaff && siteData.assignedStaff.length > 0) {
+          await syncStaffToSite(siteId, siteData.assignedStaff)
+        }
+
         // Create building with form data for new sites
         const buildingData = {
           name: formData.buildingName || `Main Building - ${formData.name}`,
@@ -331,11 +412,10 @@ const SiteManagement = ({ userRole }) => {
         }
         const buildingResult = await buildingServices.addBuilding(buildingData)
         console.log('✅ Building created with ID:', buildingResult.id)
-        
         // Automatically create default processes for the new building
         await initializeDefaultProcessesForBuilding(siteId, buildingResult.id)
       }
-      
+
       setShowModal(false)
       setEditingSite(null)
       setFormData({
@@ -346,6 +426,8 @@ const SiteManagement = ({ userRole }) => {
         budget: 0,
         progress: 0,
         status: 'Active',
+        image: '',
+        assignedSupervisors: [],
         buildingName: '',
         buildingType: '',
         buildingFloors: 1,
@@ -355,11 +437,20 @@ const SiteManagement = ({ userRole }) => {
         buildingProgress: 0,
         buildingStatus: 'Active'
       })
-      
     } catch (error) {
       console.error('Error saving site:', error)
       alert('Error saving site: ' + error.message)
     }
+  }
+
+  const handleEdit = (site) => {
+    setEditingSite(site)
+    setFormData({
+      ...site,
+      assignedSupervisors: site.assignedSupervisors || [],
+      assignedStaff: site.assignedStaff || [],
+    })
+    setShowModal(true)
   }
 
   // Building management functions
@@ -375,14 +466,28 @@ const SiteManagement = ({ userRole }) => {
       budget: 0,
       progress: 0,
       status: 'Active',
-      image: ''
+      image: '',
+      imagePath: '',
+      imageFileName: ''
     })
     setShowBuildingModal(true)
   }
 
   const handleEditBuilding = (building) => {
     setEditingBuilding(building)
-    setBuildingForm(building)
+    setBuildingForm({
+      name: building.name,
+      type: building.type,
+      floors: building.floors,
+      units: building.units,
+      area: building.area,
+      budget: building.budget,
+      progress: building.progress,
+      status: building.status,
+      image: building.image,
+      imagePath: building.imagePath,
+      imageFileName: building.imageFileName
+    })
     setSelectedSiteForBuilding(building.siteId)
     setShowBuildingModal(true)
   }
@@ -399,10 +504,10 @@ const SiteManagement = ({ userRole }) => {
 
   const handleBuildingSubmit = async (e) => {
     e.preventDefault()
-    
+
     try {
       let buildingData;
-      
+
       if (editingBuilding) {
         // Update existing building - preserve original createdAt and add updatedAt
         buildingData = {
@@ -416,11 +521,11 @@ const SiteManagement = ({ userRole }) => {
           createdAt: editingBuilding.createdAt, // Preserve original creation date
           updatedAt: new Date().toISOString() // Add update timestamp
         }
-        
+
         console.log('Updating building:', editingBuilding.id, buildingData)
         await buildingServices.updateBuilding(editingBuilding.id, buildingData)
         console.log('✅ Building updated successfully')
-        
+
       } else {
         // Create new building
         buildingData = {
@@ -433,14 +538,14 @@ const SiteManagement = ({ userRole }) => {
           progress: parseInt(buildingForm.progress) || 0,
           createdAt: new Date().toISOString()
         }
-        
+
         const result = await buildingServices.addBuilding(buildingData)
         console.log('✅ Building created with ID:', result.id)
-        
+
         // Automatically create default processes for the new building
         await initializeDefaultProcessesForBuilding(selectedSiteForBuilding, result.id)
       }
-      
+
       setShowBuildingModal(false)
       setBuildingForm({
         name: '',
@@ -457,7 +562,7 @@ const SiteManagement = ({ userRole }) => {
       })
       setEditingBuilding(null)
       setSelectedSiteForBuilding(null)
-      
+
     } catch (error) {
       console.error('Error saving building:', error)
       alert('Error saving building: ' + error.message)
@@ -465,12 +570,42 @@ const SiteManagement = ({ userRole }) => {
   }
 
   const getBuildingsForSite = (siteId) => {
-    return buildings.filter(building => building.siteId === siteId)
+    console.log(`🔍 Looking for buildings for site ID: ${siteId}`)
+    console.log(`🔍 Available buildings:`, buildings.map(b => ({ id: b.id, name: b.name, siteId: b.siteId })))
+
+    const siteBuildings = buildings.filter(building => {
+      const matches = building.siteId === siteId
+      console.log(`🏗️ Building "${building.name}" (siteId: ${building.siteId}) matches site ${siteId}: ${matches}`)
+      return matches
+    })
+
+    console.log(`🏗️ Final buildings for site ${siteId}:`, siteBuildings)
+    console.log(`🏗️ Building count for site ${siteId}:`, siteBuildings.length)
+    return siteBuildings
   }
+
+  // Add debugging function to check all sites and their buildings
+  const debugSiteBuildingLinkage = () => {
+    console.log('🔍 DEBUGGING SITE-BUILDING LINKAGE:')
+    console.log('📋 All sites:', sites.map(s => ({ id: s.id, name: s.name })))
+    console.log('🏗️ All buildings:', buildings.map(b => ({ id: b.id, name: b.name, siteId: b.siteId })))
+
+    sites.forEach(site => {
+      const siteBuildings = buildings.filter(b => b.siteId === site.id)
+      console.log(`📍 Site "${site.name}" (${site.id}) has ${siteBuildings.length} buildings:`, siteBuildings)
+    })
+  }
+
+  // Call debug function
+  useEffect(() => {
+    if (sites.length > 0 && buildings.length > 0) {
+      debugSiteBuildingLinkage()
+    }
+  }, [sites, buildings])
 
   const filteredSites = sites.filter(site => {
     const matchesSearch = site.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         site.location.toLowerCase().includes(searchTerm.toLowerCase())
+      site.location.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'All' || site.status === filterStatus
     return matchesSearch && matchesFilter
   })
@@ -491,33 +626,39 @@ const SiteManagement = ({ userRole }) => {
     return 'bg-red-500'
   }
 
-  const getSiteAttendanceStats = (siteName) => {
+  const getSiteAttendanceStats = (siteId) => {
     const today = format(new Date(), 'yyyy-MM-dd')
-    const staffAtSite = labour.filter(staff => staff.currentSite === siteName)
-    
+    const staffAtSite = labour.filter(staff => staff.siteId === siteId)
+
     const present = staffAtSite.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Present'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'present'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const absent = staffAtSite.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Absent'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'absent'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const leave = staffAtSite.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Leave'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'leave'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const unmarked = staffAtSite.length - present - absent - leave
-    
+
     return {
       total: staffAtSite.length,
       present,
@@ -527,33 +668,39 @@ const SiteManagement = ({ userRole }) => {
     }
   }
 
-  const getBuildingAttendanceStats = (buildingName) => {
+  const getBuildingAttendanceStats = (buildingId, buildingName) => {
     const today = format(new Date(), 'yyyy-MM-dd')
-    const staffAtBuilding = labour.filter(staff => staff.currentBuilding === buildingName)
-    
+    const staffAtBuilding = labour.filter(staff => staff.buildingId === buildingId)
+
     const present = staffAtBuilding.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Present'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'present'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const absent = staffAtBuilding.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Absent'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'absent'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const leave = staffAtBuilding.filter(staff => {
-      const attendanceRecord = attendance.find(a => 
-        a.labourId === staff.id && a.date === today && a.status === 'Leave'
+      const attendanceRecord = attendance.find(a =>
+        a.employeeId === staff.id &&
+        a.date === today &&
+        String(a.status || '').toLowerCase() === 'leave'
       )
       return attendanceRecord !== undefined
     }).length
-    
+
     const unmarked = staffAtBuilding.length - present - absent - leave
-    
+
     return {
       total: staffAtBuilding.length,
       present,
@@ -567,19 +714,29 @@ const SiteManagement = ({ userRole }) => {
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Site Management</h1>
-          <p className="text-gray-600 mt-1">Manage all construction sites and projects</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {userRole === 'supervisor' ? 'My Sites' : 'Site Management'}
+          </h1>
+          <p className="text-gray-600 mt-1">
+            {userRole === 'supervisor'
+              ? 'View and manage your assigned construction sites'
+              : 'Manage all construction sites and projects'
+            }
+          </p>
         </div>
-        {(userRole === 'admin' || userRole === 'manager') && (
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleAdd}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Add New Site
-          </motion.button>
+        {userRole === 'admin' && (
+          <>
+            {console.log('🔍 Add Site button visibility check - userRole:', userRole)}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAdd}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+            >
+              <Plus className="w-5 h-5" />
+              Add Site
+            </motion.button>
+          </>
         )}
       </div>
 
@@ -700,22 +857,22 @@ const SiteManagement = ({ userRole }) => {
                     <div className="flex items-center gap-1">
                       <CheckCircle className="w-3 h-3 text-green-600" />
                       <span className="text-gray-600">Present:</span>
-                      <span className="font-semibold text-green-600">{getSiteAttendanceStats(site.name).present}</span>
+                      <span className="font-semibold text-green-600">{getSiteAttendanceStats(site.id).present}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <XCircle className="w-3 h-3 text-red-600" />
                       <span className="text-gray-600">Absent:</span>
-                      <span className="font-semibold text-red-600">{getSiteAttendanceStats(site.name).absent}</span>
+                      <span className="font-semibold text-red-600">{getSiteAttendanceStats(site.id).absent}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Clock className="w-3 h-3 text-yellow-600" />
                       <span className="text-gray-600">Leave:</span>
-                      <span className="font-semibold text-yellow-600">{getSiteAttendanceStats(site.name).leave}</span>
+                      <span className="font-semibold text-yellow-600">{getSiteAttendanceStats(site.id).leave}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <Users className="w-3 h-3 text-gray-600" />
                       <span className="text-gray-600">Total:</span>
-                      <span className="font-semibold text-gray-700">{getSiteAttendanceStats(site.name).total}</span>
+                      <span className="font-semibold text-gray-700">{getSiteAttendanceStats(site.id).total}</span>
                     </div>
                   </div>
                 </div>
@@ -740,14 +897,14 @@ const SiteManagement = ({ userRole }) => {
                       )}
                     </div>
                   </div>
-                  
+
                   {getBuildingsForSite(site.id).length > 0 ? (
                     <div className="space-y-2">
                       {getBuildingsForSite(site.id).slice(0, showBuildingsForSite === site.id ? undefined : 2).map((building) => {
-                        const stats = getBuildingAttendanceStats(building.name)
+                        const stats = getBuildingAttendanceStats(building.id, building.name)
                         return (
-                          <div 
-                            key={building.id} 
+                          <div
+                            key={building.id}
                             className="bg-white p-2 rounded border border-blue-100"
                           >
                             <div className="flex items-center justify-between mb-1">
@@ -765,7 +922,7 @@ const SiteManagement = ({ userRole }) => {
                                 <span className={`text-xs badge border ${getStatusColor(building.status)}`}>
                                   {building.progress}%
                                 </span>
-                                {(userRole === 'admin' || userRole === 'manager') && (
+                                {(userRole === 'admin' || userRole === 'supervisor') && (
                                   <div className="flex gap-1">
                                     <button
                                       onClick={() => handleEditBuilding(building)}
@@ -773,12 +930,14 @@ const SiteManagement = ({ userRole }) => {
                                     >
                                       <Edit2 className="w-3 h-3" />
                                     </button>
-                                    <button
-                                      onClick={() => handleDeleteBuilding(building.id)}
-                                      className="text-xs text-red-600 hover:text-red-800"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
+                                    {(userRole === 'admin') && (
+                                      <button
+                                        onClick={() => handleDeleteBuilding(building.id)}
+                                        className="text-xs text-red-600 hover:text-red-800"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -787,7 +946,9 @@ const SiteManagement = ({ userRole }) => {
                               <span>Type: {building.type}</span>
                               <span>Floors: {building.floors}</span>
                               <span>Units: {building.units}</span>
-                              <span>Area: {building.area.toLocaleString()} sq ft</span>
+                              <span>Area: {building.area?.toLocaleString()} sq ft</span>
+                              <span>Budget: ${building.budget ? building.budget.toLocaleString() : '0'}</span>
+                              <span>Status: {building.status}</span>
                             </div>
                             <div className="border-t border-gray-100 pt-1 mt-1">
                               <div className="grid grid-cols-4 gap-1 text-xs">
@@ -949,7 +1110,93 @@ const SiteManagement = ({ userRole }) => {
                   </select>
                 </div>
 
-                <div>
+                {userRole === 'admin' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Assign Supervisors
+                    </label>
+                    <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                      {availableSupervisors.length === 0 ? (
+                        <p className="text-sm text-gray-500">No active supervisors available</p>
+                      ) : (
+                        availableSupervisors.map((supervisor) => (
+                          <label key={supervisor.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              // Always use Firestore doc ID for consistency with sync logic
+                              checked={formData.assignedSupervisors.includes(supervisor.id)}
+                              onChange={(e) => {
+                                const supDocId = supervisor.id  // Firestore doc ID
+                                if (e.target.checked) {
+                                  setFormData({
+                                    ...formData,
+                                    assignedSupervisors: [...formData.assignedSupervisors, supDocId]
+                                  })
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    assignedSupervisors: formData.assignedSupervisors.filter(id => id !== supDocId)
+                                  })
+                                }
+                              }}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>{supervisor.name} ({supervisor.email})</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {formData.assignedSupervisors.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formData.assignedSupervisors.length} supervisor(s) assigned
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {userRole === 'admin' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Assign Staff
+                    </label>
+                    <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                      {availableStaff.length === 0 ? (
+                        <p className="text-sm text-gray-500">No active staff available</p>
+                      ) : (
+                        availableStaff.map((staff) => (
+                          <label key={staff.id} className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={formData.assignedStaff.includes(staff.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setFormData({
+                                    ...formData,
+                                    assignedStaff: [...formData.assignedStaff, staff.id]
+                                  })
+                                } else {
+                                  setFormData({
+                                    ...formData,
+                                    assignedStaff: formData.assignedStaff.filter(id => id !== staff.id)
+                                  })
+                                }
+                              }}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span>{staff.name} ({staff.role})</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {formData.assignedStaff.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formData.assignedStaff.length} staff member(s) assigned
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Site Image</label>
                   <div className="flex items-center gap-4">
                     <input
@@ -983,12 +1230,12 @@ const SiteManagement = ({ userRole }) => {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">Max size: 5MB. Formats: JPG, PNG, GIF</p>
-                </div>
+                </div> */}
 
                 {!editingSite && (
                   <div className="border-t pt-4">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Building Details</h3>
-                    
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Building Name</label>
                       <input
@@ -1003,11 +1250,10 @@ const SiteManagement = ({ userRole }) => {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Building Type</label>
                       <select
-                        value={formData.buildingType}
+                        value={formData.buildingType || 'Mixed Use'}
                         onChange={(e) => setFormData({ ...formData, buildingType: e.target.value })}
                         className="input-field"
                       >
-                        <option value="">Select building type</option>
                         <option>Residential</option>
                         <option>Commercial</option>
                         <option>Industrial</option>

@@ -16,10 +16,16 @@ import {
   siteServices,
   buildingServices,
   processServices,
+  supervisorServices,
+  siteAssignmentServices,
   convertDocsToArray,
+  query,
+  where,
 } from "../services/firebaseServices";
+import { useSupervisor } from "../contexts/SupervisorContext.jsx";
 
 const ProcessManagement = ({ userRole }) => {
+  const { assignedSites } = useSupervisor();
   const [sites, setSites] = useState([]);
   const [buildings, setBuildings] = useState([]);
   const [processes, setProcesses] = useState([]);
@@ -31,6 +37,8 @@ const ProcessManagement = ({ userRole }) => {
   const [editingItem, setEditingItem] = useState(null);
   const [selectedProcessId, setSelectedProcessId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [siteCompletion, setSiteCompletion] = useState(0);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -100,9 +108,16 @@ const ProcessManagement = ({ userRole }) => {
       try {
         setLoading(true);
 
-        // Load sites
-        const sitesSnapshot = await siteServices.getAllSites();
-        setSites(convertDocsToArray(sitesSnapshot));
+        if (userRole === 'supervisor') {
+          // Use sites already resolved by SupervisorContext – no extra Firestore query needed
+          console.log('👷 ProcessManagement: supervisor assignedSites from context:', assignedSites.length);
+          setSites(assignedSites.filter(s => !s.is_deleted));
+        } else {
+          // Admin sees all sites
+          const sitesSnapshot = await siteServices.getAllSites();
+          const sitesData = convertDocsToArray(sitesSnapshot);
+          setSites(sitesData);
+        }
 
         // Load buildings
         const buildingsSnapshot = await buildingServices.getAllBuildings();
@@ -115,7 +130,47 @@ const ProcessManagement = ({ userRole }) => {
     };
 
     loadData();
-  }, []);
+  }, [userRole, assignedSites]);
+
+  // Update site completion percentage
+  const updateSiteCompletion = async (completionPercentage) => {
+    try {
+      if (!selectedSite) {
+        alert('Please select a site first');
+        return;
+      }
+
+      if (completionPercentage < 0 || completionPercentage > 100) {
+        alert('Completion percentage must be between 0 and 100');
+        return;
+      }
+
+      // Get supervisor ID (simplified for now)
+      const supervisorEmail = 'aodedra259@rku.ac.in';
+      const supervisorSnapshot = await supervisorServices.getSupervisorByEmail(supervisorEmail);
+      const supervisors = supervisorSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const supervisorId = supervisors.length > 0 ? supervisors[0].id : 'unknown';
+
+      await siteAssignmentServices.updateSiteCompletion(selectedSite, completionPercentage, supervisorId);
+
+      // Update local state
+      setSiteCompletion(completionPercentage);
+
+      // Update sites array
+      setSites(prevSites =>
+        prevSites.map(site =>
+          site.id === selectedSite
+            ? { ...site, completionPercentage, lastUpdatedBy: supervisorId, lastUpdatedTimestamp: new Date().toISOString() }
+            : site
+        )
+      );
+
+      alert('Site completion updated successfully!');
+    } catch (error) {
+      console.error('Error updating site completion:', error);
+      alert('Error updating site completion. Please try again.');
+    }
+  };
 
   // Load processes when site is selected (with or without building)
   useEffect(() => {
@@ -123,7 +178,7 @@ const ProcessManagement = ({ userRole }) => {
       console.log("🔄 Process loading useEffect triggered");
       console.log("📍 selectedSite:", selectedSite);
       console.log("🏢 selectedBuilding:", selectedBuilding);
-      
+
       if (selectedSite) {
         try {
           console.log(
@@ -148,16 +203,16 @@ const ProcessManagement = ({ userRole }) => {
             console.log("🏗️ No building selected, loading site-level processes");
             processesSnapshot = await processServices.getProcessesBySite(selectedSite);
           }
-          
+
           console.log("Processes snapshot:", processesSnapshot);
           console.log("Type of processesSnapshot:", typeof processesSnapshot);
           console.log("Has docs:", processesSnapshot && processesSnapshot.docs);
           console.log("Has forEach:", processesSnapshot && typeof processesSnapshot.forEach === 'function');
 
           let processesArray;
-          if (processesSnapshot && 
-                processesSnapshot.docs !== undefined && 
-                typeof processesSnapshot.docs === 'object') {
+          if (processesSnapshot &&
+            processesSnapshot.docs !== undefined &&
+            typeof processesSnapshot.docs === 'object') {
             // It's a proper Firebase snapshot with docs property
             console.log("Converting Firebase snapshot to array");
             processesArray = convertDocsToArray(processesSnapshot);
@@ -166,7 +221,7 @@ const ProcessManagement = ({ userRole }) => {
             console.log("Using processes as-is (already array or empty)");
             processesArray = Array.isArray(processesSnapshot) ? processesSnapshot : [];
           }
-          
+
           console.log("Final processes array:", processesArray);
           console.log("About to setProcesses with:", processesArray);
           setProcesses(processesArray);
@@ -203,18 +258,18 @@ const ProcessManagement = ({ userRole }) => {
       selectedSite
         ? selectedBuilding && selectedBuilding !== 'virtual-building'
           ? processServices.onProcessesChange(
-              selectedSite,
-              selectedBuilding,
-              (snapshot) => {
-                setProcesses(convertDocsToArray(snapshot));
-              },
-            )
+            selectedSite,
+            selectedBuilding,
+            (snapshot) => {
+              setProcesses(convertDocsToArray(snapshot));
+            },
+          )
           : processServices.onSiteProcessesChange(
-              selectedSite,
-              (snapshot) => {
-                setProcesses(convertDocsToArray(snapshot));
-              },
-            )
+            selectedSite,
+            (snapshot) => {
+              setProcesses(convertDocsToArray(snapshot));
+            },
+          )
         : null;
 
     return () => {
@@ -228,7 +283,7 @@ const ProcessManagement = ({ userRole }) => {
     const site = sites.find((s) => s.id === siteId);
     if (!site) return [];
     const siteBuildings = buildings.filter((b) => b.siteId === siteId);
-    
+
     // If site has no buildings, create a virtual building
     if (siteBuildings.length === 0) {
       return [{
@@ -238,7 +293,7 @@ const ProcessManagement = ({ userRole }) => {
         siteId: siteId
       }];
     }
-    
+
     return siteBuildings;
   };
 
@@ -251,7 +306,7 @@ const ProcessManagement = ({ userRole }) => {
     // Debug: Show all sites and buildings
     console.log("🔍 All available sites:", sites);
     console.log("🔍 All available buildings:", buildings);
-    
+
     // Debug: Show which buildings belong to this site
     const siteBuildings = getBuildingsForSite(siteId);
     console.log("🔍 Buildings for this site:", siteBuildings);
@@ -306,7 +361,7 @@ const ProcessManagement = ({ userRole }) => {
 
       // Check if processes already exist for this building/site
       let existingProcesses, existingProcessesArray;
-      
+
       if (selectedBuilding && selectedBuilding !== 'virtual-building') {
         // Building-level processes
         console.log("🏢 Checking building-level processes");
@@ -354,7 +409,7 @@ const ProcessManagement = ({ userRole }) => {
               updatedAt: new Date().toISOString(),
             };
             console.log("➕ Adding process:", processToAdd.name);
-            
+
             let result;
             if (selectedBuilding && selectedBuilding !== 'virtual-building') {
               // Building-level process
@@ -711,7 +766,7 @@ const ProcessManagement = ({ userRole }) => {
   const updateProcessProgress = async (processId, newProgress) => {
     try {
       const process = processes.find((p) => p.id === processId);
-      
+
       const updatedProcess = {
         ...process,
         progress: newProgress,
@@ -732,12 +787,12 @@ const ProcessManagement = ({ userRole }) => {
 
   const getOverallSiteProgress = () => {
     if (!selectedSite || processes.length === 0) return 0;
-    
+
     const totalProgress = processes.reduce((sum, process) => {
       const processProgress = process.progress || getProcessProgress(process);
       return sum + processProgress;
     }, 0);
-    
+
     return Math.round(totalProgress / processes.length);
   };
 
@@ -819,17 +874,43 @@ const ProcessManagement = ({ userRole }) => {
                 <p className="text-sm text-blue-700">
                   {sites.find(s => s.id === selectedSite)?.name}
                 </p>
+                {userRole === 'supervisor' && (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Supervisor: Click percentage to update
+                  </p>
+                )}
               </div>
               <div className="text-right">
-                <div className="text-3xl font-bold text-blue-600">
-                  {getOverallSiteProgress()}%
-                </div>
-                <div className="w-32 bg-gray-200 rounded-full h-3 mt-2">
-                  <div
-                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500"
-                    style={{ width: `${getOverallSiteProgress()}%` }}
-                  />
-                </div>
+                {userRole === 'supervisor' ? (
+                  <div>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowCompletionModal(true)}
+                      className="text-3xl font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                    >
+                      {sites.find(s => s.id === selectedSite)?.completionPercentage || 0}%
+                    </motion.button>
+                    <div className="w-32 bg-gray-200 rounded-full h-3 mt-2">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500"
+                        style={{ width: `${sites.find(s => s.id === selectedSite)?.completionPercentage || 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-3xl font-bold text-blue-600">
+                      {getOverallSiteProgress()}%
+                    </div>
+                    <div className="w-32 bg-gray-200 rounded-full h-3 mt-2">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500"
+                        style={{ width: `${getOverallSiteProgress()}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -844,8 +925,8 @@ const ProcessManagement = ({ userRole }) => {
               <span className="text-blue-400">→</span>
               <Building className="w-4 h-4 text-blue-600" />
               <span className="text-sm font-medium text-blue-900">
-                {selectedBuilding === 'virtual-building' 
-                  ? 'Virtual Building' 
+                {selectedBuilding === 'virtual-building'
+                  ? 'Virtual Building'
                   : getBuildingsForSite(selectedSite).find((b) => b.id === selectedBuilding)?.name
                 }
               </span>
@@ -924,7 +1005,7 @@ const ProcessManagement = ({ userRole }) => {
                   No processes yet
                 </h3>
                 <p className="text-gray-600 mb-4">
-                  {selectedBuilding 
+                  {selectedBuilding
                     ? "Start by adding your first construction process for this building"
                     : "Start by adding your first construction process for this site"
                   }
@@ -999,7 +1080,7 @@ const ProcessManagement = ({ userRole }) => {
                             </div>
                           </div>
                         </div>
-                        
+
                         {/* Progress Section */}
                         <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center justify-between mb-2">
@@ -1024,7 +1105,7 @@ const ProcessManagement = ({ userRole }) => {
                             />
                           </div>
                         </div>
-                        
+
                         <div className="flex items-center gap-1 mt-3">
                           {(userRole === "admin" || userRole === "manager") && (
                             <>
@@ -1072,7 +1153,7 @@ const ProcessManagement = ({ userRole }) => {
                           </motion.button>
                         </div>
                       </div>
-                      
+
                       {isExpanded && process.subProcesses && process.subProcesses.length > 0 && (
                         <div className="border-t border-gray-200 bg-white/80 backdrop-blur-md p-4">
                           <h4 className="text-sm font-semibold text-gray-700 mb-3">Sub-Processes</h4>
@@ -1085,40 +1166,37 @@ const ProcessManagement = ({ userRole }) => {
                                 <div className="flex items-center gap-3">
                                   <button
                                     onClick={() => toggleSubProcessCompletion(process.id, subProcess.id)}
-                                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
-                                      subProcess.status === 'completed' 
-                                        ? 'bg-green-500 text-white shadow-green-500/50' 
+                                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${subProcess.status === 'completed'
+                                        ? 'bg-green-500 text-white shadow-green-500/50'
                                         : subProcess.status === 'in-progress'
-                                        ? 'bg-yellow-500 text-white shadow-yellow-500/50'
-                                        : 'bg-gray-200 text-gray-400 hover:bg-blue-500 hover:text-white shadow-lg'
-                                    }`}
+                                          ? 'bg-yellow-500 text-white shadow-yellow-500/50'
+                                          : 'bg-gray-200 text-gray-400 hover:bg-blue-500 hover:text-white shadow-lg'
+                                      }`}
                                     title={
                                       subProcess.status === 'completed' ? 'Mark as incomplete' :
-                                      subProcess.status === 'in-progress' ? 'Mark as complete' :
-                                      'Mark as in-progress'
+                                        subProcess.status === 'in-progress' ? 'Mark as complete' :
+                                          'Mark as in-progress'
                                     }
                                   >
-                                    {subProcess.status === 'completed' ? '✓' : 
-                                     subProcess.status === 'in-progress' ? '⟳' : '○'}
+                                    {subProcess.status === 'completed' ? '✓' :
+                                      subProcess.status === 'in-progress' ? '⟳' : '○'}
                                   </button>
                                   <div className="flex items-center gap-2">
-                                    <span className={`font-medium ${
-                                      subProcess.status === 'completed' ? 'line-through text-gray-500' : 
-                                      subProcess.status === 'in-progress' ? 'text-yellow-600' : 
-                                      'text-gray-800'
-                                    }`}>
+                                    <span className={`font-medium ${subProcess.status === 'completed' ? 'line-through text-gray-500' :
+                                        subProcess.status === 'in-progress' ? 'text-yellow-600' :
+                                          'text-gray-800'
+                                      }`}>
                                       {subProcess.name}
                                     </span>
-                                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
-                                      subProcess.status === 'completed' 
-                                        ? 'bg-green-100 text-green-700' 
+                                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${subProcess.status === 'completed'
+                                        ? 'bg-green-100 text-green-700'
                                         : subProcess.status === 'in-progress'
-                                        ? 'bg-yellow-100 text-yellow-700'
-                                        : 'bg-gray-100 text-gray-600'
-                                    }`}>
+                                          ? 'bg-yellow-100 text-yellow-700'
+                                          : 'bg-gray-100 text-gray-600'
+                                      }`}>
                                       {subProcess.status === 'completed' ? 'Done' :
-                                       subProcess.status === 'in-progress' ? 'In Progress' :
-                                       'Not Started'}
+                                        subProcess.status === 'in-progress' ? 'In Progress' :
+                                          'Not Started'}
                                     </span>
                                   </div>
                                 </div>
@@ -1360,6 +1438,81 @@ const ProcessManagement = ({ userRole }) => {
               >
                 <X className="w-6 h-6 text-gray-600" />
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Site Completion Modal for Supervisors */}
+        {showCompletionModal && userRole === 'supervisor' && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            onClick={() => setShowCompletionModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-xl p-6 w-full max-w-md mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Update Site Completion</h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Completion Percentage (0-100)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={siteCompletion}
+                    onChange={(e) => setSiteCompletion(Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter completion percentage"
+                  />
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${siteCompletion}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{siteCompletion}% Complete</p>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    <strong>Site:</strong> {sites.find(s => s.id === selectedSite)?.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowCompletionModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    updateSiteCompletion(siteCompletion);
+                    setShowCompletionModal(false);
+                  }}
+                  className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
+                >
+                  Update Completion
+                </motion.button>
+              </div>
             </motion.div>
           </motion.div>
         )}
