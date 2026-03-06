@@ -1156,45 +1156,63 @@ const SiteManagement = ({ userRole }) => {
 
                 {userRole === 'admin' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Assign Staff
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Assign Staff (Workers)
                     </label>
-                    <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                    <p className="text-xs text-amber-600 mb-2 flex items-center gap-1">
+                      ⚠️ Each worker can only be on one site at a time. Selecting a worker will move them from their current site.
+                    </p>
+                    <div className="space-y-1 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50">
                       {availableStaff.length === 0 ? (
-                        <p className="text-sm text-gray-500">No active staff available</p>
+                        <p className="text-sm text-gray-500 p-2">No active staff available. Add workers from the Attendance page first.</p>
                       ) : (
-                        availableStaff.map((staff) => (
-                          <label key={staff.id} className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={formData.assignedStaff.includes(staff.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData({
-                                    ...formData,
-                                    assignedStaff: [...formData.assignedStaff, staff.id]
-                                  })
-                                } else {
-                                  setFormData({
-                                    ...formData,
-                                    assignedStaff: formData.assignedStaff.filter(id => id !== staff.id)
-                                  })
-                                }
-                              }}
-                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span>{staff.name} ({staff.role})</span>
-                          </label>
-                        ))
+                        availableStaff.map((staff) => {
+                          const isAssigned = formData.assignedStaff.includes(staff.id)
+                          // Find which site this staff member currently belongs to
+                          const currentSite = staff.siteId && staff.siteId !== (editingSite?.id || '__new__')
+                            ? sites.find(s => s.id === staff.siteId)
+                            : null
+                          const isOnAnotherSite = currentSite && !isAssigned
+
+                          return (
+                            <label key={staff.id} className={`flex items-center gap-2 text-sm p-1.5 rounded cursor-pointer hover:bg-white transition-colors ${isAssigned ? 'bg-blue-50 border border-blue-100' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={isAssigned}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setFormData({ ...formData, assignedStaff: [...formData.assignedStaff, staff.id] })
+                                  } else {
+                                    setFormData({ ...formData, assignedStaff: formData.assignedStaff.filter(id => id !== staff.id) })
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <span className="font-medium text-gray-800">{staff.name}</span>
+                                <span className="text-gray-500 ml-1 text-xs">({staff.role})</span>
+                                {isOnAnotherSite && (
+                                  <span className="ml-2 text-xs text-orange-500 font-medium">
+                                    📍 at: {currentSite.name}
+                                  </span>
+                                )}
+                                {isAssigned && (
+                                  <span className="ml-2 text-xs text-blue-600 font-medium">✓ selected</span>
+                                )}
+                              </div>
+                            </label>
+                          )
+                        })
                       )}
                     </div>
                     {formData.assignedStaff.length > 0 && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formData.assignedStaff.length} staff member(s) assigned
+                      <p className="text-xs text-blue-600 mt-1 font-medium">
+                        ✓ {formData.assignedStaff.length} worker(s) will be assigned to this site
                       </p>
                     )}
                   </div>
                 )}
+
 
                 {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Site Image</label>

@@ -1109,16 +1109,35 @@ export const syncSiteToSupervisors = async (siteId, supervisorDocIds = []) => {
 /**
  * syncStaffToSite(siteId, staffDocIds)
  *
- * When admin assigns staff to a site, this updates each labour document's
- * siteId field so they become visible in the supervisor's Attendance page.
- * The Attendance page queries: where('siteId', 'in', supervisorAssignedSiteIds)
- *
- * @param {string}   siteId       - Firestore doc ID of the site
- * @param {string[]} staffDocIds  - Firestore doc IDs from the labour collection
+ * EXCLUSIVE assignment: each staff member can only belong to ONE site.
+ * Steps:
+ *  1. Find all other sites that currently have these staff in assignedStaff
+ *  2. Remove the staff from those old sites
+ *  3. Update labour.siteId = new siteId
  */
 export const syncStaffToSite = async (siteId, staffDocIds = []) => {
   if (!siteId || !staffDocIds.length) return;
-  console.log('\ud83d\udc65 syncStaffToSite: linking', staffDocIds.length, 'staff to site', siteId);
+  console.log('\ud83d\udc65 syncStaffToSite (exclusive):', staffDocIds.length, 'staff → site', siteId);
+
+  // Load all sites to remove these staff from any other site they are on
+  const allSitesSnap = await getDocs(sitesCollection);
+  const allSites = allSitesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const staffSet = new Set(staffDocIds);
+
+  await Promise.all(
+    allSites
+      .filter(site => site.id !== siteId)
+      .map(async (site) => {
+        const current = site.assignedStaff || [];
+        const overlap = current.filter(id => staffSet.has(id));
+        if (!overlap.length) return;
+        const cleaned = current.filter(id => !staffSet.has(id));
+        await updateDoc(doc(db, 'sites', site.id), { assignedStaff: cleaned });
+        console.log('\ud83d\uddd1\ufe0f Removed', overlap.length, 'staff from old site:', site.name);
+      })
+  );
+
+  // Update each labour doc to point to the new site
   await Promise.all(
     staffDocIds.map(staffId =>
       updateDoc(doc(db, 'labour', staffId), { siteId })
@@ -1126,5 +1145,6 @@ export const syncStaffToSite = async (siteId, staffDocIds = []) => {
         .catch(err => console.warn('\u26a0\ufe0f Could not update staff', staffId, err.message))
     )
   );
-  console.log('\u2705 syncStaffToSite complete for site', siteId);
+
+  console.log('\u2705 syncStaffToSite complete \u2014 staff exclusively on site', siteId);
 };
