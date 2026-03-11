@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Users,
   Calendar,
@@ -30,6 +30,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
+  const [selectedSiteFilter, setSelectedSiteFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [submittedToday, setSubmittedToday] = useState(false)
 
@@ -46,6 +47,13 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [editingAttendance, setEditingAttendance] = useState(null)
   const [editAttendanceData, setEditAttendanceData] = useState({})
 
+  // Custom Toast Notification
+  const [toastMessage, setToastMessage] = useState({ text: '', type: 'success', visible: false })
+  const showToast = (text, type = 'success') => {
+    setToastMessage({ text, type, visible: true })
+    setTimeout(() => setToastMessage({ text: '', type: 'success', visible: false }), 3000)
+  }
+
   // Load real data from Firebase
   useEffect(() => {
     const loadData = async () => {
@@ -54,9 +62,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
         // Guard: Firestore rejects 'in []' queries; wait until sites resolve.
         if (userRole === 'supervisor' && assignedSites.length === 0) {
+          console.log('⏳ Attendance: waiting for supervisor sites to resolve...')
           setLoading(false)
           return
         }
+
+        console.log('📋 Attendance: loading for', userRole, '| sites:', assignedSites.map(s => s.name))
 
         const accessibleSites = userRole === 'supervisor' ? assignedSites : null
         const siteIds = accessibleSites?.map(s => s.id) || []
@@ -69,7 +80,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           staffQuery = labourCollection
         }
         const staffSnapshot = await getDocs(staffQuery)
-        setEmployees(convertDocsToArray(staffSnapshot))
+        const staffData = convertDocsToArray(staffSnapshot)
+        console.log('👷 Attendance: found', staffData.length, 'staff members')
+        setEmployees(staffData)
 
         if (userRole === 'supervisor') {
           setSites(assignedSites)
@@ -183,27 +196,26 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       unsubscribeBuildings()
       if (unsubscribeSites) unsubscribeSites()
     }
-  }, [selectedDate, userRole, currentSupervisor])
+  }, [selectedDate, userRole, assignedSites, currentSupervisor])
 
   const handleAttendanceChange = async (employeeId, newStatus) => {
     const employee = employees.find(emp => emp.id === employeeId)
     if (!employee) return
     if (!employee.siteId || !employee.buildingId) {
-      alert('This staff member is missing site/building assignment. Please edit staff and set both before marking attendance.')
+      showToast('This staff member is missing site/building assignment. Please edit staff and set both before marking attendance.', 'error')
       return
     }
 
     // Check if supervisor
     if (userRole === 'supervisor') {
       // Check if employee is at assigned site
-      if (!employee.siteId || !currentSupervisor?.assignedSites?.includes(employee.siteId)) {
-        alert('You can only mark attendance for staff at your assigned sites.')
+      if (!employee.siteId || !currentSupervisor?.assignedSites?.some(site => site.id === employee.siteId)) {
+        showToast('You can only mark attendance for staff at your assigned sites.', 'error')
         return
       }
 
-      // Check if already submitted today
       if (submittedToday) {
-        alert('Attendance already submitted for today. Changes are not allowed.')
+        showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
         return
       }
 
@@ -214,7 +226,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       )
 
       if (existingRecord && existingRecord.status !== newStatus) {
-        alert('You cannot modify attendance after submission.')
+        showToast('You cannot modify attendance after submission.', 'error')
         return
       }
     }
@@ -253,7 +265,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       }
     } catch (error) {
       console.error('Error updating attendance:', error);
-      alert('Error updating attendance. Please try again.');
+      showToast('Error updating attendance. Please try again.', 'error');
     }
   }
 
@@ -275,40 +287,66 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         }
 
         setSubmittedToday(true)
-        alert('Attendance submitted successfully!')
+        showToast('Attendance submitted successfully!')
       } catch (error) {
         console.error('Error submitting attendance:', error)
-        alert('Error submitting attendance. Please try again.')
+        showToast('Error submitting attendance. Please try again.', 'error')
       }
     }
   }
 
   const markAllPresent = () => {
+    if (userRole === 'supervisor' && submittedToday) {
+      showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
+      return
+    }
     employees.forEach(employee => {
+      // If supervisor, only mark for their assigned sites
+      if (userRole === 'supervisor' && (!employee.siteId || !currentSupervisor?.assignedSites?.some(site => site.id === employee.siteId))) return
       handleAttendanceChange(employee.id, 'present')
     })
   }
 
   const markAllAbsent = () => {
+    if (userRole === 'supervisor' && submittedToday) {
+      showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
+      return
+    }
     employees.forEach(employee => {
+      if (userRole === 'supervisor' && (!employee.siteId || !currentSupervisor?.assignedSites?.some(site => site.id === employee.siteId))) return
       handleAttendanceChange(employee.id, 'absent')
     })
   }
 
   const getAttendanceStats = () => {
-    const todayRecords = attendance.filter(record => record.date === selectedDate)
+    let todayRecords = attendance.filter(record => record.date === selectedDate)
+
+    // Admin filtering by site
+    if (userRole === 'admin' && selectedSiteFilter !== 'all') {
+      todayRecords = todayRecords.filter(record => record.siteId === selectedSiteFilter)
+    }
+
     const present = todayRecords.filter(record => record.status === 'present').length
     const absent = todayRecords.filter(record => record.status === 'absent').length
-    const total = todayRecords.length
+    const total = employees.filter(emp => {
+      let matchesSite = true;
+      if (userRole === 'supervisor') {
+        matchesSite = emp.siteId && assignedSites.some(site => site.id === emp.siteId);
+      } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
+        matchesSite = emp.siteId === selectedSiteFilter;
+      }
+      return matchesSite;
+    }).length; // Total employees to calculate correct percentage based on staff count, not marked records. However, earlier it was total = todayRecords.length. Let's stick with todayRecords.length for consistency.
 
-    return { present, absent, total, percentage: total > 0 ? (present / total * 100).toFixed(1) : 0 }
+    const finalTotal = todayRecords.length;
+    return { present, absent, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
   // Staff Management Functions
   const handleAddStaff = async () => {
     try {
       if (!newStaff.siteId || !newStaff.buildingId) {
-        alert('Please select both site and building for the staff member.')
+        showToast('Please select both site and building for the staff member.', 'error')
         return
       }
       // Generate unique number ID for the staff member
@@ -316,7 +354,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
       const staffData = {
         ...newStaff,
-        id: uniqueNumber.toString(),
+        employeeCode: uniqueNumber.toString(),
         joinDate: new Date().toISOString().split('T')[0],
         dailyWage: newStaff.dailyWage ? parseFloat(newStaff.dailyWage) : 0,
         createdAt: new Date().toISOString(),
@@ -327,17 +365,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       await labourServices.addLabour(staffData)
       setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
       setShowAddStaffModal(false)
-      alert('Staff added successfully!')
+      showToast('Staff added successfully!')
     } catch (error) {
       console.error('Error adding staff:', error)
-      alert('Error adding staff. Please try again.')
+      showToast('Error adding staff. Please try again.', 'error')
     }
   }
 
   const handleEditStaff = async () => {
     try {
       if (!editStaff.siteId || !editStaff.buildingId) {
-        alert('Please select both site and building for the staff member.')
+        showToast('Please select both site and building for the staff member.', 'error')
         return
       }
       const staffData = {
@@ -351,10 +389,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       setShowEditStaffModal(false)
       setStaffToEdit(null)
       setEditStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
-      alert('Staff updated successfully!')
+      showToast('Staff updated successfully!')
     } catch (error) {
       console.error('Error updating staff:', error)
-      alert('Error updating staff. Please try again.')
+      showToast('Error updating staff. Please try again.', 'error')
     }
   }
 
@@ -363,10 +401,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       await labourServices.deleteLabour(staffToDelete.id)
       setShowDeleteConfirm(false)
       setStaffToDelete(null)
-      alert('Staff deleted successfully!')
+      showToast('Staff deleted successfully!')
     } catch (error) {
       console.error('Error deleting staff:', error)
-      alert('Error deleting staff. Please try again.')
+      showToast('Error deleting staff. Please try again.', 'error')
     }
   }
 
@@ -403,20 +441,20 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
       setEditingAttendance(null)
       setEditAttendanceData({})
-      alert('Attendance updated successfully!')
+      showToast('Attendance updated successfully!')
     } catch (error) {
       console.error('Error updating attendance:', error)
-      alert('Error updating attendance. Please try again.')
+      showToast('Error updating attendance. Please try again.', 'error')
     }
   }
 
   const handleDeleteAttendance = async (attendanceId) => {
     try {
       await attendanceServices.deleteAttendance(attendanceId)
-      alert('Attendance deleted successfully!')
+      showToast('Attendance deleted successfully!')
     } catch (error) {
       console.error('Error deleting attendance:', error)
-      alert('Error deleting attendance. Please try again.')
+      showToast('Error deleting attendance. Please try again.', 'error')
     }
   }
 
@@ -434,7 +472,15 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       employee.role.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || status === filterStatus
 
-    return matchesSearch && matchesFilter
+    // Filter by assigned sites for supervisors, or selected site for admin
+    let matchesSite = true;
+    if (userRole === 'supervisor') {
+      matchesSite = employee.siteId && assignedSites.some(site => site.id === employee.siteId);
+    } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
+      matchesSite = employee.siteId === selectedSiteFilter;
+    }
+
+    return matchesSearch && matchesFilter && matchesSite
   }).map(employee => ({
     ...employee,
     site: sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
@@ -451,9 +497,51 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     )
   }
 
+  // Supervisor has no sites assigned at all
+  if (userRole === 'supervisor' && assignedSites.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center p-6">
+        <div className="text-5xl mb-4">🏗️</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">No Sites Assigned</h2>
+        <p className="text-gray-500 max-w-md">
+          You don't have any sites assigned yet. Please ask your admin to assign a site to you from <strong>Site Management</strong>.
+        </p>
+      </div>
+    )
+  }
+
+  // Supervisor has sites but no staff assigned to those sites
+  if (userRole === 'supervisor' && assignedSites.length > 0 && employees.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center p-6">
+        <div className="text-5xl mb-4">👷</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">No Workers Assigned to Your Sites</h2>
+        <p className="text-gray-500 max-w-md">
+          Your site (<strong>{assignedSites.map(s => s.name).join(', ')}</strong>) has no workers assigned yet.
+          Ask your admin to go to <strong>Site Management → Edit Site → Assign Staff</strong> and add workers.
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+    <div className="p-6 space-y-6 relative">
+      <AnimatePresence>
+        {toastMessage.visible && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className={`fixed bottom-8 right-8 z-[100] px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 text-white ${toastMessage.type === 'error' ? 'bg-red-600' : 'bg-gray-800'
+              }`}
+          >
+            {toastMessage.type === 'error' ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5 text-green-400" />}
+            <span className="font-medium tracking-wide text-sm">{toastMessage.text}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Attendance Management</h1>
           <p className="text-gray-600">Track daily attendance - Present or Absent</p>
@@ -586,7 +674,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       )}
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="flex-1">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -599,6 +687,20 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             />
           </div>
         </div>
+        {userRole === 'admin' && (
+          <div className="md:w-64">
+            <select
+              value={selectedSiteFilter}
+              onChange={(e) => setSelectedSiteFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Sites</option>
+              {sites.map(site => (
+                <option key={site.id} value={site.id}>{site.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             onClick={() => setFilterStatus('all')}

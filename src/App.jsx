@@ -134,12 +134,54 @@ const AppContent = () => {
         return result
       }
 
+      // Debug: show every staff member's current siteId in labour collection
+      window.debugStaffSiteIds = async () => {
+        const { getDocs: _getDocs, collection: _col } = await import('firebase/firestore')
+        const { db: _db } = await import('./firebase')
+        const labourSnap = await _getDocs(_col(_db, 'labour'))
+        const sitesSnap = await _getDocs(_col(_db, 'sites'))
+        const siteMap = {}
+        sitesSnap.docs.forEach(d => { siteMap[d.id] = d.data().name })
+        console.table(
+          labourSnap.docs.map(d => ({
+            id: d.id,
+            name: d.data().name,
+            siteId: d.data().siteId || '⚠️ UNSET',
+            siteName: siteMap[d.data().siteId] || '⚠️ NOT FOUND'
+          }))
+        )
+      }
+
+      // Repair: set labour.siteId from site.assignedStaff for every site
+      window.repairStaffSiteIds = async () => {
+        const { getDocs: _getDocs, updateDoc: _updateDoc, doc: _doc, collection: _col } = await import('firebase/firestore')
+        const { db: _db } = await import('./firebase')
+        const sitesSnap = await _getDocs(_col(_db, 'sites'))
+        let fixed = 0
+        for (const siteDoc of sitesSnap.docs) {
+          const siteData = siteDoc.data()
+          const staff = siteData.assignedStaff || []
+          for (const staffId of staff) {
+            try {
+              await _updateDoc(_doc(_db, 'labour', staffId), { siteId: siteDoc.id })
+              console.log(`✅ ${staffId} → siteId = ${siteDoc.id} (${siteData.name})`)
+              fixed++
+            } catch (e) {
+              console.warn(`⚠️ Could not update ${staffId}:`, e.message)
+            }
+          }
+        }
+        console.log(`\n🎉 Done — fixed ${fixed} staff documents. Refresh to see changes.`)
+      }
+
       console.log('🔧 Test functions available:')
       console.log('  window.testAuthSystem() - Full system test')
       console.log('  window.testAccountRoles() - Show account roles')
       console.log('  window.initializeUsers() - Initialize user documents')
       console.log('  window.fixSupervisorSiteAssignments() - Repair missing site assignments')
       console.log('  window.runDataMigration() - Migrate legacy field names to standard')
+      console.log('  window.debugStaffSiteIds() - Show each staff member current siteId')
+      console.log('  window.repairStaffSiteIds() - Force-fix all labour.siteId from site.assignedStaff')
     }
   }, [])
 

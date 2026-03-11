@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserIcon, Package as PackageIcon } from 'lucide-react'
-import { siteServices, buildingServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, dprServices, processServices, convertDocsToArray, supervisorServices, syncSiteToSupervisors } from '../services/firebaseServices'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserIcon, Package as PackageIcon, DollarSign, Search, X } from 'lucide-react'
+import { siteServices, buildingServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, dprServices, processServices, convertDocsToArray, supervisorServices, syncSiteToSupervisors, syncSingleStaffToSite } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import storageService from '../services/storageService'
@@ -23,6 +23,10 @@ const Dashboard = ({ userRole }) => {
   const [materials, setMaterials] = useState([])
   const [dprRecords, setDprRecords] = useState([])
   const [supervisorsList, setSupervisorsList] = useState([]) // for admin supervisor picker
+  const [quickExpenseSite, setQuickExpenseSite] = useState(null)
+  const [quickExpenseAmount, setQuickExpenseAmount] = useState('')
+  const [quickStaffSite, setQuickStaffSite] = useState(null)
+  const [staffSearchTerm, setStaffSearchTerm] = useState('')
   const [dprFormData, setDprFormData] = useState({
     siteName: '',
     siteArea: '',
@@ -523,6 +527,53 @@ const Dashboard = ({ userRole }) => {
       setDprStep(dprStep - 1)
     }
   }
+
+  const handleOpenExpenseModal = (siteId) => {
+    setQuickExpenseSite(siteId);
+    setQuickExpenseAmount('');
+  };
+
+  const handleSaveQuickExpense = async () => {
+    if (!quickExpenseAmount) return;
+    const expenseAmount = parseInt(quickExpenseAmount);
+    if (isNaN(expenseAmount) || expenseAmount <= 0) {
+      alert("Invalid amount entered.");
+      return;
+    }
+    try {
+      const site = sites.find(s => s.id === quickExpenseSite);
+      const currentExpenses = site.expenses || 0;
+      const newTotal = currentExpenses + expenseAmount;
+      await siteServices.updateSite(quickExpenseSite, { expenses: newTotal });
+      setSites(sites.map(s => s.id === quickExpenseSite ? { ...s, expenses: newTotal } : s));
+      setQuickExpenseSite(null);
+    } catch (err) {
+      alert("Failed to add expense: " + err.message);
+    }
+  };
+
+  const handleToggleQuickStaff = async (siteId, staffId, isAdding) => {
+    try {
+      await syncSingleStaffToSite(staffId, isAdding ? siteId : null);
+
+      // Update sites state — add/remove staffId from assignedStaff
+      setSites(prev => prev.map(s => {
+        const cleanedOld = (s.assignedStaff || []).filter(id => id !== staffId);
+        if (isAdding && s.id === siteId) {
+          return { ...s, assignedStaff: [...cleanedOld, staffId] };
+        }
+        return { ...s, assignedStaff: cleanedOld };
+      }));
+
+      // Also update the staff list's siteId so the modal badge refreshes instantly
+      setStaff(prev => prev.map(s => {
+        if (s.id !== staffId) return s;
+        return { ...s, siteId: isAdding ? siteId : null };
+      }));
+    } catch (err) {
+      alert("Operation failed: " + err.message);
+    }
+  };
 
   const handleMaterialQuantityChange = (materialId, quantity) => {
     setDprFormData(prev => ({
@@ -1038,12 +1089,44 @@ const Dashboard = ({ userRole }) => {
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="text-gray-600">Staff Assigned</p>
-                        <p className="font-semibold text-gray-900">{site.staff?.length || 0}</p>
+                        {userRole === 'admin' ? (
+                          <div className="flex flex-col gap-1">
+                            <p className="text-gray-600">Staff Assigned: <span className="font-semibold text-gray-900">{site.assignedStaff?.length || 0}</span></p>
+                            <button
+                              onClick={() => setQuickStaffSite(site.id)}
+                              className="text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-md flex items-center justify-center gap-1 transition-colors w-fit"
+                            >
+                              <Plus className="w-3 h-3" /> Select Staff List
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-gray-600">Staff Assigned</p>
+                            <p className="font-semibold text-gray-900">{site.assignedStaff?.length || 0}</p>
+                          </>
+                        )}
                       </div>
                       <div>
-                        <p className="text-gray-600">Materials</p>
-                        <p className="font-semibold text-gray-900">{site.materials?.length || 0}</p>
+                        {userRole === 'admin' ? (
+                          <div className="flex flex-col gap-1">
+                            <p className="text-gray-600">Est. Expenses</p>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-red-600">${site.expenses ? site.expenses.toLocaleString() : '0'}</span>
+                              <button
+                                onClick={() => handleOpenExpenseModal(site.id)}
+                                className="flex items-center justify-center gap-1 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 font-medium px-2 py-0.5 rounded transition-all text-xs shadow-sm"
+                                title="Add Expense"
+                              >
+                                <Plus className="w-3 h-3" /> Add
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-gray-600">Materials</p>
+                            <p className="font-semibold text-gray-900">{site.materials?.length || 0}</p>
+                          </>
+                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -1286,126 +1369,69 @@ const Dashboard = ({ userRole }) => {
 
 
 
-                  {/* Available Staff */}
-                  <div>
-                    <h4 className="text-md font-medium text-green-700 mb-3 flex items-center gap-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                      Available Today ({getStaffByAttendance().present.supervisors.length + getStaffByAttendance().present.workers.length})
-                    </h4>
-
-                    {/* Available Supervisors */}
-                    {getStaffByAttendance().present.supervisors.length > 0 && (
-                      <div className="mb-6">
-                        <p className="text-sm font-medium text-gray-600 mb-3">Supervisors (Can manage multiple sites)</p>
-                        <div className="space-y-3">
-                          {getStaffByAttendance().present.supervisors.map(person => {
-                            const supervisorConflict = hasSupervisorConflict(person.id)
-                            const staffConflict = hasStaffConflict(person.id)
-                            const isSelected = dprFormData.selectedStaff.includes(person.id)
-
-                            return (
-                              <motion.div
-                                key={person.id}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => handleStaffToggle(person.id)}
-                                className={`p-4 border rounded-xl cursor-pointer transition-all ${supervisorConflict && !isSelected
-                                  ? 'bg-gray-50 border-gray-200 opacity-60'
-                                  : isSelected
-                                    ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                    : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-sm'
-                                  }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-semibold text-gray-900 truncate">{person.name}</p>
-                                    <p className="text-sm text-gray-600 truncate">{person.role}</p>
-                                    <p className="text-xs text-blue-600 mt-1">Can manage multiple sites</p>
-                                    {supervisorConflict && !isSelected && (
-                                      <p className="text-xs text-red-600 mt-2 font-medium">⚠️ Another supervisor selected</p>
-                                    )}
-                                  </div>
-                                  <div className="ml-3 flex-shrink-0">
-                                    {isSelected ? (
-                                      <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      </div>
-                                    ) : supervisorConflict ? (
-                                      <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                      </div>
-                                    ) : (
-                                      <div className="w-6 h-6 border-2 border-gray-300 rounded-full"></div>
-                                    )}
-                                  </div>
+                  {/* Step 2 only shows Workers — Supervisors are already assigned in Step 1 */}
+                  {getStaffByAttendance().present.workers.length > 0 ? (
+                    <div>
+                      <h4 className="text-md font-medium text-green-700 mb-3 flex items-center gap-2">
+                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                        Available Workers ({getStaffByAttendance().present.workers.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {getStaffByAttendance().present.workers.map(person => {
+                          const workerConflict = hasStaffConflict(person.id)
+                          const isSelected = dprFormData.selectedStaff.includes(person.id)
+                          return (
+                            <motion.div
+                              key={person.id}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => handleStaffToggle(person.id)}
+                              className={`p-4 border rounded-xl cursor-pointer transition-all ${workerConflict && !isSelected
+                                ? 'bg-gray-50 border-gray-200 opacity-60'
+                                : isSelected
+                                  ? 'bg-blue-50 border-blue-500 shadow-sm'
+                                  : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-sm'
+                                }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-gray-900 truncate">{person.name}</p>
+                                  <p className="text-sm text-gray-600 truncate">{person.role}</p>
+                                  <p className="text-xs text-orange-600 mt-1">Single site assignment only</p>
+                                  {workerConflict && !isSelected && (
+                                    <p className="text-xs text-red-600 mt-2 font-medium">⚠️ Already assigned to another site</p>
+                                  )}
                                 </div>
-                              </motion.div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Available Workers */}
-                    {getStaffByAttendance().present.workers.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-600 mb-3">Workers (Single site assignment only)</p>
-                        <div className="space-y-3">
-                          {getStaffByAttendance().present.workers.map(person => {
-                            const workerConflict = hasStaffConflict(person.id)
-                            const isSelected = dprFormData.selectedStaff.includes(person.id)
-
-                            return (
-                              <motion.div
-                                key={person.id}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={() => handleStaffToggle(person.id)}
-                                className={`p-4 border rounded-xl cursor-pointer transition-all ${workerConflict && !isSelected
-                                  ? 'bg-gray-50 border-gray-200 opacity-60'
-                                  : isSelected
-                                    ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                    : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-sm'
-                                  }`}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-semibold text-gray-900 truncate">{person.name}</p>
-                                    <p className="text-sm text-gray-600 truncate">{person.role}</p>
-                                    <p className="text-xs text-orange-600 mt-1">Single site assignment only</p>
-                                    {workerConflict && !isSelected && (
-                                      <p className="text-xs text-red-600 mt-2 font-medium">⚠️ Already assigned to another site</p>
-                                    )}
-                                  </div>
-                                  <div className="ml-3 flex-shrink-0">
-                                    {isSelected ? (
-                                      <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      </div>
-                                    ) : workerConflict ? (
-                                      <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                      </div>
-                                    ) : (
-                                      <div className="w-6 h-6 border-2 border-gray-300 rounded-full"></div>
-                                    )}
-                                  </div>
+                                <div className="ml-3 flex-shrink-0">
+                                  {isSelected ? (
+                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  ) : workerConflict ? (
+                                    <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
+                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                      </svg>
+                                    </div>
+                                  ) : (
+                                    <div className="w-6 h-6 border-2 border-gray-300 rounded-full"></div>
+                                  )}
                                 </div>
-                              </motion.div>
-                            )
-                          })}
-                        </div>
+                              </div>
+                            </motion.div>
+                          )
+                        })}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">
+                      <p className="text-sm">No workers available to assign.</p>
+                      <p className="text-xs mt-1">Add workers via the Staff / Labour section first.</p>
+                    </div>
+                  )}
+
 
                   {/* Already Assigned Staff */}
                   {(getStaffByAttendance().assigned.supervisors.length > 0 || getStaffByAttendance().assigned.workers.length > 0) && (
@@ -1622,11 +1648,129 @@ const Dashboard = ({ userRole }) => {
               )}
             </div>
           </motion.div>
-        </motion.div>
+        </motion.div >
       )}
 
+      <AnimatePresence>
+        {quickExpenseSite && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]"
+            onClick={() => setQuickExpenseSite(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden"
+            >
+              <div className="p-5 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2"><DollarSign className="w-5 h-5 text-red-500" /> Add Expense</h3>
+                <button onClick={() => setQuickExpenseSite(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Amount ($)</label>
+                <input
+                  type="number" autoFocus min="1"
+                  value={quickExpenseAmount}
+                  onChange={(e) => setQuickExpenseAmount(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveQuickExpense() }}
+                  className="w-full text-lg px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow"
+                  placeholder="e.g. 150"
+                />
+              </div>
+              <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
+                <button onClick={() => setQuickExpenseSite(null)} className="flex-1 py-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button onClick={handleSaveQuickExpense} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 shadow-sm focus:ring-4 focus:ring-red-500/30 transition-all">Add Expense</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {quickStaffSite && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]"
+            onClick={() => { setQuickStaffSite(null); setStaffSearchTerm(''); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] overflow-hidden"
+            >
+              <div className="p-5 border-b border-gray-100 bg-white flex items-center justify-between shrink-0">
+                <h3 className="font-bold text-gray-900 text-xl flex items-center gap-2">
+                  <Users className="w-5 h-5 text-blue-600" /> Site Staff Registry
+                </h3>
+                <button onClick={() => { setQuickStaffSite(null); setStaffSearchTerm(''); }} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 border-b border-gray-100 bg-gray-50 shrink-0">
+                <div className="relative">
+                  <Search className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text" autoFocus
+                    value={staffSearchTerm}
+                    onChange={(e) => setStaffSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 shadow-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                    placeholder="Search by worker name, role, phone..."
+                  />
+                </div>
+              </div>
+
+              <div className="p-2 overflow-y-auto flex-1 bg-gray-50">
+                <div className="space-y-1.5 px-2 pb-4">
+                  {staff
+                    .filter(s => (s.name + s.role + s.phone).toLowerCase().includes(staffSearchTerm.toLowerCase()))
+                    .map(st => {
+                      const theSite = sites.find(s => s.id === quickStaffSite);
+                      const isAssignedToThis = (theSite?.assignedStaff || []).includes(st.id);
+                      const currentSiteInfo = st.siteId && st.siteId !== quickStaffSite ? sites.find(s => s.id === st.siteId) : null;
+
+                      return (
+                        <div
+                          key={st.id}
+                          className={`group flex items-center justify-between p-3.5 rounded-xl border-2 transition-all cursor-pointer ${isAssignedToThis ? 'bg-blue-50/50 border-blue-500 shadow-sm' : 'bg-white border-transparent hover:border-blue-200 shadow-sm'}`}
+                          onClick={() => handleToggleQuickStaff(quickStaffSite, st.id, !isAssignedToThis)}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`shrink-0 w-6 h-6 rounded border flex items-center justify-center transition-colors ${isAssignedToThis ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 bg-white group-hover:border-blue-400'}`}>
+                              {isAssignedToThis && <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                            <div>
+                              <h4 className={`text-base font-bold ${isAssignedToThis ? 'text-blue-900' : 'text-gray-900'}`}>{st.name}</h4>
+                              <p className="text-sm text-gray-500 font-medium">{st.role} {st.phone ? `• ${st.phone}` : ''}</p>
+                            </div>
+                          </div>
+                          {currentSiteInfo && !isAssignedToThis ? (
+                            <span className="text-xs font-semibold px-2.5 py-1 bg-amber-100 text-amber-800 rounded-lg">Moves from: {currentSiteInfo.name}</span>
+                          ) : isAssignedToThis ? (
+                            <span className="text-xs font-bold px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg">Assigned</span>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  {staff.filter(s => (s.name + s.role).toLowerCase().includes(staffSearchTerm.toLowerCase())).length === 0 && (
+                    <div className="text-center py-10 px-4 text-gray-500">
+                      <Users className="w-10 h-10 mx-auto text-gray-300 mb-2" />
+                      <p className="text-lg font-medium text-gray-600">No workers found</p>
+                      <p className="text-sm">Try adjusting your search criteria</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="p-4 border-t border-gray-200 bg-white shrink-0 flex justify-end">
+                <button onClick={() => { setQuickStaffSite(null); setStaffSearchTerm(''); }} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-md hover:bg-blue-700 hover:shadow-lg transition-all">Done Editing</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <Footer />
-    </div>
+    </div >
   )
 }
 

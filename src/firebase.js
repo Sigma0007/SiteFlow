@@ -1,5 +1,5 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 // import { getAnalytics } from "firebase/analytics"; // Disabled for development
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
@@ -16,14 +16,20 @@ const firebaseConfig = {
   measurementId: "G-PQYNR1BNXL"
 };
 
-// Initialize Firebase
+// Initialize Firebase (primary app)
 const app = initializeApp(firebaseConfig);
-// const analytics = getAnalytics(app); // Disabled for development - CSP issues
 
 // Initialize Firebase services with error handling
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+// ─── Secondary Firebase App (for creating supervisor accounts) ────────────────
+// Using a secondary app prevents creating a new user from signing out the admin.
+const secondaryApp = getApps().find(a => a.name === 'secondary')
+  || initializeApp(firebaseConfig, 'secondary');
+export const secondaryAuth = getAuth(secondaryApp);
+// ──────────────────────────────────────────────────────────────────────────────
 
 // Suppress Firestore BloomFilter warnings (internal optimization warnings)
 if (typeof window !== 'undefined') {

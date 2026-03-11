@@ -12,14 +12,15 @@ import {
   onSnapshot,
   documentId,
   deleteField,
-  arrayUnion
+  arrayUnion,
+  setDoc
 } from 'firebase/firestore';
 import {
   getAuth,
   createUserWithEmailAndPassword,
-  sendPasswordResetEmail
+  signOut
 } from 'firebase/auth';
-import { db, auth } from '../firebase.js';
+import { db, auth, secondaryAuth } from '../firebase.js';
 
 // Collection references
 export const sitesCollection = collection(db, 'sites');
@@ -401,10 +402,6 @@ export const processServices = {
     return getDoc(doc(db, 'processes', processId));
   },
 
-  // Add process (works for both building and site level)
-  addProcess: (siteId, buildingId, processData) => {
-    return addDoc(collection(db, 'processes'), processData);
-  },
 
   // Add new process
   addProcess: (siteId, buildingId, processData) => {
@@ -557,8 +554,8 @@ export const dprServices = {
 // Utility function to convert Firestore docs to objects
 export const convertDocsToArray = (snapshot) => {
   return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
+    ...doc.data(),
+    id: doc.id
   }));
 };
 
@@ -823,38 +820,55 @@ export const supervisorServices = {
 
   deletePORequest: (id) => deleteDoc(doc(db, 'purchaseOrders', id)),
 
-  // Enhanced supervisor creation with Firebase Auth
-  createSupervisorWithAuth: async (supervisorData) => {
+  // Create supervisor with Firebase Auth using secondary app (admin stays logged in)
+  createSupervisorWithAuth: async (supervisorData, password) => {
     try {
-      // Generate secure temporary password
-      const tempPassword = generateSecurePassword();
+      if (!password || password.length < 6) {
+        throw new Error('Password must be at least 6 characters.');
+      }
 
-      // Create Firebase Auth account
+      // Use secondaryAuth so the admin session is NOT affected
       const userCredential = await createUserWithEmailAndPassword(
-        auth,
+        secondaryAuth,
         supervisorData.email,
-        tempPassword
+        password
       );
 
-      // Add supervisor to Firestore with Firebase UID
+      // Immediately sign out of secondary auth — we don't need it signed in
+      await signOut(secondaryAuth);
+
+      const email = supervisorData.email.toLowerCase().trim();
+      const uid = userCredential.user.uid;
+
+      // ── CRITICAL: Write /users/{email} with role:'supervisor' ──────────────
+      // Firestore rules use getUserRole() → get(/users/{email}).role
+      // Without this doc the supervisor gets "Missing or insufficient permissions"
+      // on every collection query.
+      await setDoc(doc(db, 'users', email), {
+        role: 'supervisor',
+        status: 'active',
+        email: email,
+        uid: uid,
+        name: supervisorData.name || '',
+        createdAt: new Date().toISOString()
+      });
+      // ───────────────────────────────────────────────────────────────────────
+
+      // Add supervisor to Firestore supervisors collection with Firebase UID
       const supervisorWithAuth = {
         ...supervisorData,
-        firebaseUid: userCredential.user.uid,
-        status: 'pending', // Pending first login
-        tempPassword: tempPassword, // Store temporarily for welcome email
+        email: email,
+        firebaseUid: uid,
+        status: 'active',
         createdAt: new Date().toISOString()
       };
 
       const supervisorDoc = await addDoc(supervisorsCollection, supervisorWithAuth);
 
-      // Send password reset email for secure first login
-      await sendPasswordResetEmail(auth, supervisorData.email);
-
       return {
         success: true,
         supervisorId: supervisorDoc.id,
-        tempPassword: tempPassword,
-        message: 'Supervisor account created successfully. Password reset email sent.'
+        message: 'Supervisor account created successfully.'
       };
 
     } catch (error) {
@@ -867,7 +881,7 @@ export const supervisorServices = {
   checkEmailAvailability: async (email) => {
     try {
       // Check in supervisors collection
-      const supervisorSnapshot = await getSupervisorByEmail(email);
+      const supervisorSnapshot = await supervisorServices.getSupervisorByEmail(email);
       if (supervisorSnapshot.docs.length > 0) {
         return { available: false, reason: 'Email already registered as supervisor' };
       }
@@ -1141,10 +1155,42 @@ export const syncStaffToSite = async (siteId, staffDocIds = []) => {
   await Promise.all(
     staffDocIds.map(staffId =>
       updateDoc(doc(db, 'labour', staffId), { siteId })
-        .then(() => console.log('\u2705 Staff', staffId, '\u2192 siteId =', siteId))
-        .catch(err => console.warn('\u26a0\ufe0f Could not update staff', staffId, err.message))
+        .then(() => console.log('✅ Staff', staffId, '→ siteId =', siteId))
+        .catch(err => console.warn('⚠️ Could not update staff', staffId, err.message))
     )
   );
 
-  console.log('\u2705 syncStaffToSite complete \u2014 staff exclusively on site', siteId);
+  console.log('✅ syncStaffToSite complete — staff exclusively on site', siteId);
+};
+
+export const syncSingleStaffToSite = async (staffId, siteId) => {
+  if (!staffId) return;
+  console.log('👷 syncSingleStaffToSite:', staffId, '→ site', siteId);
+
+  const allSitesSnap = await getDocs(sitesCollection);
+
+  await Promise.all(
+    allSitesSnap.docs.map(async (docSnap) => {
+      const site = { id: docSnap.id, ...docSnap.data() };
+      const current = site.assignedStaff || [];
+      const hasStaff = current.includes(staffId);
+
+      if (siteId && site.id === siteId) {
+        if (!hasStaff) {
+          await updateDoc(doc(db, 'sites', site.id), {
+            assignedStaff: arrayUnion(staffId)
+          });
+        }
+      } else {
+        if (hasStaff) {
+          const cleaned = current.filter(id => id !== staffId);
+          await updateDoc(doc(db, 'sites', site.id), { assignedStaff: cleaned });
+        }
+      }
+    })
+  );
+
+  if (siteId !== null) {
+    await updateDoc(doc(db, 'labour', staffId), { siteId }).catch(e => console.warn(e));
+  }
 };
