@@ -110,6 +110,7 @@ const SiteManagement = ({ userRole }) => {
     endDate: '',
     budget: 0,
     progress: 0,
+    totalSq: 0,
     status: 'Active',
     image: '',
     assignedSupervisors: [], // Add supervisor assignment
@@ -327,6 +328,7 @@ const SiteManagement = ({ userRole }) => {
       budget: 0,
       expenses: 0,
       progress: 0,
+      totalSq: 0,
       status: 'Active',
       image: '',
       assignedSupervisors: [], // Add supervisor assignment
@@ -375,6 +377,7 @@ const SiteManagement = ({ userRole }) => {
           budget: parseInt(formData.budget) || 0,
           expenses: parseInt(formData.expenses) || 0,
           progress: parseInt(formData.progress) || 0,
+          totalSq: parseInt(formData.totalSq) || 0,
           status: formData.status,
           image: formData.image || '',
           assignedSupervisors: formData.assignedSupervisors || [],
@@ -407,6 +410,7 @@ const SiteManagement = ({ userRole }) => {
           budget: parseInt(formData.budget) || 0,
           expenses: parseInt(formData.expenses) || 0,
           progress: parseInt(formData.progress) || 0,
+          totalSq: parseInt(formData.totalSq) || 0,
           status: formData.status,
           image: formData.image || '',
           assignedSupervisors: formData.assignedSupervisors || [],
@@ -468,6 +472,7 @@ const SiteManagement = ({ userRole }) => {
         endDate: '',
         budget: 0,
         progress: 0,
+        totalSq: 0,
         status: 'Active',
         image: '',
         assignedSupervisors: [],
@@ -493,7 +498,8 @@ const SiteManagement = ({ userRole }) => {
       assignedSupervisors: site.assignedSupervisors || [],
       assignedStaff: site.assignedStaff || [],
       budget: site.budget || 0,
-      expenses: site.expenses || 0
+      expenses: site.expenses || 0,
+      totalSq: site.totalSq || 0
     })
     setShowModal(true)
   }
@@ -1380,6 +1386,18 @@ const SiteManagement = ({ userRole }) => {
                     />
                   </div>
                 </div> */}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Total Area (sq ft)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.totalSq}
+                    onChange={(e) => setFormData({ ...formData, totalSq: e.target.value })}
+                    className="input-field"
+                    placeholder="e.g. 5000"
+                  />
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>

@@ -201,19 +201,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const handleAttendanceChange = async (employeeId, newStatus) => {
     const employee = employees.find(emp => emp.id === employeeId)
     if (!employee) return
-    if (!employee.siteId || !employee.buildingId) {
-      showToast('This staff member is missing site/building assignment. Please edit staff and set both before marking attendance.', 'error')
-      return
-    }
 
     // Check if supervisor
     if (userRole === 'supervisor') {
-      // Check if employee is at assigned site
-      if (!employee.siteId || !currentSupervisor?.assignedSites?.some(site => site.id === employee.siteId)) {
-        showToast('You can only mark attendance for staff at your assigned sites.', 'error')
-        return
-      }
-
       if (submittedToday) {
         showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
         return
@@ -345,10 +335,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   // Staff Management Functions
   const handleAddStaff = async () => {
     try {
-      if (!newStaff.siteId || !newStaff.buildingId) {
-        showToast('Please select both site and building for the staff member.', 'error')
-        return
-      }
       // Generate unique number ID for the staff member
       const uniqueNumber = Date.now() + Math.floor(Math.random() * 1000)
 
@@ -374,13 +360,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   const handleEditStaff = async () => {
     try {
-      if (!editStaff.siteId || !editStaff.buildingId) {
-        showToast('Please select both site and building for the staff member.', 'error')
-        return
-      }
       const staffData = {
         ...editStaff,
-        dailyWage: parseFloat(editStaff.dailyWage),
+        dailyWage: editStaff.dailyWage ? parseFloat(editStaff.dailyWage) : 0,
         updatedAt: new Date().toISOString(),
         updatedBy: userRole
       }
@@ -889,6 +871,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site</label>
               <select
                 value={newStaff.siteId}
                 onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })}
@@ -899,11 +884,13 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   <option key={site.id} value={site.id}>{site.name}</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Building</label>
               <select
                 value={newStaff.buildingId}
                 onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })}
                 disabled={!newStaff.siteId}
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 <option value="">Select Building</option>
@@ -913,7 +900,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
               </select>
-
             </div>
             <div className="flex gap-3 mt-6">
               <button
@@ -981,7 +967,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 value={editStaff.buildingId}
                 onChange={(e) => setEditStaff({ ...editStaff, buildingId: e.target.value })}
                 disabled={!editStaff.siteId}
-                required
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 <option value="">Select Building</option>

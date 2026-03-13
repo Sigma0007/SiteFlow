@@ -21,6 +21,7 @@
     "firebase": "^12.9.0",
     "formik": "^2.4.6",
     "framer-motion": "^11.17.0",
+    "html2pdf.js": "^0.14.0",
     "lucide-react": "latest",
     "react": "^18.3.1",
     "react-countup": "^6.5.3",

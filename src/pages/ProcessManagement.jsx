@@ -823,13 +823,12 @@ const ProcessManagement = ({ userRole }) => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <MapPin className="w-4 h-4 inline mr-1" />
-              Select Site *
+              Select Site
             </label>
             <select
               value={selectedSite}
               onChange={(e) => handleSiteChange(e.target.value)}
               className="input-field"
-              required
             >
               <option value="">Choose a site</option>
               {sites.map((site) => (
@@ -844,13 +843,12 @@ const ProcessManagement = ({ userRole }) => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <Building className="w-4 h-4 inline mr-1" />
-                Select Building *
+                Select Building
               </label>
               <select
                 value={selectedBuilding}
                 onChange={(e) => handleBuildingChange(e.target.value)}
                 className="input-field"
-                required
               >
                 <option value="">Choose a building</option>
                 {getBuildingsForSite(selectedSite).map((building) => (

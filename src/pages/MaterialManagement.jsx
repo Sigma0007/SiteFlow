@@ -376,6 +376,7 @@ const MaterialManagement = ({ userRole }) => {
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden sm:table-cell">Category</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden md:table-cell">Unit</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Stock</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Allocated to Sites</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm hidden lg:table-cell">Price</th>
                       <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
                       {(userRole === 'admin' || userRole === 'manager') && (
@@ -407,6 +408,20 @@ const MaterialManagement = ({ userRole }) => {
                               }`}>
                               {material.currentStock}
                             </span>
+                          </td>
+                          <td className="py-3 px-2 sm:px-4 text-xs">
+                            {(() => {
+                              const allocations = sites.reduce((acc, site) => {
+                                const sm = (site.assignedMaterials || []).find(m => m.materialId === material.id);
+                                if (sm && sm.quantity > 0) acc.push(`${site.name}: ${sm.quantity}`);
+                                return acc;
+                              }, []);
+                              return allocations.length > 0 ? (
+                                <div className="space-y-1">
+                                  {allocations.map((a, i) => <div key={i} className="text-indigo-600 bg-indigo-50 inline-block px-1.5 py-0.5 rounded mr-1 mb-1">{a}</div>)}
+                                </div>
+                              ) : <span className="text-gray-400">Not allocated</span>;
+                            })()}
                           </td>
                           <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">₹{material.unitPrice}</td>
                           <td className="py-3 px-2 sm:px-4">

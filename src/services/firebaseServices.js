@@ -132,9 +132,6 @@ export const labourServices = {
 
   // Add new labour
   addLabour: (labourData) => {
-    if (!labourData.siteId || !labourData.buildingId) {
-      throw new Error("siteId and buildingId required");
-    }
     return addDoc(labourCollection, labourData);
   },
 
@@ -240,9 +237,6 @@ export const attendanceServices = {
 
   // Add new attendance record
   addAttendance: (attendanceData) => {
-    if (!attendanceData.siteId || !attendanceData.employeeId) {
-      throw new Error("siteId and employeeId required");
-    }
     return addDoc(attendanceCollection, attendanceData);
   },
 

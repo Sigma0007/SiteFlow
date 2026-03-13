@@ -21,7 +21,7 @@ service cloud.firestore {
     // ── Sites ──────────────────────────────────────────────────────────────────
     match /sites/{siteId} {
       allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
     }
 
     // ── Buildings ──────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ service cloud.firestore {
     // ── Materials ─────────────────────────────────────────────────────────────
     match /materials/{materialId} {
       allow read:  if isAuthenticated();
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
     }
 
     // ── Purchase Orders ───────────────────────────────────────────────────────

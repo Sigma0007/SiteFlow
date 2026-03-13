@@ -8,8 +8,10 @@ import storageService from '../services/storageService'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '../firebase'
 import Footer from '../components/Footer'
+import { useNavigate } from 'react-router-dom'
 
 const Dashboard = ({ userRole }) => {
+  const navigate = useNavigate()
   const { currentSupervisor, assignedSites } = useSupervisor()
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -25,6 +27,8 @@ const Dashboard = ({ userRole }) => {
   const [supervisorsList, setSupervisorsList] = useState([]) // for admin supervisor picker
   const [quickExpenseSite, setQuickExpenseSite] = useState(null)
   const [quickExpenseAmount, setQuickExpenseAmount] = useState('')
+  const [quickExpenseDescription, setQuickExpenseDescription] = useState('')
+  const [quickExpenseFor, setQuickExpenseFor] = useState('')
   const [quickStaffSite, setQuickStaffSite] = useState(null)
   const [staffSearchTerm, setStaffSearchTerm] = useState('')
   const [dprFormData, setDprFormData] = useState({
@@ -531,6 +535,8 @@ const Dashboard = ({ userRole }) => {
   const handleOpenExpenseModal = (siteId) => {
     setQuickExpenseSite(siteId);
     setQuickExpenseAmount('');
+    setQuickExpenseDescription('');
+    setQuickExpenseFor('');
   };
 
   const handleSaveQuickExpense = async () => {
@@ -542,11 +548,32 @@ const Dashboard = ({ userRole }) => {
     }
     try {
       const site = sites.find(s => s.id === quickExpenseSite);
-      const currentExpenses = site.expenses || 0;
-      const newTotal = currentExpenses + expenseAmount;
-      await siteServices.updateSite(quickExpenseSite, { expenses: newTotal });
-      setSites(sites.map(s => s.id === quickExpenseSite ? { ...s, expenses: newTotal } : s));
+      const newExpense = {
+        amount: expenseAmount,
+        expenseFor: quickExpenseFor,
+        description: quickExpenseDescription,
+        date: new Date().toISOString(),
+        siteId: quickExpenseSite,
+        siteName: site.name
+      };
+      
+      // Get current expenses array or create new one
+      const currentExpenses = site.expenses || [];
+      const updatedExpenses = [...currentExpenses, newExpense];
+      
+      await siteServices.updateSite(quickExpenseSite, { 
+        expenses: updatedExpenses,
+        totalExpenses: updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+      });
+      
+      setSites(sites.map(s => s.id === quickExpenseSite ? { 
+        ...s, 
+        expenses: updatedExpenses,
+        totalExpenses: updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
+      } : s));
+      
       setQuickExpenseSite(null);
+      alert("Expense added successfully!");
     } catch (err) {
       alert("Failed to add expense: " + err.message);
     }
@@ -565,7 +592,7 @@ const Dashboard = ({ userRole }) => {
         return { ...s, assignedStaff: cleanedOld };
       }));
 
-      // Also update the staff list's siteId so the modal badge refreshes instantly
+      // Also update the staff list's siteId so that modal badge refreshes instantly
       setStaff(prev => prev.map(s => {
         if (s.id !== staffId) return s;
         return { ...s, siteId: isAdding ? siteId : null };
@@ -1021,14 +1048,36 @@ const Dashboard = ({ userRole }) => {
               <p className="text-blue-100 mt-1">Manage sites and track progress</p>
             </div>
             {userRole === 'admin' && (
+              <div className="flex gap-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => navigate('/dpr')}
+                  className="flex items-center gap-2 px-6 py-3 bg-indigo-500 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl hover:bg-indigo-400 transition-all border border-indigo-400"
+                >
+                  <FileText className="w-5 h-5" />
+                  Detailed DPR View
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowDPRFlow(true)}
+                  className="flex items-center gap-2 px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all"
+                >
+                  <Plus className="w-5 h-5" />
+                  Create New Site
+                </motion.button>
+              </div>
+            )}
+            {userRole === 'supervisor' && (
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setShowDPRFlow(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all"
+                onClick={() => navigate('/dpr')}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-500 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl hover:bg-indigo-400 transition-all border border-indigo-400"
               >
-                <Plus className="w-5 h-5" />
-                Create New Site
+                <FileText className="w-5 h-5" />
+                Go to DPR
               </motion.button>
             )}
           </div>
@@ -1111,7 +1160,7 @@ const Dashboard = ({ userRole }) => {
                           <div className="flex flex-col gap-1">
                             <p className="text-gray-600">Est. Expenses</p>
                             <div className="flex items-center gap-2">
-                              <span className="font-semibold text-red-600">${site.expenses ? site.expenses.toLocaleString() : '0'}</span>
+                              <span className="font-semibold text-red-600">₹{site.totalExpenses ? site.totalExpenses.toLocaleString() : '0'}</span>
                               <button
                                 onClick={() => handleOpenExpenseModal(site.id)}
                                 className="flex items-center justify-center gap-1 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 font-medium px-2 py-0.5 rounded transition-all text-xs shadow-sm"
@@ -1668,15 +1717,39 @@ const Dashboard = ({ userRole }) => {
                 <button onClick={() => setQuickExpenseSite(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Amount ($)</label>
-                <input
-                  type="number" autoFocus min="1"
-                  value={quickExpenseAmount}
-                  onChange={(e) => setQuickExpenseAmount(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleSaveQuickExpense() }}
-                  className="w-full text-lg px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow"
-                  placeholder="e.g. 150"
-                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Amount (₹)</label>
+                  <input
+                    type="number" autoFocus min="1"
+                    value={quickExpenseAmount}
+                    onChange={(e) => setQuickExpenseAmount(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveQuickExpense() }}
+                    className="w-full text-lg px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-shadow"
+                    placeholder="e.g. 150"
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Expense For</label>
+                  <input
+                    type="text"
+                    value={quickExpenseFor}
+                    onChange={(e) => setQuickExpenseFor(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    placeholder="e.g., Cement, Steel, Labor"
+                  />
+                </div>
+
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
+                  <input
+                    type="text"
+                    value={quickExpenseDescription}
+                    onChange={(e) => setQuickExpenseDescription(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                    placeholder="e.g., For foundation work"
+                  />
+                </div>
               </div>
               <div className="p-4 bg-gray-50 border-t border-gray-100 flex gap-3">
                 <button onClick={() => setQuickExpenseSite(null)} className="flex-1 py-2.5 bg-white border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50">Cancel</button>

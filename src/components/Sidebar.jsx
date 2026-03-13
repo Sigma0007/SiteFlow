@@ -52,19 +52,21 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
   // Role-based menu items
   const getSupervisorMenuItems = () => [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/dpr', icon: FileText, label: 'Daily Progress' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'My Sites' },
-    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
-    { path: '/processes', icon: ListChecks, label: 'Processes' }
+    // { path: '/po-requests', icon: FileText, label: 'PO Requests' },
+    // { path: '/processes', icon: ListChecks, label: 'Processes' }
   ];
 
   const getAdminMenuItems = () => [
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/dpr', icon: FileText, label: 'Daily Progress' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'Site Management' },
     { path: '/materials', icon: Package, label: 'Materials' },
-    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
-    { path: '/processes', icon: ListChecks, label: 'Processes' },
+    // { path: '/po-requests', icon: FileText, label: 'PO Requests' },
+    // { path: '/processes', icon: ListChecks, label: 'Processes' },
     // { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
   ];
