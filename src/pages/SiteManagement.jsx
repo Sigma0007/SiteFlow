@@ -1198,19 +1198,11 @@ const SiteManagement = ({ userRole }) => {
 
                 {/* Assigned Staff Preview for Admin */}
                 {userRole === 'admin' && (
-                  <div className="mb-4">
-                    <div className="flex flex-col gap-2 mb-3">
-                      <div className="flex items-center gap-2">
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2 mb-3">
                         <Users className="w-4 h-4 text-blue-600" />
                         <span className="text-sm font-semibold text-gray-800">Assigned Workers ({site.assignedStaff?.length || 0})</span>
                       </div>
-                      <button
-                        onClick={() => setQuickStaffSite(site.id)}
-                        className="w-full sm:w-auto text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg flex items-center justify-center gap-1 transition-colors"
-                      >
-                        <Plus className="w-3 h-3" /> Select Staff List
-                      </button>
-                    </div>
                     {site.assignedStaff && site.assignedStaff.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {site.assignedStaff.slice(0, 10).map(staffId => {

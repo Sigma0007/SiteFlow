@@ -1141,12 +1141,6 @@ const Dashboard = ({ userRole }) => {
                         {userRole === 'admin' ? (
                           <div className="flex flex-col gap-1">
                             <p className="text-gray-600">Staff Assigned: <span className="font-semibold text-gray-900">{site.assignedStaff?.length || 0}</span></p>
-                            <button
-                              onClick={() => setQuickStaffSite(site.id)}
-                              className="text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-md flex items-center justify-center gap-1 transition-colors w-fit"
-                            >
-                              <Plus className="w-3 h-3" /> Select Staff List
-                            </button>
                           </div>
                         ) : (
                           <>
