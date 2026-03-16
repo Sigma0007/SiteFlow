@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit2, Trash2, MapPin, Calendar, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X } from 'lucide-react'
-import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, siteAssignmentServices, convertDocsToArray, query, where, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite } from '../services/firebaseServices'
-import { doc, updateDoc, arrayUnion, getDocs as fbGetDocs, collection } from 'firebase/firestore'
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subYears, addYears } from 'date-fns'
+import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X } from 'lucide-react'
+import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite } from '../services/firebaseServices'
+import { format } from 'date-fns'
 import Footer from '../components/Footer'
 import storageService from '../services/storageService'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
-import { db } from '../firebase'
 import { useAuth } from '../components/Auth'
+import PropTypes from 'prop-types'
 
 const SiteManagement = ({ userRole }) => {
   const { assignedSites } = useSupervisor();
@@ -154,25 +153,6 @@ const SiteManagement = ({ userRole }) => {
     setConfirmDialog({ visible: true, title, message, onConfirm })
   }
 
-  // Inline Worker Editing Modal State
-  const [editWorkerConfig, setEditWorkerConfig] = useState(null)
-
-  const handleEditWorkerSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await labourServices.updateLabour(editWorkerConfig.id, {
-        name: editWorkerConfig.name,
-        role: editWorkerConfig.role,
-        phone: editWorkerConfig.phone,
-        updatedAt: new Date().toISOString()
-      });
-      showToast('Worker profile updated securely!');
-      setEditWorkerConfig(null);
-    } catch (err) {
-      showToast('Error updating worker profile: ' + err.message, 'error');
-    }
-  }
-
   // Image upload handler
   const handleImageUpload = async (e, formType) => {
     const file = e.target.files[0]
@@ -234,59 +214,26 @@ const SiteManagement = ({ userRole }) => {
         let attendanceData = []
         let buildingsData = []
 
-        if (userRole === 'supervisor') {
-          // For supervisors, use the assignedSites already resolved by SupervisorContext
-          // (which handles both supervisor.assignedSites IDs and site.assignedSupervisors refs)
-          console.log('👷 Supervisor – using context assignedSites:', assignedSites.length)
-          sitesData = assignedSites.filter(s => !s.is_deleted)
+        // Unconditionally load comprehensive lists.
+        console.log(`Loading all data unconditionally for ${userRole}...`);
+        
+        const sitesSnapshot = await siteServices.getAllSites()
+        sitesData = convertDocsToArray(sitesSnapshot).filter(s => !s.is_deleted)
 
-          if (sitesData.length > 0) {
-            const siteIds = sitesData.map(site => site.id)
-            const siteNames = sitesData.map(site => site.name)
+        const labourSnapshot = await labourServices.getAllLabour()
+        labourData = convertDocsToArray(labourSnapshot)
 
-            // Load labour for assigned sites (labour now stores siteId)
-            const labourQuery = query(
-              collection(db, 'labour'),
-              where('siteId', 'in', siteIds)
-            )
-            const labourSnapshot = await fbGetDocs(labourQuery)
-            labourData = convertDocsToArray(labourSnapshot)
+        const today = format(new Date(), 'yyyy-MM-dd')
+        const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
+        attendanceData = convertDocsToArray(attendanceSnapshot)
 
-            // Load attendance for assigned sites
-            const attendanceQuery = query(
-              collection(db, 'attendance'),
-              where('siteId', 'in', siteIds)
-            )
-            const attendanceSnapshot = await fbGetDocs(attendanceQuery)
-            attendanceData = convertDocsToArray(attendanceSnapshot)
+        const buildingsSnapshot = await buildingServices.getAllBuildings()
+        buildingsData = convertDocsToArray(buildingsSnapshot)
 
-            // Load buildings for assigned sites
-            const buildingsQuery = query(
-              collection(db, 'buildings'),
-              where('siteId', 'in', siteIds)
-            )
-            const buildingsSnapshot = await fbGetDocs(buildingsQuery)
-            buildingsData = convertDocsToArray(buildingsSnapshot)
-          }
+        console.log('🏗️ Site Management - Buildings count:', buildingsData.length)
 
-        } else {
-          // For admins, load all data
-          console.log('Loading data for admin...')
-
-          const sitesSnapshot = await siteServices.getAllSites()
-          sitesData = convertDocsToArray(sitesSnapshot)
-
-          const labourSnapshot = await labourServices.getAllLabour()
-          labourData = convertDocsToArray(labourSnapshot)
-
-          const today = format(new Date(), 'yyyy-MM-dd')
-          const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
-          attendanceData = convertDocsToArray(attendanceSnapshot)
-
-          const buildingsSnapshot = await buildingServices.getAllBuildings()
-          buildingsData = convertDocsToArray(buildingsSnapshot)
-          console.log('🏗️ Site Management - Buildings count:', buildingsData.length)
-
+        // Then load things admins might need specifically
+        if (userRole === 'admin') {
           try {
             const supervisorsSnapshot = await supervisorServices.getAllSupervisors()
             const supervisorsData = convertDocsToArray(supervisorsSnapshot)
@@ -782,7 +729,7 @@ const SiteManagement = ({ userRole }) => {
     }
   }
 
-  const getBuildingAttendanceStats = (buildingId, buildingName) => {
+  const getBuildingAttendanceStats = (buildingId) => {
     const today = format(new Date(), 'yyyy-MM-dd')
     const staffAtBuilding = labour.filter(staff => staff.buildingId === buildingId)
 
@@ -1001,7 +948,6 @@ const SiteManagement = ({ userRole }) => {
                     <span className="font-medium text-gray-900">{site.endDate || 'Not set'}</span>
                   </div> */}
                   {userRole === 'admin' && (() => {
-                    const materialsExpense = 0; // Requires material PO data joining, simplifed as requested if no easy access. Assuming we simulate or calc later. For now, show placeholder or simple view.
                     return (
                       <>
                         <div className="flex items-center justify-between text-sm">
@@ -1063,7 +1009,7 @@ const SiteManagement = ({ userRole }) => {
                 <div className="mb-4 p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-center gap-2 mb-3">
                     <Users className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm font-semibold text-gray-700">Today's Attendance</span>
+                    <span className="text-sm font-semibold text-gray-700">Today&apos;s Attendance</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className="flex items-center gap-1">
@@ -1463,39 +1409,38 @@ const SiteManagement = ({ userRole }) => {
                           No workers currently assigned to this site.
                         </div>
                       ) : (
-                        availableStaff
-                          .filter(staff => formData.assignedStaff.includes(staff.id))
-                          .map((staff) => {
-                            // Calculate stats
-                            const daysPresent = attendance.filter(r => r.employeeId === staff.id && r.siteId === editingSite?.id && String(r.status).toLowerCase() === 'present').length;
+                        <>
+                          {availableStaff
+                            .filter(staff => formData.assignedStaff.includes(staff.id))
+                            .map((staff) => {
+                              // Calculate stats
+                              const daysPresent = attendance.filter(r => r.employeeId === staff.id && r.siteId === editingSite?.id && String(r.status).toLowerCase() === 'present').length;
 
-                            return (
-                              <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} key={staff.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-gray-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
-                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
-                                <div className="flex items-center gap-4">
-                                  <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-lg border border-blue-100">
-                                    {staff.name.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div>
-                                    <h4 className="font-bold text-gray-900 text-base">{staff.name}</h4>
-                                    <p className="text-xs text-gray-500 mt-0.5">{staff.role} &bull; {staff.phone || 'No Phone'}</p>
-                                    <div className="flex items-center gap-1 mt-1.5">
-                                      <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                                      <p className="text-xs font-semibold text-gray-700">{daysPresent} <span className="font-medium text-gray-500">Days Present on Site</span></p>
+                              return (
+                                <motion.div initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} key={staff.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-gray-100 rounded-2xl bg-white shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                                  <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-lg border border-blue-100">
+                                      {staff.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-gray-900 text-base">{staff.name}</h4>
+                                      <p className="text-xs text-gray-500 mt-0.5">{staff.role} &bull; {staff.phone || 'No Phone'}</p>
+                                      <div className="flex items-center gap-1 mt-1.5">
+                                        <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                                        <p className="text-xs font-semibold text-gray-700">{daysPresent} <span className="font-medium text-gray-500">Days Present on Site</span></p>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                                <div className="flex gap-2 mt-4 sm:mt-0 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
-                                  <button type="button" onClick={() => setEditWorkerConfig(staff)} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-100/50">
-                                    <Edit2 className="w-3.5 h-3.5" /> Edit
-                                  </button>
-                                  <button type="button" onClick={() => setFormData(prev => ({ ...prev, assignedStaff: prev.assignedStaff.filter(id => id !== staff.id) }))} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100/50">
-                                    <X className="w-3.5 h-3.5" /> Unassign
-                                  </button>
-                                </div>
-                              </motion.div>
-                            );
-                          })
+                                  <div className="flex gap-2 mt-4 sm:mt-0 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
+                                    <button type="button" onClick={() => setFormData(prev => ({ ...prev, assignedStaff: prev.assignedStaff.filter(id => id !== staff.id) }))} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100/50">
+                                      <X className="w-3.5 h-3.5" /> Unassign
+                                    </button>
+                                  </div>
+                                </motion.div>
+                              );
+                            })}
+                        </>
                       )}
                     </div>
 
@@ -2029,6 +1974,10 @@ const SiteManagement = ({ userRole }) => {
       <Footer />
     </div>
   )
+}
+
+SiteManagement.propTypes = {
+  userRole: PropTypes.string.isRequired
 }
 
 export default SiteManagement
