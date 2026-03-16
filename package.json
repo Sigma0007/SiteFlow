@@ -9,9 +9,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:preview": "npx vite build --config vite.preview.config.js",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "build:preview": "npx vite build --config vite.preview.config.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
