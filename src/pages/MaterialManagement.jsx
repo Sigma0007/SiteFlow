@@ -6,6 +6,7 @@ import Footer from '../components/Footer'
 import { auth } from '../firebase'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
+import StatusModal from '../components/StatusModal'
 
 const MaterialManagement = ({ userRole }) => {
   const navigate = useNavigate()
@@ -35,6 +36,40 @@ const MaterialManagement = ({ userRole }) => {
     lastIssued: null,
     condition: 'good'
   })
+
+  // Status Modal State
+  const [statusModal, setStatusModal] = useState({
+    visible: false,
+    type: 'success',
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null
+  })
+
+  const showAlert = (title, message, type = 'success') => {
+    setStatusModal({ 
+      visible: true, 
+      type, 
+      title, 
+      message, 
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) 
+    })
+  }
+
+  const showConfirm = (title, message, onConfirm) => {
+    setStatusModal({ 
+      visible: true, 
+      type: 'confirm', 
+      title, 
+      message, 
+      onConfirm: () => {
+        onConfirm();
+        setStatusModal(prev => ({ ...prev, visible: false }));
+      },
+      onCancel: () => setStatusModal(prev => ({ ...prev, visible: false }))
+    })
+  }
 
   // Dynamic categories - will be updated from materials
   const [categories, setCategories] = useState([
@@ -143,15 +178,20 @@ const MaterialManagement = ({ userRole }) => {
   }
 
   const handleDeleteMaterial = async (id) => {
-    if (window.confirm('Are you sure you want to delete this material?')) {
-      try {
-        await materialServices.deleteMaterial(id)
-      } catch (error) {
-        console.error('Error deleting material:', error)
+    showConfirm(
+      'Delete Material?',
+      'Are you sure you want to delete this material? This action cannot be undone.',
+      async () => {
+        try {
+          await materialServices.deleteMaterial(id)
+          showAlert('Success', 'Material deleted successfully!')
+        } catch (error) {
+          console.error('Error deleting material:', error)
+          showAlert('Error', 'Error deleting material: ' + error.message, 'error')
+        }
       }
-    }
+    )
   }
-
   const handleMaterialSubmit = async (e) => {
     e.preventDefault()
 
@@ -165,8 +205,10 @@ const MaterialManagement = ({ userRole }) => {
 
       if (editingMaterial) {
         await materialServices.updateMaterial(editingMaterial.id, materialData)
+        showAlert('Success', 'Material updated successfully!')
       } else {
         await materialServices.addMaterial(materialData)
+        showAlert('Success', 'Material added successfully!')
       }
 
       setShowMaterialModal(false)
@@ -184,6 +226,7 @@ const MaterialManagement = ({ userRole }) => {
       setEditingMaterial(null)
     } catch (error) {
       console.error('Error saving material:', error)
+      showAlert('Error', 'Error saving material: ' + error.message, 'error')
     }
   }
 
@@ -213,8 +256,10 @@ const MaterialManagement = ({ userRole }) => {
       await purchaseOrderServices.addPurchaseOrder(poData)
       setShowPOModal(false)
       setPoFormData({ siteId: '', materialId: '', quantity: '', supplier: '', expectedDate: '' })
+      showAlert('Success', 'Purchase Order created successfully!')
     } catch (error) {
       console.error('Error creating purchase order:', error)
+      showAlert('Error', 'Error creating purchase order: ' + error.message, 'error')
     }
   }
 
@@ -227,6 +272,7 @@ const MaterialManagement = ({ userRole }) => {
         status: newStatus,
         updatedAt: new Date().toISOString()
       })
+      showAlert('Success', `Purchase Order status updated to ${newStatus}!`)
 
       // If PO is marked as received, update material stock
       if (newStatus === 'Received') {
@@ -237,21 +283,29 @@ const MaterialManagement = ({ userRole }) => {
             currentStock: updatedStock,
             updatedAt: new Date().toISOString()
           })
+          showAlert('Success', `Material stock for ${material.name} updated!`, 'info')
         }
       }
     } catch (error) {
       console.error('Error updating purchase order status:', error)
+      showAlert('Error', 'Error updating purchase order status: ' + error.message, 'error')
     }
   }
 
   const handleDeletePO = async (poId) => {
-    if (window.confirm('Are you sure you want to delete this purchase order? This action cannot be undone.')) {
-      try {
-        await purchaseOrderServices.deletePurchaseOrder(poId)
-      } catch (error) {
-        console.error('Error deleting purchase order:', error)
+    showConfirm(
+      'Delete Purchase Order?',
+      'Are you sure you want to delete this purchase order? This action cannot be undone.',
+      async () => {
+        try {
+          await purchaseOrderServices.deletePurchaseOrder(poId)
+          showAlert('Success', 'Purchase order deleted successfully!')
+        } catch (error) {
+          console.error('Error deleting purchase order:', error)
+          showAlert('Error', 'Error deleting purchase order: ' + error.message, 'error')
+        }
       }
-    }
+    )
   }
 
   const getStockStatus = (material) => {
@@ -827,6 +881,10 @@ const MaterialManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
+      <StatusModal 
+        {...statusModal} 
+        onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
+      />
       <Footer />
     </div>
   )
