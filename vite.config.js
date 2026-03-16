@@ -2,8 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
-  base: '/SiteFlow/',
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/SiteFlow/' : '/',
   plugins: [
     react(),
     VitePWA({
@@ -91,4 +91,4 @@ export default defineConfig({
       'Content-Security-Policy': "script-src 'self' 'unsafe-eval' 'unsafe-inline';"
     }
   }
-})
+}))
