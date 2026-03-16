@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft, Building2, Package, Users, Activity, CheckCircle, Plus, Minus, Search, RotateCcw
+  ArrowLeft, Building2, Package, Users, Activity, CheckCircle, Plus, Minus, Search, RotateCcw, Clock, FileText
 } from 'lucide-react';
 import {
   siteServices, labourServices, materialServices, attendanceServices, dprServices, convertDocsToArray
 } from '../services/firebaseServices';
 import { useAuth } from '../components/Auth';
+import StatusModal from '../components/StatusModal';
+import InputModal from '../components/InputModal';
+import { PlusCircle, MinusCircle } from 'lucide-react';
 
 const DPRSiteDetails = ({ userRole }) => {
   const { siteId } = useParams();
@@ -25,6 +28,50 @@ const DPRSiteDetails = ({ userRole }) => {
   const [todayDpr, setTodayDpr] = useState(null);
   
   const todayDate = new Date().toISOString().split('T')[0];
+
+  // Status Modal State
+  const [statusModal, setStatusModal] = useState({
+    visible: false,
+    type: 'success',
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null
+  });
+
+  const showAlert = (title, message, type = 'success') => {
+    setStatusModal({ 
+      visible: true, 
+      type, 
+      title, 
+      message, 
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) 
+    });
+  };
+
+  // Input Modal State
+  const [inputModal, setInputModal] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    defaultValue: '',
+    onConfirm: null,
+    icon: null
+  });
+
+  const showPrompt = (title, message, defaultValue, onConfirm, icon) => {
+    setInputModal({
+      visible: true,
+      title,
+      message,
+      defaultValue,
+      onConfirm: (val) => {
+        onConfirm(val);
+        setInputModal(prev => ({ ...prev, visible: false }));
+      },
+      icon
+    });
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -72,7 +119,7 @@ const DPRSiteDetails = ({ userRole }) => {
   
   const handleAddMaterialToSite = async (material, quantity) => {
     if (quantity <= 0 || quantity > material.currentStock) {
-      alert('Invalid quantity. Ensure stock is available.');
+      showAlert('Invalid Quantity', 'Please ensure you have enough stock available.', 'error');
       return;
     }
     try {
@@ -101,10 +148,11 @@ const DPRSiteDetails = ({ userRole }) => {
       // Update local state
       setSite(prev => ({ ...prev, assignedMaterials: newSiteMaterials }));
       setAllMaterials(prev => prev.map(m => m.id === material.id ? { ...m, currentStock: m.currentStock - quantity } : m));
-      alert('Material allocated to site successfully.');
+      showAlert('Success', 'Material allocated to site successfully!');
+      loadData();
     } catch (err) {
       console.error(err);
-      alert('Failed to allocate material.');
+      showAlert('Error', 'Failed to allocate material.', 'error');
     }
   };
 
@@ -134,10 +182,11 @@ const DPRSiteDetails = ({ userRole }) => {
       if (mat) {
         setAllMaterials(prev => prev.map(m => m.id === mat.id ? { ...m, currentStock: m.currentStock + returnQty } : m));
       }
-      alert('Material returned to inventory successfully.');
+      showAlert('Success', 'Material returned to inventory successfully!');
+      loadData();
     } catch (err) {
       console.error(err);
-      alert('Failed to return material.');
+      showAlert('Error', 'Failed to return material.', 'error');
     }
   };
 
@@ -161,10 +210,10 @@ const DPRSiteDetails = ({ userRole }) => {
         } else {
           // Record is at another site. Should not happen if they are marked Present there. 
           // If they are marked absent there, we can override and mark present here? 
-          // Let's create a new record for this site.
-          alert('Employee already has an attendance record at another site today.');
-          return;
-        }
+          if (existingRecord && existingRecord.siteId !== siteId) {
+      showAlert('Warning', 'Employee already has an attendance record at another site today.', 'warning');
+      return;
+    }    }
       } else {
         // Create new record
         const attData = {
@@ -177,9 +226,10 @@ const DPRSiteDetails = ({ userRole }) => {
         const newDoc = await attendanceServices.addAttendance(attData);
         setTodayAttendance(prev => [...prev, { id: newDoc.id, ...attData }]);
       }
+      loadData();
     } catch (err) {
       console.error(err);
-      alert('Failed to mark attendance.');
+      showAlert('Error', 'Failed to mark attendance.', 'error');
     }
   };
 
@@ -216,10 +266,11 @@ const DPRSiteDetails = ({ userRole }) => {
       setSite(prev => ({ ...prev, doneSq: newSiteDoneSq }));
       
       setDoneSqInput('');
-      alert(`Added ${sqVal} sq ft successfully.`);
+      showAlert('Success', `Added ${sqVal} sq ft successfully!`);
+      loadData();
     } catch (err) {
       console.error(err);
-      alert('Failed to update square footage.');
+      showAlert('Error', 'Failed to update square footage.', 'error');
     }
   };
 
@@ -256,7 +307,39 @@ const DPRSiteDetails = ({ userRole }) => {
                 </p>
               </div>
             </div>
+            <button 
+              onClick={() => navigate(`/dpr/${siteId}/history`)}
+              className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-semibold text-sm flex items-center gap-2"
+            >
+              <Clock className="w-4 h-4" />
+              History
+            </button>
           </div>
+          
+          {todayDpr && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 p-4 bg-green-50 border border-green-100 rounded-xl flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="font-bold text-green-800">DPR Already Submitted</p>
+                  <p className="text-xs text-green-600">You've already completed today's tracking. You can view or download the report.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate(`/dpr/${siteId}/report/${todayDate}`)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition flex items-center gap-2"
+              >
+                <FileText className="w-4 h-4" />
+                View Report
+              </button>
+            </motion.div>
+          )}
           
           {/* STEPPER */}
           <div className="flex items-center justify-between mt-6 max-w-2xl mx-auto">
@@ -309,9 +392,17 @@ const DPRSiteDetails = ({ userRole }) => {
                           <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => {
-                                const qty = prompt(`How many units of ${mat.name} to return to inventory?`, mat.quantity);
-                                if(qty) handleReturnMaterial(mat, parseInt(qty));
-                              }}
+                      showPrompt(
+                        'Return Material',
+                        `Enter quantity of ${mat.name} to return to central warehouse:`,
+                        mat.quantity.toString(),
+                        (val) => {
+                          const qty = parseInt(val);
+                          if (!isNaN(qty)) handleReturnMaterial(mat, qty);
+                        },
+                        <MinusCircle className="w-12 h-12 text-blue-500" />
+                      );
+                    }}
                               className="text-orange-600 hover:text-orange-800 flex items-center justify-end gap-1 text-xs font-medium bg-orange-50 px-3 py-1.5 rounded-md inline-flex ml-auto"
                             >
                               <RotateCcw className="w-3 h-3" /> Return to Inventory
@@ -357,9 +448,17 @@ const DPRSiteDetails = ({ userRole }) => {
                       {mat.currentStock > 0 ? (
                         <button
                           onClick={() => {
-                            const qty = prompt(`How many units of ${mat.name} to allocate to this site? (Max: ${mat.currentStock})`, '1');
-                            if(qty) handleAddMaterialToSite(mat, parseInt(qty));
-                          }}
+                      showPrompt(
+                        'Allocate Material',
+                        `Enter quantity of ${mat.name} to send to ${site.name}:`,
+                        '1',
+                        (val) => {
+                          const qty = parseInt(val);
+                          if (!isNaN(qty)) handleAddMaterialToSite(mat, qty);
+                        },
+                        <PlusCircle className="w-12 h-12 text-blue-500" />
+                      );
+                    }}
                           className="w-full text-center bg-blue-50 hover:bg-blue-100 text-blue-700 py-1.5 rounded-lg text-sm font-semibold transition-colors"
                         >
                           Allocate
@@ -519,6 +618,14 @@ const DPRSiteDetails = ({ userRole }) => {
         </div>
 
       </div>
+      <StatusModal 
+        {...statusModal} 
+        onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
+      />
+      <InputModal
+        {...inputModal}
+        onCancel={() => setInputModal(prev => ({ ...prev, visible: false }))}
+      />
     </div>
   );
 };

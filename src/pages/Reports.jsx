@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { FileText, Download, Calendar, TrendingUp, Users, Package, DollarSign, Filter, Building2 } from 'lucide-react'
+import { FileText, Download, Calendar, TrendingUp, Users, Package, DollarSign, Filter, Building2, ArrowLeft } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { labourServices, attendanceServices, materialServices, siteServices, purchaseOrderServices, convertDocsToArray } from '../services/firebaseServices'
 import Footer from '../components/Footer'
 import { auth } from '../firebase'
 
 const Reports = ({ userRole }) => {
+  const navigate = useNavigate()
   const [selectedReport, setSelectedReport] = useState('attendance')
   const [dateRange, setDateRange] = useState({
     start: '2024-01-01',
@@ -349,9 +351,19 @@ const Reports = ({ userRole }) => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-          <p className="mt-2 text-gray-600">Generate and export various reports for your construction sites.</p>
+        <div className="mb-8 flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
+            <p className="mt-2 text-gray-600">Generate and export various reports for your construction sites.</p>
+          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 mb-6">

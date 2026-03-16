@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { 
-  LayoutDashboard, 
-  Building2, 
-  Users, 
-  Package, 
-  ListChecks, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Building2,
+  Users,
+  Package,
+  ListChecks,
+  FileText,
   LogOut,
   Menu,
   X,
@@ -49,17 +49,20 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
   //   fetchSupervisorData()
   // }, [userRole, user?.email])
 
-  // Role-based menu items
+  // Role-based menu items (Commented out per User Request)
   const getSupervisorMenuItems = () => [
+    /*
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/dpr', icon: FileText, label: 'Daily Progress' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'My Sites' },
     // { path: '/po-requests', icon: FileText, label: 'PO Requests' },
     // { path: '/processes', icon: ListChecks, label: 'Processes' }
+    */
   ];
 
   const getAdminMenuItems = () => [
+    /*
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/dpr', icon: FileText, label: 'Daily Progress' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
@@ -69,6 +72,7 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
     // { path: '/processes', icon: ListChecks, label: 'Processes' },
     // { path: '/reports', icon: FileText, label: 'Reports' },
     { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
+    */
   ];
 
   const menuItems = userRole === 'supervisor' ? getSupervisorMenuItems() : getAdminMenuItems();
@@ -135,10 +139,9 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
                   to={item.path}
                   onClick={() => window.innerWidth < 1024 && onToggle()}
                   className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 sm:px-4 py-3 sm:py-3 rounded-lg transition-all duration-200 mobile-tap-highlight ${
-                      isActive
-                        ? 'bg-white text-primary shadow-lg'
-                        : 'text-white hover:bg-white/10'
+                    `flex items-center gap-3 px-3 sm:px-4 py-3 sm:py-3 rounded-lg transition-all duration-200 mobile-tap-highlight ${isActive
+                      ? 'bg-white text-primary shadow-lg'
+                      : 'text-white hover:bg-white/10'
                     }`
                   }
                 >

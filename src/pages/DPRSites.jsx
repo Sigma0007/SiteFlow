@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Building2, Search, MapPin, ChevronRight, FileText } from 'lucide-react';
+import { Building2, Search, MapPin, ChevronRight, FileText, ArrowLeft } from 'lucide-react';
 import { siteServices, convertDocsToArray } from '../services/firebaseServices';
 import { useSupervisor } from '../contexts/SupervisorContext.jsx';
 import { useAuth } from '../components/Auth';
@@ -18,17 +18,10 @@ const DPRSites = ({ userRole }) => {
     const loadSites = async () => {
       setLoading(true);
       try {
-        if (userRole === 'supervisor') {
-          if (!currentSupervisor) {
-            setLoading(false);
-            return;
-          }
-          setSites(assignedSites);
-        } else {
-          const snapshot = await siteServices.getAllSites();
-          const allSites = convertDocsToArray(snapshot);
-          setSites(allSites.filter(s => !s.is_deleted));
-        }
+        // All roles see all active sites in DPR
+        const snapshot = await siteServices.getAllSites();
+        const allSites = convertDocsToArray(snapshot);
+        setSites(allSites.filter(s => !s.is_deleted));
       } catch (error) {
         console.error('Error loading sites:', error);
       } finally {
@@ -37,7 +30,7 @@ const DPRSites = ({ userRole }) => {
     };
 
     loadSites();
-  }, [userRole, currentSupervisor, assignedSites]);
+  }, []);
 
   // Filter and sort sites (A-Z)
   const filteredSites = sites
@@ -47,12 +40,22 @@ const DPRSites = ({ userRole }) => {
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8 min-h-screen bg-gray-50">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="w-8 h-8 text-blue-600" />
-            Daily Progress Reports (DPR)
-          </h1>
-          <p className="text-gray-600 mt-1">Select a site to manage its daily tracking</p>
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+              <FileText className="w-8 h-8 text-blue-600" />
+              Daily Progress Reports (DPR)
+            </h1>
+            <p className="text-gray-600 mt-1">Select a site to manage its daily tracking</p>
+          </div>
         </div>
 
         <div className="relative">
@@ -86,17 +89,40 @@ const DPRSites = ({ userRole }) => {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.05 }}
               whileHover={{ scale: 1.02 }}
-              onClick={() => navigate(`/dpr/${site.id}`)}
               className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-all group"
             >
               <div className="flex items-center justify-between">
-                <div>
+                <div 
+                  className="flex-1 cursor-pointer"
+                  onClick={() => navigate(`/dpr/${site.id}`)}
+                >
                   <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                     {site.name}
                   </h3>
+                  {site.location && (
+                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> {site.location}
+                    </p>
+                  )}
                 </div>
-                <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <ChevronRight className="w-5 h-5" />
+                
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/dpr/${site.id}/history`);
+                    }}
+                    className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100 shadow-sm"
+                    title="View Report History"
+                  >
+                    <FileText className="w-5 h-5" />
+                  </motion.button>
+                  <ChevronRight 
+                    className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all cursor-pointer" 
+                    onClick={() => navigate(`/dpr/${site.id}`)}
+                  />
                 </div>
               </div>
             </motion.div>

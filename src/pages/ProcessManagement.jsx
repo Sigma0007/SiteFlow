@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import {
   Plus,
   Edit2,
@@ -25,6 +27,7 @@ import {
 import { useSupervisor } from "../contexts/SupervisorContext.jsx";
 
 const ProcessManagement = ({ userRole }) => {
+  const navigate = useNavigate();
   const { assignedSites } = useSupervisor();
   const [sites, setSites] = useState([]);
   const [buildings, setBuildings] = useState([]);
@@ -805,16 +808,25 @@ const ProcessManagement = ({ userRole }) => {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Process Management
-          </h1>
-          <p className="text-gray-600 mt-1">
-            Manage construction processes and sub-processes for specific
-            buildings
-          </p>
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 min-h-screen bg-gray-50">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              Project Workflows
+            </h1>
+            <p className="text-gray-600 mt-1">
+              Track building processes and completion steps
+            </p>
+          </div>
         </div>
       </div>
       {/* Site and Building Selection */}

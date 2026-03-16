@@ -58,6 +58,7 @@ import { SupervisorProvider } from './contexts/SupervisorContext.jsx'
 import DPRSites from './pages/DPRSites'
 import DPRSiteDetails from './pages/DPRSiteDetails'
 import DPRReportView from './pages/DPRReportView'
+import DPRHistory from './pages/DPRHistory'
 
 // Route protection component
 
@@ -381,67 +382,10 @@ const AppContent = () => {
 
     <div className="flex h-screen bg-gray-50 overflow-hidden">
 
-      {/* Mobile Menu Button */}
+      {/* Sidebar and Navbar fully hidden per user request */}
 
-      <motion.button
-
-        whileHover={{ scale: 1.1 }}
-
-        whileTap={{ scale: 0.9 }}
-
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-
-        className="lg:hidden fixed top-4 left-4 z-50 p-3 bg-primary text-white rounded-lg shadow-lg"
-
-      >
-
-        {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-
-      </motion.button>
-
-
-
-      {/* Mobile Sidebar Overlay */}
-
-      {sidebarOpen && (
-
-        <motion.div
-
-          initial={{ opacity: 0 }}
-
-          animate={{ opacity: 1 }}
-
-          exit={{ opacity: 0 }}
-
-          onClick={() => setSidebarOpen(false)}
-
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
-
-        />
-
-      )}
-
-
-
-      {/* Sidebar - Mobile Hidden, Desktop Visible */}
-
-      <Sidebar
-
-        isOpen={sidebarOpen}
-
-        onToggle={() => setSidebarOpen(!sidebarOpen)}
-
-        onLogout={logout}
-
-        userRole={userRole}
-
-      />
-
-
-
-      {/* Main Content Area */}
-
-      <div className="flex-1 overflow-auto">
+      {/* Main Content Area - Full Width */}
+      <div className="flex-1 overflow-auto w-full">
 
         <AnimatePresence mode="wait">
 
@@ -467,9 +411,17 @@ const AppContent = () => {
 
               <Route path="/dashboard" element={<Dashboard userRole={userRole} />} />
               <Route path="/sites" element={<SiteManagement userRole={userRole} />} />
-              <Route path="/attendance" element={<AttendanceSimple userRole={userRole} />} />
+              <Route
+                path="/attendance"
+                element={
+                  <ProtectedRoute userRole={userRole} allowedRoles={['admin']}>
+                    <AttendanceSimple userRole={userRole} />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/dpr" element={<DPRSites userRole={userRole} />} />
               <Route path="/dpr/:siteId" element={<DPRSiteDetails userRole={userRole} />} />
+              <Route path="/dpr/:siteId/history" element={<DPRHistory userRole={userRole} />} />
               <Route path="/dpr/:siteId/report/:date" element={<DPRReportView />} />
               <Route
 

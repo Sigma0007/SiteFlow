@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import {
   Users,
   Calendar,
@@ -15,13 +16,15 @@ import {
   Trash2,
   Plus,
   Save,
-  UserPlus
+  UserPlus,
+  ArrowLeft
 } from 'lucide-react'
 import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray, query, where, getDocs, onSnapshot, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import Footer from '../components/Footer'
 
 const AttendanceSimple = ({ userRole = 'admin' }) => {
+  const navigate = useNavigate()
   const { currentSupervisor, assignedSites } = useSupervisor()
   const [attendance, setAttendance] = useState([])
   const [employees, setEmployees] = useState([])
@@ -524,9 +527,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       </AnimatePresence>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Attendance Management</h1>
-          <p className="text-gray-600">Track daily attendance - Present or Absent</p>
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Attendance Management</h1>
+            <p className="text-gray-600">Track daily attendance - Present or Absent</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -669,7 +682,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             />
           </div>
         </div>
-        {userRole === 'admin' && (
+        {(userRole === 'admin' || userRole === 'supervisor') && (
           <div className="md:w-64">
             <select
               value={selectedSiteFilter}
@@ -746,10 +759,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                       <div>
                         <p className="font-medium text-gray-900">{employee.name}</p>
                         <p className="text-xs text-gray-500">ID: {employee.id}</p>
-                        <p className="text-sm text-gray-600 sm:hidden">{employee.site}</p>
+                        <p className="text-xs font-black text-blue-600 mt-1 uppercase tracking-widest sm:hidden">
+                          {sites.find(s => s.id === employee.siteId)?.name || 'No Site'}
+                        </p>
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{employee.site}</td>
+                    <td className="py-3 px-4 hidden sm:table-cell">
+                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold uppercase border border-blue-100 italic">
+                        {sites.find(s => s.id === employee.siteId)?.name || 'No Site'}
+                      </span>
+                    </td>
                     <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{employee.role}</td>
                     <td className="py-3 px-4">
                       {status === 'present' && (

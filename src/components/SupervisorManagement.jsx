@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Users, Plus, Edit2, Trash2, Mail, Phone, Building2,
-  X, Search, Eye, EyeOff, CheckCircle, AlertCircle, Lock
+  X, Search, Eye, EyeOff, CheckCircle, AlertCircle, Lock, ArrowLeft
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { supervisorServices, siteServices, siteAssignmentServices, convertDocsToArray } from '../services/firebaseServices'
 
 const SupervisorManagement = ({ userRole }) => {
+  const navigate = useNavigate()
   const [supervisors, setSupervisors] = useState([])
   const [sites, setSites] = useState([])
   const [loading, setLoading] = useState(true)
@@ -203,9 +205,19 @@ const SupervisorManagement = ({ userRole }) => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Supervisor Management</h1>
-            <p className="text-gray-600 mt-1">Manage supervisors and their site assignments</p>
+          <div className="flex items-center gap-4">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => navigate('/dashboard')}
+              className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              <ArrowLeft className="w-6 h-6" />
+            </motion.button>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Supervisor Management</h1>
+              <p className="text-gray-600 mt-1">Manage supervisors and their site assignments</p>
+            </div>
           </div>
           <motion.button
             whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}

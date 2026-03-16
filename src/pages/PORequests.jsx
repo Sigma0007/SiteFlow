@@ -12,13 +12,16 @@ import {
   User,
   Search,
   Filter,
-  Trash2
+  Trash2,
+  ArrowLeft
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { supervisorServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 
 const PORequests = ({ userRole = 'admin' }) => {
+  const navigate = useNavigate()
   const { currentSupervisor, assignedSites } = useSupervisor()
   const { user } = useAuth()
   const [poRequests, setPORequests] = useState([])
@@ -199,11 +202,21 @@ const PORequests = ({ userRole = 'admin' }) => {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Purchase Order Requests</h1>
-          <p className="text-gray-600">
-            {userRole === 'admin' ? 'Review and approve PO requests' : 'Create and track your PO requests'}
-          </p>
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Purchase Order Requests</h1>
+            <p className="text-gray-600">
+              {userRole === 'admin' ? 'Review and approve PO requests' : 'Create and track your PO requests'}
+            </p>
+          </div>
         </div>
         {userRole === 'supervisor' && (
           <motion.button

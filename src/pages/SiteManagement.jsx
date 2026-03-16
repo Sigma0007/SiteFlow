@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X } from 'lucide-react'
+import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft } from 'lucide-react'
 import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite } from '../services/firebaseServices'
 import { format } from 'date-fns'
 import Footer from '../components/Footer'
 import storageService from '../services/storageService'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
+import { useNavigate } from 'react-router-dom'
 import PropTypes from 'prop-types'
+import StatusModal from '../components/StatusModal'
 
 const SiteManagement = ({ userRole }) => {
+  const navigate = useNavigate();
   const { assignedSites } = useSupervisor();
   const { user } = useAuth();
   // Default processes for new buildings
@@ -148,10 +151,37 @@ const SiteManagement = ({ userRole }) => {
     setTimeout(() => setToastMessage({ text: '', type: 'success', visible: false }), 3000)
   }
 
-  const [confirmDialog, setConfirmDialog] = useState({ visible: false, title: '', message: '', onConfirm: null })
+  const [statusModal, setStatusModal] = useState({ visible: false, type: 'success', title: '', message: '', onConfirm: null, onCancel: null })
+  
   const showConfirm = (title, message, onConfirm) => {
-    setConfirmDialog({ visible: true, title, message, onConfirm })
+    setStatusModal({ 
+      visible: true, 
+      type: 'confirm', 
+      title, 
+      message, 
+      onConfirm: () => {
+        onConfirm();
+        setStatusModal(prev => ({ ...prev, visible: false }));
+      },
+      onCancel: () => setStatusModal(prev => ({ ...prev, visible: false }))
+    })
   }
+
+  const showAlert = (title, message, type = 'success') => {
+    setStatusModal({ 
+      visible: true, 
+      type, 
+      title, 
+      message, 
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false }))
+    })
+  }
+
+  const [confirmDialog, setConfirmDialog] = useState({ visible: false, title: '', message: '', onConfirm: null })
+  // Keep showConfirm name for compatibility, but update its implementation to use statusModal if desired, 
+  // or just use showConfirm as it is but wrap it correctly.
+  // Actually, I'll just replace the confirmDialog state usage with statusModal for consistency.
+  
 
   // Image upload handler
   const handleImageUpload = async (e, formType) => {
@@ -196,7 +226,7 @@ const SiteManagement = ({ userRole }) => {
       console.log('✅ Image uploaded successfully:', uploadResult)
     } catch (error) {
       console.error('Error uploading image:', error)
-      alert('Error uploading image: ' + error.message)
+      showAlert('Upload Error', error.message, 'error')
     }
   }
 
@@ -828,17 +858,27 @@ const SiteManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            {userRole === 'supervisor' ? 'My Sites' : 'Site Management'}
-          </h1>
-          <p className="text-gray-600 mt-1">
-            {userRole === 'supervisor'
-              ? 'View and manage your assigned construction sites'
-              : 'Manage all construction sites and projects'
-            }
-          </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6 text-gray-600" />
+          </motion.button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              {userRole === 'supervisor' ? 'My Sites' : 'Site Management'}
+            </h1>
+            <p className="text-gray-600 mt-1">
+              {userRole === 'supervisor'
+                ? 'View and manage your assigned construction sites'
+                : 'Manage all construction sites and projects'
+              }
+            </p>
+          </div>
         </div>
         {userRole === 'admin' && (
           <>
@@ -1006,34 +1046,36 @@ const SiteManagement = ({ userRole }) => {
                   </div>
                 </div>
 
-                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Users className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm font-semibold text-gray-700">Today&apos;s Attendance</span>
+                {userRole === 'admin' && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="w-4 h-4 text-gray-600" />
+                      <span className="text-sm font-semibold text-gray-700">Today&apos;s Attendance</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3 text-green-600" />
+                        <span className="text-gray-600">Present:</span>
+                        <span className="font-semibold text-green-600">{getSiteAttendanceStats(site.id).present}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <XCircle className="w-3 h-3 text-red-600" />
+                        <span className="text-gray-600">Absent:</span>
+                        <span className="font-semibold text-red-600">{getSiteAttendanceStats(site.id).absent}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-yellow-600" />
+                        <span className="text-gray-600">Leave:</span>
+                        <span className="font-semibold text-yellow-600">{getSiteAttendanceStats(site.id).leave}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Users className="w-3 h-3 text-gray-600" />
+                        <span className="text-gray-600">Total:</span>
+                        <span className="font-semibold text-gray-700">{getSiteAttendanceStats(site.id).total}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3 text-green-600" />
-                      <span className="text-gray-600">Present:</span>
-                      <span className="font-semibold text-green-600">{getSiteAttendanceStats(site.id).present}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <XCircle className="w-3 h-3 text-red-600" />
-                      <span className="text-gray-600">Absent:</span>
-                      <span className="font-semibold text-red-600">{getSiteAttendanceStats(site.id).absent}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-yellow-600" />
-                      <span className="text-gray-600">Leave:</span>
-                      <span className="font-semibold text-yellow-600">{getSiteAttendanceStats(site.id).leave}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="w-3 h-3 text-gray-600" />
-                      <span className="text-gray-600">Total:</span>
-                      <span className="font-semibold text-gray-700">{getSiteAttendanceStats(site.id).total}</span>
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 <div className="mb-4 p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
@@ -1108,26 +1150,28 @@ const SiteManagement = ({ userRole }) => {
                               {userRole === 'admin' && <span>Budget: ${building.budget ? building.budget.toLocaleString() : '0'}</span>}
                               <span>Status: {building.status}</span>
                             </div>
-                            <div className="border-t border-gray-100 pt-1 mt-1">
-                              <div className="grid grid-cols-4 gap-1 text-xs">
-                                <div className="flex items-center gap-1 justify-center">
-                                  <CheckCircle className="w-3 h-3 text-green-600" />
-                                  <span className="font-semibold text-green-600">{stats.present}</span>
-                                </div>
-                                <div className="flex items-center gap-1 justify-center">
-                                  <XCircle className="w-3 h-3 text-red-600" />
-                                  <span className="font-semibold text-red-600">{stats.absent}</span>
-                                </div>
-                                <div className="flex items-center gap-1 justify-center">
-                                  <Clock className="w-3 h-3 text-yellow-600" />
-                                  <span className="font-semibold text-yellow-600">{stats.leave}</span>
-                                </div>
-                                <div className="flex items-center gap-1 justify-center">
-                                  <Users className="w-3 h-3 text-gray-600" />
-                                  <span className="font-semibold text-gray-700">{stats.total}</span>
+                            {userRole === 'admin' && (
+                              <div className="border-t border-gray-100 pt-1 mt-1">
+                                <div className="grid grid-cols-4 gap-1 text-xs">
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <CheckCircle className="w-3 h-3 text-green-600" />
+                                    <span className="font-semibold text-green-600">{stats.present}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <XCircle className="w-3 h-3 text-red-600" />
+                                    <span className="font-semibold text-red-600">{stats.absent}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <Clock className="w-3 h-3 text-yellow-600" />
+                                    <span className="font-semibold text-yellow-600">{stats.leave}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <Users className="w-3 h-3 text-gray-600" />
+                                    <span className="font-semibold text-gray-700">{stats.total}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
+                            )}
                           </div>
                         )
                       })}
@@ -1971,6 +2015,10 @@ const SiteManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
+      <StatusModal 
+        {...statusModal} 
+        onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
+      />
       <Footer />
     </div>
   )

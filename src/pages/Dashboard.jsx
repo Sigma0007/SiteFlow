@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserIcon, Package as PackageIcon, DollarSign, Search, X } from 'lucide-react'
+import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserPlus, UserIcon, Package as PackageIcon, DollarSign, Search, X, PlusSquare, LogOut, ArrowLeft } from 'lucide-react'
 import { siteServices, buildingServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, dprServices, processServices, convertDocsToArray, supervisorServices, syncSiteToSupervisors, syncSingleStaffToSite } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
@@ -9,11 +9,12 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage } from '../firebase'
 import Footer from '../components/Footer'
 import { useNavigate } from 'react-router-dom'
+import StatusModal from '../components/StatusModal'
 
 const Dashboard = ({ userRole }) => {
   const navigate = useNavigate()
   const { currentSupervisor, assignedSites } = useSupervisor()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const [loading, setLoading] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [showDPRFlow, setShowDPRFlow] = useState(false)
@@ -63,11 +64,43 @@ const Dashboard = ({ userRole }) => {
     pendingPOs: 0
   })
 
+  // Status Modal State
+  const [statusModal, setStatusModal] = useState({
+    visible: false,
+    type: 'success',
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null
+  })
+
+  const showAlert = (title, message, type = 'success') => {
+    setStatusModal({ 
+      visible: true, 
+      type, 
+      title, 
+      message, 
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) 
+    })
+  }
+
+  const showConfirm = (title, message, onConfirm) => {
+    setStatusModal({ 
+      visible: true, 
+      type: 'confirm', 
+      title, 
+      message, 
+      onConfirm: () => {
+        onConfirm();
+        setStatusModal(prev => ({ ...prev, visible: false }));
+      },
+      onCancel: () => setStatusModal(prev => ({ ...prev, visible: false }))
+    })
+  }
+
   const dprSteps = [
     { id: 1, title: 'Create Site', icon: MapPin },
-    { id: 2, title: 'Assign Staff', icon: UserIcon },
-    { id: 3, title: 'Define Area', icon: TrendingUp },
-    { id: 4, title: 'Add Materials', icon: PackageIcon }
+    { id: 2, title: 'Add Materials', icon: PackageIcon }
   ]
 
   // Helper function to get buildings for selected site
@@ -556,22 +589,22 @@ const Dashboard = ({ userRole }) => {
         siteId: quickExpenseSite,
         siteName: site.name
       };
-      
+
       // Get current expenses array or create new one
       const currentExpenses = site.expenses || [];
       const updatedExpenses = [...currentExpenses, newExpense];
-      
-      await siteServices.updateSite(quickExpenseSite, { 
+
+      await siteServices.updateSite(quickExpenseSite, {
         expenses: updatedExpenses,
         totalExpenses: updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
       });
-      
-      setSites(sites.map(s => s.id === quickExpenseSite ? { 
-        ...s, 
+
+      setSites(sites.map(s => s.id === quickExpenseSite ? {
+        ...s,
         expenses: updatedExpenses,
         totalExpenses: updatedExpenses.reduce((sum, exp) => sum + exp.amount, 0)
       } : s));
-      
+
       setQuickExpenseSite(null);
       alert("Expense added successfully!");
     } catch (err) {
@@ -702,7 +735,7 @@ const Dashboard = ({ userRole }) => {
 
     } catch (error) {
       console.error('Error adding building:', error)
-      alert('Error adding building. Please try again.')
+      showAlert('Error', 'Error adding building. Please try again.', 'error')
     }
   }
 
@@ -843,11 +876,11 @@ const Dashboard = ({ userRole }) => {
         materialQuantities: {}
       })
 
-      alert('✅ Site and building created successfully! They are now available in Site Management and Process Management.')
+      showAlert('Success', 'Site and building created successfully! They are now available in Site Management and Process Management.', 'success')
 
     } catch (error) {
       console.error('Error creating site and building:', error)
-      alert('Error creating site and building: ' + error.message)
+      showAlert('Error', 'Error creating site and building: ' + error.message, 'error')
     }
   }
 
@@ -989,194 +1022,128 @@ const Dashboard = ({ userRole }) => {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8">
-      {/* Mobile-First Header */}
-      <div className="text-center lg:text-left">
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm sm:text-base text-gray-600 mt-2">
-          Welcome back, {userRole === 'admin' ? 'Admin' : userRole === 'manager' ? 'Site Manager' : 'Supervisor'}
-        </p>
-      </div>
-
-      {/* Mobile-First KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {kpiCards.map((card, index) => {
-          const Icon = card.icon
-          return (
-            <motion.div
-              key={card.title}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              whileHover={{ scale: 1.02 }}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 hover:shadow-lg transition-all cursor-pointer"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className="text-xs sm:text-sm font-medium text-gray-600 mb-2">{card.title}</p>
-                  <h3 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3">{card.value}</h3>
-                  <div className="flex items-center gap-1">
-                    <TrendingUp className={`w-4 h-4 ${card.trend.isUp ? 'text-green-500' : 'text-red-500'
-                      } ${!card.trend.isUp && 'rotate-180'}`} />
-                    <span className={`text-sm font-medium ${card.trend.isUp ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                      {card.trend.isUp ? '+' : '-'}{card.trend.percentage}%
-                    </span>
-                    <span className="text-xs text-gray-500 ml-1">vs last month</span>
-                  </div>
-                </div>
-                <div className={`${card.color} p-3 sm:p-4 rounded-lg ml-4`}>
-                  <Icon className="w-5 h-5 sm:w-6 sm:h-6 lg:w-7 lg:h-7 text-white" />
-                </div>
-              </div>
-            </motion.div>
-          )
-        })}
-      </div>
-
-      {/* Professional DPR Section */}
-      <div className="bg-gradient-to-br from-white to-gray-50 rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
-        {/* DPR Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 sm:px-8 sm:py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="text-white">
-              <h2 className="text-2xl font-bold flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-white" />
-                </div>
-                Total Sites
-              </h2>
-              <p className="text-blue-100 mt-1">Manage sites and track progress</p>
-            </div>
-            {userRole === 'admin' && (
-              <div className="flex gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => navigate('/dpr')}
-                  className="flex items-center gap-2 px-6 py-3 bg-indigo-500 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl hover:bg-indigo-400 transition-all border border-indigo-400"
-                >
-                  <FileText className="w-5 h-5" />
-                  Detailed DPR View
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowDPRFlow(true)}
-                  className="flex items-center gap-2 px-6 py-3 bg-white text-blue-600 rounded-lg font-semibold shadow-lg hover:shadow-xl transition-all"
-                >
-                  <Plus className="w-5 h-5" />
-                  Create New Site
-                </motion.button>
-              </div>
-            )}
-            {userRole === 'supervisor' && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/dpr')}
-                className="flex items-center gap-2 px-6 py-3 bg-indigo-500 text-white rounded-lg font-semibold shadow-lg hover:shadow-xl hover:bg-indigo-400 transition-all border border-indigo-400"
-              >
-                <FileText className="w-5 h-5" />
-                Go to DPR
-              </motion.button>
-            )}
-          </div>
+      {/* Mobile-First Header & Profile Section */}
+      <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-8 bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
+        <div className="text-center md:text-left">
+          <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">Dashboard</h1>
+          <p className="text-gray-500 font-medium mt-1">
+            Welcome back, <span className="text-blue-600 font-bold">{user?.email?.split('@')[0] || 'User'}</span>
+          </p>
         </div>
 
-        {/* DPR Content */}
-        <div className="p-6 sm:p-8">
-          {/* Quick Stats */}
-
-          {/* Sites Overview */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-gray-600" />
-              Active Sites
-            </h3>
-            {sites.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Building2 className="w-8 h-8 text-gray-400" />
-                </div>
-                <h4 className="text-lg font-medium text-gray-900 mb-2">No sites created yet</h4>
-                <p className="text-gray-600 mb-4">Create your first site to start tracking progress</p>
-                {userRole === 'admin' && (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setShowDPRFlow(true)}
-                    className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                  >
-                    Create First Site
-                  </motion.button>
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {sites.map((site, index) => (
-                  <motion.div
-                    key={site.id}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{site.name}</h4>
-                        <p className="text-sm text-gray-600 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {site.location || site.area}
-                        </p>
-                        {site.area && (
-                          <p className="text-xs text-gray-500 mt-1">Area: {site.area}</p>
-                        )}
-                      </div>
-                      <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                        Active
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        {userRole === 'admin' ? (
-                          <div className="flex flex-col gap-1">
-                            <p className="text-gray-600">Staff Assigned: <span className="font-semibold text-gray-900">{site.assignedStaff?.length || 0}</span></p>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-gray-600">Staff Assigned</p>
-                            <p className="font-semibold text-gray-900">{site.assignedStaff?.length || 0}</p>
-                          </>
-                        )}
-                      </div>
-                      <div>
-                        {userRole === 'admin' ? (
-                          <div className="flex flex-col gap-1">
-                            <p className="text-gray-600">Est. Expenses</p>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-red-600">₹{site.totalExpenses ? site.totalExpenses.toLocaleString() : '0'}</span>
-                              <button
-                                onClick={() => handleOpenExpenseModal(site.id)}
-                                className="flex items-center justify-center gap-1 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 font-medium px-2 py-0.5 rounded transition-all text-xs shadow-sm"
-                                title="Add Expense"
-                              >
-                                <Plus className="w-3 h-3" /> Add
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-gray-600">Materials</p>
-                            <p className="font-semibold text-gray-900">{site.materials?.length || 0}</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
+        {/* User Profile Card (Moved from Sidebar) */}
+        <div className="flex items-center gap-4 bg-blue-50/50 p-4 rounded-3xl border border-blue-100/50 backdrop-blur-sm">
+          <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+            <UserIcon className="w-6 h-6" />
           </div>
+          <div className="hidden sm:block">
+            <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-0.5">Logged in as</p>
+            <p className="text-sm font-black text-gray-900 leading-none mb-1">{user?.email?.split('@')[0]}</p>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              <p className="text-[11px] font-bold text-gray-500 capitalize">{userRole} • Active Account</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Comprehensive Action Hub Grid */}
+      <div className=" flex flex-col justify-center max-w-4xl mx-auto w-full py-6 space-y-8">
+
+        {/* Main Hero Group */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate('/dpr')}
+            className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 p-8 rounded-[2.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
+          >
+            <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-colors" />
+            <div className="flex items-center gap-5 relative z-10">
+              <div className="bg-white/20 p-5 rounded-3xl backdrop-blur-xl border border-white/30 shadow-inner">
+                <FileText className="w-10 h-10 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black tracking-tight">DPR Report</h2>
+                <p className="text-indigo-100 font-medium opacity-90">Daily Updates</p>
+              </div>
+            </div>
+            <div className="bg-white/20 p-3 rounded-full backdrop-blur-md">
+              <Plus className="w-6 h-6" />
+            </div>
+          </motion.div>
+
+          {/* New Site Tile for Admins */}
+          {userRole === 'admin' && (
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowDPRFlow(true)}
+              className="bg-gradient-to-br from-emerald-500 to-teal-600 p-8 rounded-[2.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
+            >
+              <div className="flex items-center gap-5 relative z-10">
+                <div className="bg-white/20 p-5 rounded-3xl backdrop-blur-xl border border-white/30 shadow-inner">
+                  <Building2 className="w-10 h-10 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight uppercase">New Site</h2>
+                  <p className="text-emerald-100 font-medium opacity-90">Create Site/Area</p>
+                </div>
+              </div>
+              <Plus className="w-8 h-8 opacity-50" />
+            </motion.div>
+          )}
+        </div>
+
+        {/* Action Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            ...(userRole === 'admin' ? [
+              { icon: Users, label: 'Attendance', path: '/attendance', color: 'bg-emerald-500', desc: 'STAKEHOLDERS' }
+            ] : []),
+            { icon: Building2, label: userRole === 'admin' ? 'Management' : 'My Sites', path: '/sites', color: 'bg-blue-500', desc: 'SITES' },
+            ...(userRole === 'admin' ? [
+              { icon: Package, label: 'Inventory', path: '/materials', color: 'bg-orange-500', desc: 'MATERIALS' }
+            ] : []),
+            { icon: FileText, label: 'Processes', path: '/processes', color: 'bg-rose-500', desc: 'WORKFLOW' },
+            { icon: DollarSign, label: 'PO Requests', path: '/po-requests', color: 'bg-amber-500', desc: 'PURCHASES' },
+            // ...(userRole === 'admin' ? [
+            //   { icon: TrendingUp, label: 'Reports', path: '/reports', color: 'bg-indigo-500', desc: 'ANALYTICS' },
+            //   { icon: UserPlus, label: 'Supervisors', path: '/supervisor-management', color: 'bg-purple-500', desc: 'TEAM' }
+            // ] : []),
+            {
+              icon: LogOut,
+              label: 'Logout',
+              action: () => {
+                showConfirm(
+                  'Confirm Logout',
+                  'Are you sure you want to logout from your account?',
+                  async () => {
+                    await logout();
+                    navigate('/login');
+                  }
+                );
+              },
+              color: 'bg-slate-400',
+              desc: 'EXIT'
+            }
+          ].map((item) => (
+            <motion.div
+              key={item.label}
+              whileHover={{ y: -5, scale: 1.02 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => item.path ? navigate(item.path) : item.action()}
+              className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-xl flex flex-col items-center justify-center gap-4 cursor-pointer group active:bg-gray-50"
+            >
+              <div className={`${item.color} p-4 rounded-2xl text-white shadow-lg group-hover:rotate-6 transition-transform`}>
+                <item.icon className="w-6 h-6" />
+              </div>
+              <div className="text-center">
+                <p className="font-extrabold text-gray-900 text-sm leading-tight uppercase">{item.label}</p>
+                <p className="text-[9px] text-gray-400 font-black tracking-widest mt-1 opacity-60">{item.desc}</p>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </div>
 
@@ -1197,8 +1164,8 @@ const Dashboard = ({ userRole }) => {
             className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
           >
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900">Create New Site - Complete Flow</h2>
-              <p className="text-gray-600 mt-1">Complete all steps to create a new site with staff and materials</p>
+              <h2 className="text-2xl font-black text-gray-900 uppercase">ADD NEW SITE</h2>
+              <p className="text-gray-500 font-medium">Quick 2-step setup: Site Details & Materials</p>
             </div>
 
             {/* Progress Steps */}
@@ -1280,119 +1247,9 @@ const Dashboard = ({ userRole }) => {
                           </label>
                         ))}
                       </div>
-                      {(dprFormData.assignedSupervisors || []).length > 0 && (
-                        <p className="text-xs text-blue-600 mt-1">
-                          ✓ {dprFormData.assignedSupervisors.length} supervisor(s) will be assigned
-                        </p>
-                      )}
                     </div>
                   )}
 
-                  <div>
-
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Building Name *</label>
-                    <input
-                      type="text"
-                      value={dprFormData.buildingId}
-                      onChange={(e) => setDprFormData({ ...dprFormData, buildingId: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Enter building name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Building Type *</label>
-                    <select
-                      value={dprFormData.buildingType || 'Mixed Use'}
-                      onChange={(e) => setDprFormData({ ...dprFormData, buildingType: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="Residential">Residential</option>
-                      <option value="Commercial">Commercial</option>
-                      <option value="Industrial">Industrial</option>
-                      <option value="Mixed Use">Mixed Use</option>
-                      <option value="Institutional">Institutional</option>
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Floors *</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={dprFormData.buildingFloors}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingFloors: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Units *</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={dprFormData.buildingUnits}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingUnits: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Building Area (sq ft)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={dprFormData.buildingArea}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingArea: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="e.g., 1000"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Building Budget</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={dprFormData.buildingBudget}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingBudget: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="e.g., 1000000"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                      <select
-                        value={dprFormData.buildingStatus}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingStatus: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="Active">Active</option>
-                        <option value="Completed">Completed</option>
-                        <option value="On Hold">On Hold</option>
-                        <option value="Pending">Pending</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Progress (%)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={dprFormData.buildingProgress}
-                        onChange={(e) => setDprFormData({ ...dprFormData, buildingProgress: e.target.value })}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                    </div>
-                  </div>
-                  {/* <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Site Area *</label>
-                    <input
-                      type="text"
-                      value={dprFormData.siteArea}
-                      onChange={(e) => setDprFormData({ ...dprFormData, siteArea: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="e.g., 5000 sq ft"
-                    />
-                  </div> */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Location *</label>
                     <input
@@ -1408,209 +1265,7 @@ const Dashboard = ({ userRole }) => {
 
               {dprStep === 2 && (
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Step 2: Assign Staff</h3>
-
-
-
-                  {/* Step 2 only shows Workers — Supervisors are already assigned in Step 1 */}
-                  {getStaffByAttendance().present.workers.length > 0 ? (
-                    <div>
-                      <h4 className="text-md font-medium text-green-700 mb-3 flex items-center gap-2">
-                        <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                        Available Workers ({getStaffByAttendance().present.workers.length})
-                      </h4>
-                      <div className="space-y-3">
-                        {getStaffByAttendance().present.workers.map(person => {
-                          const workerConflict = hasStaffConflict(person.id)
-                          const isSelected = dprFormData.selectedStaff.includes(person.id)
-                          return (
-                            <motion.div
-                              key={person.id}
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={() => handleStaffToggle(person.id)}
-                              className={`p-4 border rounded-xl cursor-pointer transition-all ${workerConflict && !isSelected
-                                ? 'bg-gray-50 border-gray-200 opacity-60'
-                                : isSelected
-                                  ? 'bg-blue-50 border-blue-500 shadow-sm'
-                                  : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-sm'
-                                }`}
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-gray-900 truncate">{person.name}</p>
-                                  <p className="text-sm text-gray-600 truncate">{person.role}</p>
-                                  <p className="text-xs text-orange-600 mt-1">Single site assignment only</p>
-                                  {workerConflict && !isSelected && (
-                                    <p className="text-xs text-red-600 mt-2 font-medium">⚠️ Already assigned to another site</p>
-                                  )}
-                                </div>
-                                <div className="ml-3 flex-shrink-0">
-                                  {isSelected ? (
-                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                      </svg>
-                                    </div>
-                                  ) : workerConflict ? (
-                                    <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                      </svg>
-                                    </div>
-                                  ) : (
-                                    <div className="w-6 h-6 border-2 border-gray-300 rounded-full"></div>
-                                  )}
-                                </div>
-                              </div>
-                            </motion.div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-400">
-                      <p className="text-sm">No workers available to assign.</p>
-                      <p className="text-xs mt-1">Add workers via the Staff / Labour section first.</p>
-                    </div>
-                  )}
-
-
-                  {/* Already Assigned Staff */}
-                  {(getStaffByAttendance().assigned.supervisors.length > 0 || getStaffByAttendance().assigned.workers.length > 0) && (
-                    <div>
-                      <h4 className="text-md font-medium text-orange-700 mb-3 flex items-center gap-2">
-                        <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                        Already Assigned to Other DPR ({getStaffByAttendance().assigned.supervisors.length + getStaffByAttendance().assigned.workers.length})
-                      </h4>
-
-                      {/* Assigned Supervisors */}
-                      {getStaffByAttendance().assigned.supervisors.length > 0 && (
-                        <div className="mb-4">
-                          <p className="text-sm font-medium text-gray-600 mb-2">Supervisors</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {getStaffByAttendance().assigned.supervisors.map(person => (
-                              <div
-                                key={person.id}
-                                className="p-4 border border-orange-200 rounded-lg bg-orange-50 opacity-70"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="font-medium text-gray-900">{person.name}</p>
-                                    <p className="text-sm text-gray-600">{person.role}</p>
-                                    <p className="text-xs text-orange-600">Already assigned today</p>
-                                  </div>
-                                  <div className="w-5 h-5 bg-orange-300 rounded-full flex items-center justify-center">
-                                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Assigned Workers */}
-                      {getStaffByAttendance().assigned.workers.length > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-600 mb-2">Workers</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {getStaffByAttendance().assigned.workers.map(person => (
-                              <div
-                                key={person.id}
-                                className="p-4 border border-orange-200 rounded-lg bg-orange-50 opacity-70"
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="font-medium text-gray-900">{person.name}</p>
-                                    <p className="text-sm text-gray-600">{person.role}</p>
-                                    <p className="text-xs text-orange-600">Already assigned today</p>
-                                  </div>
-                                  <div className="w-5 h-5 bg-orange-300 rounded-full flex items-center justify-center">
-                                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Absent Staff */}
-                  <div>
-                    <h4 className="text-md font-medium text-red-700 mb-3 flex items-center gap-2">
-                      <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                      Absent Today ({getStaffByAttendance().absent.length})
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {getStaffByAttendance().absent.map(person => (
-                        <motion.div
-                          key={person.id}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => handleStaffToggle(person.id)}
-                          className={`p-4 border rounded-lg cursor-pointer transition-colors ${dprFormData.selectedStaff.includes(person.id)
-                            ? 'bg-orange-50 border-orange-500'
-                            : 'bg-red-50 border-red-200 hover:border-orange-400'
-                            }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium text-gray-900">{person.name}</p>
-                              <p className="text-sm text-gray-600">{person.role}</p>
-                              <p className="text-xs text-orange-600">Absent but can be assigned</p>
-                            </div>
-                            {dprFormData.selectedStaff.includes(person.id) && (
-                              <div className="w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center">
-                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                              </div>
-                            )}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {staff.length === 0 && (
-                    <div className="text-center py-8">
-                      <p className="text-gray-500">No staff found. Please add staff first.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {dprStep === 3 && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Step 3: Define Work Area</h3>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm text-blue-800">
-                      <strong>Site:</strong> {dprFormData.siteName}<br />
-                      <strong>Area:</strong> {dprFormData.siteArea}<br />
-                      <strong>Staff Assigned:</strong> {dprFormData.selectedStaff.length} people
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Work Details</label>
-                    <textarea
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={4}
-                      placeholder="Describe the work area and specific requirements..."
-                    />
-                  </div>
-                </div>
-              )}
-
-              {dprStep === 4 && (
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Step 4: Add Materials</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Step 2: Add Materials</h3>
                   <div className="space-y-3">
                     {materials.map(material => (
                       <div key={material.id} className="p-4 border border-gray-200 rounded-lg">
@@ -1836,6 +1491,10 @@ const Dashboard = ({ userRole }) => {
         )}
       </AnimatePresence>
 
+      <StatusModal 
+        {...statusModal} 
+        onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
+      />
       <Footer />
     </div >
   )

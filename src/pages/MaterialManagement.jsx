@@ -4,8 +4,11 @@ import { Package, Plus, TrendingDown, AlertTriangle, FileText, CheckCircle, Cloc
 import { materialServices, purchaseOrderServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
 import Footer from '../components/Footer'
 import { auth } from '../firebase'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 
 const MaterialManagement = ({ userRole }) => {
+  const navigate = useNavigate()
   const [materials, setMaterials] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
   const [sites, setSites] = useState([])
@@ -283,11 +286,24 @@ const MaterialManagement = ({ userRole }) => {
   const lowStockMaterials = materials.filter(m => m.currentStock <= 5)
 
   return (
-    <div className="p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Material Management</h1>
-          <p className="text-gray-600">Track inventory, quantities, and supply chain</p>
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 min-h-screen bg-gray-50">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => navigate('/dashboard')}
+            className="p-2 bg-white rounded-lg shadow-sm border border-gray-200 text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </motion.button>
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+              <Package className="w-10 h-10 text-blue-600" />
+              Inventory & Materials
+            </h1>
+            <p className="text-gray-600 mt-1">Manage stock and purchase orders</p>
+          </div>
         </div>
         {(userRole === 'admin' || (userRole === 'supervisor' && true)) && (
           <div className="flex gap-3">
