@@ -19,6 +19,8 @@ import { useNavigate } from 'react-router-dom'
 import { supervisorServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
+import StatusModal from '../components/StatusModal'
+import InputModal from '../components/InputModal'
 
 const PORequests = ({ userRole = 'admin' }) => {
   const navigate = useNavigate()
@@ -38,6 +40,25 @@ const PORequests = ({ userRole = 'admin' }) => {
     urgency: 'normal',
     reason: '',
     expectedDate: ''
+  })
+
+  // Status Modal State
+  const [statusModal, setStatusModal] = useState({
+    visible: false, type: 'success', title: '', message: '', onConfirm: null, onCancel: null
+  })
+  const showAlert = (title, message, type = 'success') => {
+    setStatusModal({ visible: true, type, title, message, onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) })
+  }
+  const showConfirm = (title, message, onConfirm) => {
+    setStatusModal({ visible: true, type: 'confirm', title, message,
+      onConfirm: () => { onConfirm(); setStatusModal(prev => ({ ...prev, visible: false })); },
+      onCancel: () => setStatusModal(prev => ({ ...prev, visible: false }))
+    })
+  }
+
+  // Input Modal for rejection reason
+  const [inputModal, setInputModal] = useState({
+    visible: false, title: '', message: '', defaultValue: '', onConfirm: null
   })
 
   // Helper – reload PO list and apply role filter
@@ -83,7 +104,11 @@ const PORequests = ({ userRole = 'admin' }) => {
     e.preventDefault()
     try {
       if (!formData.siteId) {
-        alert('Please select a site for this request.')
+        showAlert('Required', 'Please select a site for this request.', 'warning')
+        return
+      }
+      if (!formData.materialName) {
+        showAlert('Required', 'Please enter a material name.', 'warning')
         return
       }
       const newRequest = {
@@ -98,9 +123,10 @@ const PORequests = ({ userRole = 'admin' }) => {
       await reloadRequests()
       setShowCreateModal(false)
       setFormData({ siteId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
+      showAlert('Success', 'PO request created successfully!')
     } catch (error) {
       console.error('Error creating PO request:', error)
-      alert('Error creating PO request. Please try again.')
+      showAlert('Error', 'Error creating PO request. Please try again.', 'error')
     }
   }
 
@@ -113,40 +139,53 @@ const PORequests = ({ userRole = 'admin' }) => {
       }
       await supervisorServices.updatePORequest(requestId, updateData)
       await reloadRequests()
+      showAlert('Approved', 'PO request has been approved successfully!')
     } catch (error) {
       console.error('Error approving PO request:', error)
-      alert('Error approving PO request. Please try again.')
+      showAlert('Error', 'Error approving PO request. Please try again.', 'error')
     }
   }
 
   const handleReject = async (requestId, notes) => {
-    const rejectNotes = prompt('Please provide rejection reason:', notes || '')
-    if (rejectNotes !== null) {
-      try {
-        await supervisorServices.updatePORequest(requestId, {
-          status: 'rejected',
-          rejectedBy: user?.email || 'admin',
-          rejectedDate: new Date().toISOString().split('T')[0],
-          adminNotes: rejectNotes
-        })
-        await reloadRequests()
-      } catch (error) {
-        console.error('Error rejecting PO request:', error)
-        alert('Error rejecting PO request. Please try again.')
+    setInputModal({
+      visible: true,
+      title: 'Rejection Reason',
+      message: 'Please provide a reason for rejecting this PO request:',
+      defaultValue: notes || '',
+      onConfirm: async (rejectNotes) => {
+        setInputModal(prev => ({ ...prev, visible: false }))
+        try {
+          await supervisorServices.updatePORequest(requestId, {
+            status: 'rejected',
+            rejectedBy: user?.email || 'admin',
+            rejectedDate: new Date().toISOString().split('T')[0],
+            adminNotes: rejectNotes
+          })
+          await reloadRequests()
+          showAlert('Rejected', 'PO request has been rejected.')
+        } catch (error) {
+          console.error('Error rejecting PO request:', error)
+          showAlert('Error', 'Error rejecting PO request. Please try again.', 'error')
+        }
       }
-    }
+    })
   }
 
   const handleDelete = async (requestId) => {
-    if (window.confirm('Are you sure you want to delete this PO request? This action cannot be undone.')) {
-      try {
-        await supervisorServices.deletePORequest(requestId)
-        await reloadRequests()
-      } catch (error) {
-        console.error('Error deleting PO request:', error)
-        alert('Error deleting PO request. Please try again.')
+    showConfirm(
+      'Delete PO Request?',
+      'Are you sure you want to delete this PO request? This action cannot be undone.',
+      async () => {
+        try {
+          await supervisorServices.deletePORequest(requestId)
+          await reloadRequests()
+          showAlert('Deleted', 'PO request deleted successfully.')
+        } catch (error) {
+          console.error('Error deleting PO request:', error)
+          showAlert('Error', 'Error deleting PO request. Please try again.', 'error')
+        }
       }
-    }
+    )
   }
 
   const getStatusColor = (status) => {
@@ -218,17 +257,15 @@ const PORequests = ({ userRole = 'admin' }) => {
             </p>
           </div>
         </div>
-        {userRole === 'supervisor' && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            New Request
-          </motion.button>
-        )}
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-medium"
+        >
+          <Plus className="w-4 h-4" />
+          New Request
+        </motion.button>
       </div>
 
       {/* Stats Cards */}
@@ -285,7 +322,7 @@ const PORequests = ({ userRole = 'admin' }) => {
             />
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setFilterStatus('all')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'all'
@@ -443,9 +480,17 @@ const PORequests = ({ userRole = 'admin' }) => {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900">New Purchase Order Request</h2>
-              <p className="text-gray-600 mt-1">Submit a request for materials needed</p>
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">New Purchase Order Request</h2>
+                <p className="text-gray-600 mt-1">Submit a request for materials needed</p>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
 
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">
@@ -462,10 +507,9 @@ const PORequests = ({ userRole = 'admin' }) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Quantity *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Quantity</label>
                   <input
                     type="number"
-                    required
                     min="1"
                     value={formData.quantity}
                     onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
@@ -477,10 +521,9 @@ const PORequests = ({ userRole = 'admin' }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
                   <input
                     type="text"
-                    required
                     value={formData.unit}
                     onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -528,9 +571,8 @@ const PORequests = ({ userRole = 'admin' }) => {
               </div> */}
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Reason *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Reason</label>
                 <textarea
-                  required
                   rows={3}
                   value={formData.reason}
                   onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
@@ -562,6 +604,18 @@ const PORequests = ({ userRole = 'admin' }) => {
           </motion.div>
         </motion.div>
       )}
+
+      <StatusModal 
+        {...statusModal} 
+        onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
+      />
+      <InputModal
+        {...inputModal}
+        type="text"
+        placeholder="Enter reason..."
+        confirmLabel="Reject"
+        onCancel={() => setInputModal(prev => ({ ...prev, visible: false }))}
+      />
     </div>
   )
 }
