@@ -480,17 +480,17 @@ const PORequests = ({ userRole = 'admin' }) => {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">New Purchase Order Request</h2>
-                <p className="text-gray-600 mt-1">Submit a request for materials needed</p>
-              </div>
-              <button
+             <button
                 onClick={() => setShowCreateModal(false)}
                 className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
               >
                 <ArrowLeft className="w-5 h-5 text-gray-600" />
               </button>
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">New Purchase Order Request</h2>
+                <p className="text-gray-600 mt-1">Submit a request for materials needed</p>
+              </div>
             </div>
 
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">

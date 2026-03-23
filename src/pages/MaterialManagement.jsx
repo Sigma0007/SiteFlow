@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Package, Plus, TrendingDown, AlertTriangle, FileText, CheckCircle, Clock, XCircle, Edit2, Trash2 } from 'lucide-react'
+import { Package, Plus, TrendingDown, AlertTriangle, FileText, CheckCircle, Clock, XCircle, Edit2, Trash2, X } from 'lucide-react'
 import { materialServices, purchaseOrderServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
 import Footer from '../components/Footer'
 import { auth } from '../firebase'
@@ -738,10 +738,16 @@ const MaterialManagement = ({ userRole }) => {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-xl shadow-2xl w-full max-w-md"
             >
-              <div className="p-6 border-b border-gray-200">
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">
                   {editingMaterial ? 'Edit Material' : 'Add New Material'}
                 </h2>
+                <button
+                  onClick={() => setShowMaterialModal(false)}
+                  className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
               </div>
 
               <form onSubmit={handleMaterialSubmit} className="p-6 space-y-4">

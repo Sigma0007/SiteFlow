@@ -1163,9 +1163,17 @@ const Dashboard = ({ userRole }) => {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
           >
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-black text-gray-900 uppercase">ADD NEW SITE</h2>
-              <p className="text-gray-500 font-medium">Quick 2-step setup: Site Details & Materials</p>
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900 uppercase">ADD NEW SITE</h2>
+                <p className="text-gray-500 font-medium">Quick 2-step setup: Site Details & Materials</p>
+              </div>
+              <button
+                onClick={() => setShowDPRFlow(false)}
+                className="p-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
             </div>
 
             {/* Progress Steps */}
