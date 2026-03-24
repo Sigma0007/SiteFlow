@@ -68,6 +68,12 @@ service cloud.firestore {
       allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
     }
 
+    // ── Expenses ──────────────────────────────────────────────────────────────
+    match /expenses/{expenseId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{email} {
       allow read:  if isAuthenticated() && (request.auth.token.email == email || isAdmin());

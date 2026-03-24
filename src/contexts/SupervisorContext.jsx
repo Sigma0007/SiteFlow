@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../firebase'
 import { supervisorServices, convertDocsToArray } from '../services/firebaseServices'
-import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
 
 const SupervisorContext = createContext()
@@ -58,7 +58,6 @@ export const SupervisorProvider = ({ children }) => {
 
         // STRATEGY 1 — Query sites where assignedSupervisors contains any of
         // the supervisor's known identifiers (UID, email, or Firestore doc ID).
-        // Rules now allow supervisors to read all sites so this always works.
         const identifiers = [user.uid, user.email, supervisor.id].filter(Boolean)
         await Promise.all(identifiers.map(async (value) => {
           try {
@@ -72,24 +71,6 @@ export const SupervisorProvider = ({ children }) => {
             console.warn('🔧 SupervisorContext: array-contains query failed for', value, '–', e.message)
           }
         }))
-
-        // STRATEGY 2 — Direct reads from supervisor.assignedSites[] (IDs).
-        // Catches sites where admin stored the siteId on the supervisor doc
-        // but didn't update site.assignedSupervisors.
-        const supervisorAssignedIds = (supervisor.assignedSites || []).filter(
-          id => !seen.has(id)
-        )
-        if (supervisorAssignedIds.length > 0) {
-          console.log('🔧 SupervisorContext: supervisor.assignedSites to fetch:', supervisorAssignedIds)
-          const siteReads = await Promise.allSettled(
-            supervisorAssignedIds.map(siteId => getDoc(doc(db, 'sites', siteId)))
-          )
-          siteReads.forEach((result) => {
-            if (result.status === 'fulfilled' && result.value.exists()) {
-              addSite({ id: result.value.id, ...result.value.data() })
-            }
-          })
-        }
 
         console.log(
           '🔧 SupervisorContext: Resolved assigned sites:',

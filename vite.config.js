@@ -88,7 +88,7 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     headers: {
-      'Content-Security-Policy': "script-src 'self' 'unsafe-eval' 'unsafe-inline';"
+      'Content-Security-Policy': "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com;"
     }
   }
 }))

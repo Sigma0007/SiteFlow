@@ -80,15 +80,9 @@ const PORequests = ({ userRole = 'admin' }) => {
     const loadPORequests = async () => {
       try {
         setLoading(true)
-        if (userRole === 'supervisor') {
-          // For supervisors, only show their assigned sites
-          // Wait until supervisor context has resolved
-          if (!currentSupervisor && assignedSites.length === 0) return
-          setSites(assignedSites || [])
-        } else {
-          const sitesSnapshot = await siteServices.getAllSites()
-          setSites(convertDocsToArray(sitesSnapshot))
-        }
+        // Always load all sites for the dropdown so supervisors can create POs for any site
+        const sitesSnapshot = await siteServices.getAllSites()
+        setSites(convertDocsToArray(sitesSnapshot))
         await reloadRequests()
       } catch (error) {
         console.error('Error loading PO requests:', error)

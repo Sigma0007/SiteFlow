@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Building2, Calendar, HardHat, FileText, CheckSquare, Package, Download } from 'lucide-react';
-import { siteServices, attendanceServices, labourServices, dprServices, convertDocsToArray } from '../services/firebaseServices';
+import { ArrowLeft, Building2, Calendar, HardHat, FileText, CheckSquare, Package, Download, IndianRupee } from 'lucide-react';
+import { siteServices, attendanceServices, labourServices, dprServices, materialServices, convertDocsToArray, expenseServices } from '../services/firebaseServices';
 import html2pdf from 'html2pdf.js';
 
 const DPRReportView = () => {
@@ -15,6 +15,7 @@ const DPRReportView = () => {
   const [labour, setLabour] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [dpr, setDpr] = useState(null);
+  const [expenses, setExpenses] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,6 +46,10 @@ const DPRReportView = () => {
         const dprSnap = await dprServices.getDPRBySiteId(siteId);
         const allDprs = convertDocsToArray(dprSnap);
         setDpr(allDprs.find(d => d.date === date && !d.is_deleted));
+
+        // Fetch Expenses
+        const expSnap = await expenseServices.getExpensesBySiteAndDate(siteId, date);
+        setExpenses(convertDocsToArray(expSnap));
 
       } catch (err) {
         console.error('Error fetching report data:', err);
@@ -260,6 +265,45 @@ const DPRReportView = () => {
               </div>
             ) : (
               <p className="text-gray-500 text-sm italic py-2">No materials currently allocated to this site.</p>
+            )}
+          </div>
+
+          {/* Section 4: Daily Expenses */}
+          <div className="mb-6 page-break-inside-avoid">
+            <div className="flex items-center gap-2 mb-4">
+              <IndianRupee className="w-5 h-5 text-gray-700" />
+              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Daily Expenses</h2>
+            </div>
+            
+            {expenses && expenses.length > 0 ? (
+              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Category</th>
+                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {expenses.map((exp, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{exp.description}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">{exp.category}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-gray-900 text-right">₹{exp.amount.toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t border-gray-200">
+                      <td colSpan="2" className="px-6 py-3 text-right font-bold text-gray-700 uppercase focus:outline-none">Total:</td>
+                      <td className="px-6 py-3 text-right font-bold text-green-700 text-base">₹{expenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString('en-IN')}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm italic py-2">No expenses recorded for today.</p>
             )}
           </div>
 

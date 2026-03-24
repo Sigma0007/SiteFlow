@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft, Building2, Package, Users, Activity, CheckCircle, Plus, Minus, Search, RotateCcw, Clock, FileText
+  ArrowLeft, Building2, Package, Users, Activity, CheckCircle, Plus, Minus, Search, RotateCcw, Clock, FileText, IndianRupee, Trash2
 } from 'lucide-react';
 import {
-  siteServices, labourServices, materialServices, attendanceServices, dprServices, convertDocsToArray
+  siteServices, labourServices, materialServices, attendanceServices, dprServices, convertDocsToArray, expenseServices
 } from '../services/firebaseServices';
+import { onSnapshot, doc, query, where, collection } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useAuth } from '../components/Auth';
 import StatusModal from '../components/StatusModal';
 import InputModal from '../components/InputModal';
@@ -18,7 +20,7 @@ const DPRSiteDetails = ({ userRole }) => {
   const { user } = useAuth();
   
   const [site, setSite] = useState(null);
-  const [currentStep, setCurrentStep] = useState(1); // 1 = Materials, 2 = Attendance, 3 = Process
+  const [currentStep, setCurrentStep] = useState(1); // 1=Materials 2=Attendance 3=Process 4=Expenses
   const [loading, setLoading] = useState(true);
   
   // Data States
@@ -26,6 +28,12 @@ const DPRSiteDetails = ({ userRole }) => {
   const [allLabour, setAllLabour] = useState([]);
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [todayDpr, setTodayDpr] = useState(null);
+  const [todayExpenses, setTodayExpenses] = useState([]);
+
+  // Expense modal state
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '', category: 'Labour' });
+  const expenseCategories = ['Labour', 'Materials', 'Transport', 'Equipment', 'Other'];
   
   const todayDate = new Date().toISOString().split('T')[0];
 
@@ -73,46 +81,71 @@ const DPRSiteDetails = ({ userRole }) => {
     });
   };
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      // 1. Fetch Site
-      const siteDoc = await siteServices.getSiteById(siteId);
-      if (siteDoc.exists()) {
-        setSite({ id: siteDoc.id, ...siteDoc.data() });
-      }
-
-      // 2. Fetch Materials
-      const matSnap = await materialServices.getAllMaterials();
-      setAllMaterials(convertDocsToArray(matSnap));
-
-      // 3. Fetch Labour & Attendance
-      const labSnap = await labourServices.getAllLabour();
-      setAllLabour(convertDocsToArray(labSnap));
-      
-      const attSnap = await attendanceServices.getAttendanceByDate(todayDate);
-      setTodayAttendance(convertDocsToArray(attSnap));
-
-      // 4. Fetch DPR for today
-      const dprSnap = await dprServices.getDPRBySiteId(siteId);
-      const allDprs = convertDocsToArray(dprSnap);
-      const todays = allDprs.find(d => d.date === todayDate && !d.is_deleted);
-      if (todays) {
-        setTodayDpr(todays);
-      } else {
-        setTodayDpr(null);
-      }
-      
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+  const loadData = () => {
+    // Kept for manual reloads if absolutely necessary, but onSnapshot handles it automatically
   };
 
   useEffect(() => {
-    loadData();
-  }, [siteId]);
+    if (!siteId) return;
+    setLoading(true);
+
+    const unsubscribers = [];
+
+    // 1. Fetch Site
+    unsubscribers.push(
+      onSnapshot(doc(db, 'sites', siteId), (siteDoc) => {
+        if (siteDoc.exists()) {
+          setSite({ id: siteDoc.id, ...siteDoc.data() });
+        }
+        setLoading(false);
+      }, (err) => console.error('Site Error:', err))
+    );
+
+    // 2. Fetch Materials
+    unsubscribers.push(
+      onSnapshot(collection(db, 'materials'), (snap) => {
+        setAllMaterials(convertDocsToArray(snap));
+      }, (err) => console.error('Material Error:', err))
+    );
+
+    // 3. Fetch Labour
+    unsubscribers.push(
+      onSnapshot(collection(db, 'labour'), (snap) => {
+        setAllLabour(convertDocsToArray(snap));
+      }, (err) => console.error('Labour Error:', err))
+    );
+    
+    // 4. Fetch today's Attendance
+    unsubscribers.push(
+      onSnapshot(query(collection(db, 'attendance'), where('date', '==', todayDate)), (snap) => {
+        setTodayAttendance(convertDocsToArray(snap));
+      }, (err) => console.error('Attendance Error:', err))
+    );
+
+    // 5. Fetch DPR
+    unsubscribers.push(
+      onSnapshot(query(collection(db, 'dpr'), where('siteId', '==', siteId)), (snap) => {
+        const allDprs = convertDocsToArray(snap);
+        const todays = allDprs.find(d => d.date === todayDate && !d.is_deleted);
+        setTodayDpr(todays || null);
+      }, (err) => console.error('DPR Error:', err))
+    );
+
+    // 6. Fetch Expenses
+    unsubscribers.push(
+      onSnapshot(
+        query(collection(db, 'expenses'), where('siteId', '==', siteId), where('date', '==', todayDate)), 
+        (snap) => {
+          setTodayExpenses(convertDocsToArray(snap));
+        }, 
+        (err) => console.error('Expense Error:', err)
+      )
+    );
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [siteId, todayDate]);
 
   // --- TAB: MATERIALS ---
   const [matSearch, setMatSearch] = useState('');
@@ -274,6 +307,43 @@ const DPRSiteDetails = ({ userRole }) => {
     }
   };
 
+  const handleAddExpense = async () => {
+    const amt = parseFloat(expenseForm.amount);
+    if (!expenseForm.description || !amt || amt <= 0) {
+      showAlert('Required', 'Please enter a description and a valid amount.', 'warning');
+      return;
+    }
+    try {
+      const newExp = {
+        siteId,
+        siteName: site.name,
+        date: todayDate,
+        description: expenseForm.description,
+        amount: amt,
+        category: expenseForm.category,
+        addedBy: user?.email || '',
+        createdAt: new Date().toISOString()
+      };
+      const ref = await expenseServices.addExpense(newExp);
+      setTodayExpenses(prev => [...prev, { id: ref.id, ...newExp }]);
+      setExpenseForm({ description: '', amount: '', category: 'Labour' });
+      showAlert('Success', 'Expense added successfully!');
+    } catch (err) {
+      console.error(err);
+      showAlert('Error', 'Failed to add expense.', 'error');
+    }
+  };
+
+  const handleDeleteExpense = async (expId) => {
+    try {
+      await expenseServices.deleteExpense(expId);
+      setTodayExpenses(prev => prev.filter(e => e.id !== expId));
+      showAlert('Deleted', 'Expense removed.', 'success');
+    } catch (err) {
+      showAlert('Error', 'Failed to delete expense.', 'error');
+    }
+  };
+
   if (loading) {
     return <div className="p-8 text-center bg-gray-50 min-h-screen">Loading...</div>;
   }
@@ -356,6 +426,11 @@ const DPRSiteDetails = ({ userRole }) => {
             <div className={`flex flex-col items-center ${currentStep >= 3 ? 'text-blue-600' : 'text-gray-400'}`}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mb-1 ${currentStep >= 3 ? 'bg-blue-100' : 'bg-gray-100'}`}>3</div>
               <span className="text-xs font-semibold">Process</span>
+            </div>
+            <div className={`flex-1 h-1 mx-4 rounded ${currentStep >= 4 ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
+            <div className={`flex flex-col items-center ${currentStep >= 4 ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold mb-1 ${currentStep >= 4 ? 'bg-blue-100' : 'bg-gray-100'}`}>4</div>
+              <span className="text-xs font-semibold">Expenses</span>
             </div>
           </div>
         </div>
@@ -587,6 +662,105 @@ const DPRSiteDetails = ({ userRole }) => {
           </div>
         )}
 
+        {/* EXPENSE SECTION */}
+        {currentStep === 4 && (
+          <div className="space-y-6 max-w-2xl">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <IndianRupee className="w-5 h-5 text-green-600" /> Daily Expenses — {todayDate}
+              </h3>
+              
+              {/* Inline Add Expense Form */}
+              <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Add New Expense</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-4">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Description *</label>
+                    <input
+                      type="text"
+                      value={expenseForm.description}
+                      onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-sm"
+                      placeholder="e.g., Labour wages"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Amount (₹) *</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={expenseForm.amount}
+                      onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-sm"
+                      placeholder="5000"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                    <select
+                      value={expenseForm.category}
+                      onChange={e => setExpenseForm(f => ({ ...f, category: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 text-sm bg-white"
+                    >
+                      {expenseCategories.map(c => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <button
+                      onClick={handleAddExpense}
+                      className="w-full py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700 transition h-[38px] flex items-center justify-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" /> Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {todayExpenses.length === 0 ? (
+                <p className="text-gray-400 text-sm py-6 text-center">No expenses recorded for today.</p>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold">Description</th>
+                        <th className="px-4 py-2 text-left font-semibold">Category</th>
+                        <th className="px-4 py-2 text-right font-semibold">Amount</th>
+                        <th className="px-4 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {todayExpenses.map(exp => (
+                        <tr key={exp.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium text-gray-900">{exp.description}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">{exp.category}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-green-700">₹{exp.amount.toLocaleString('en-IN')}</td>
+                          <td className="px-4 py-3 text-center">
+                            <button onClick={() => handleDeleteExpense(exp.id)} className="text-red-400 hover:text-red-600 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-gray-200 bg-gray-50">
+                        <td colSpan="2" className="px-4 py-3 font-bold text-gray-700 text-right uppercase tracking-wider text-xs">Total</td>
+                        <td className="px-4 py-3 text-right font-black text-green-700 text-base">
+                          ₹{todayExpenses.reduce((sum, e) => sum + e.amount, 0).toLocaleString('en-IN')}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* NAVIGATION BUTTONS */}
         <div className="mt-8 flex justify-between max-w-2xl mx-auto">
           {currentStep > 1 ? (
@@ -597,10 +771,10 @@ const DPRSiteDetails = ({ userRole }) => {
               Back
             </button>
           ) : (
-            <div></div> // Empty div for spacing
+            <div></div>
           )}
 
-          {currentStep < 3 ? (
+          {currentStep < 4 ? (
             <button
               onClick={() => setCurrentStep(prev => prev + 1)}
               className="px-8 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-md"
@@ -618,6 +792,8 @@ const DPRSiteDetails = ({ userRole }) => {
         </div>
 
       </div>
+
+      {/* Modals */}
       <StatusModal 
         {...statusModal} 
         onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}

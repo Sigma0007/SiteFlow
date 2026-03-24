@@ -407,6 +407,16 @@ export const processServices = {
     return addDoc(processesCollection, processDataWithIds);
   },
 
+  // Add new site-level process
+  addSiteProcess: (siteId, processData) => {
+    const processDataWithIds = {
+      ...processData,
+      siteId,
+      buildingId: 'site-level'
+    };
+    return addDoc(processesCollection, processDataWithIds);
+  },
+
   // Update process
   updateProcess: (siteId, buildingId, processId, processData) => {
     const processDataWithIds = {
@@ -1187,4 +1197,16 @@ export const syncSingleStaffToSite = async (staffId, siteId) => {
   if (siteId !== null) {
     await updateDoc(doc(db, 'labour', staffId), { siteId }).catch(e => console.warn(e));
   }
+};
+
+// ─── Daily Expense Services ─────────────────────────────────────────────────
+export const expensesCollection = collection(db, 'expenses');
+
+export const expenseServices = {
+  addExpense: (data) => addDoc(expensesCollection, data),
+  getExpensesBySite: (siteId) =>
+    getDocs(query(expensesCollection, where('siteId', '==', siteId))),
+  getExpensesBySiteAndDate: (siteId, date) =>
+    getDocs(query(expensesCollection, where('siteId', '==', siteId), where('date', '==', date))),
+  deleteExpense: (id) => deleteDoc(doc(db, 'expenses', id)),
 };

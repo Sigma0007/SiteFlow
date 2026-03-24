@@ -445,16 +445,16 @@ const MaterialManagement = ({ userRole }) => {
                           <td className="py-3 px-2 sm:px-4 text-gray-600 hidden sm:table-cell text-sm">{material.category}</td>
                           <td className="py-3 px-2 sm:px-4 text-gray-600 hidden md:table-cell text-sm">{material.unit}</td>
                           <td className="py-3 px-2 sm:px-4">
-                            <span className={`font-semibold text-sm ${material.currentStock <= 5 ? 'text-red-600' : 'text-gray-900'
+                            <span className={`font-semibold text-sm ${Number(material.currentStock || 0) <= 5 ? 'text-red-600' : 'text-gray-900'
                               }`}>
-                              {material.currentStock}
+                              {Number(material.currentStock || 0)}
                             </span>
                           </td>
                           <td className="py-3 px-2 sm:px-4 text-xs">
                             {(() => {
                               const allocations = sites.reduce((acc, site) => {
                                 const sm = (site.assignedMaterials || []).find(m => m.materialId === material.id);
-                                if (sm && sm.quantity > 0) acc.push(`${site.name}: ${sm.quantity}`);
+                                if (sm && Number(sm.quantity || 0) > 0) acc.push(`${site.name}: ${Number(sm.quantity || 0)}`);
                                 return acc;
                               }, []);
                               return allocations.length > 0 ? (
@@ -464,7 +464,7 @@ const MaterialManagement = ({ userRole }) => {
                               ) : <span className="text-gray-400">Not allocated</span>;
                             })()}
                           </td>
-                          <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">₹{material.unitPrice}</td>
+                          <td className="py-3 px-2 sm:px-4 text-gray-900 hidden lg:table-cell text-sm">₹{Number(material.unitPrice || 0).toLocaleString()}</td>
                           <td className="py-3 px-2 sm:px-4">
                             <span className={`badge border text-xs ${stockStatus.color}`}>
                               {stockStatus.label}

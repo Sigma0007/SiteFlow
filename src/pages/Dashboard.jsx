@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserPlus, UserIcon, Package as PackageIcon, DollarSign, Search, X, PlusSquare, LogOut, ArrowLeft } from 'lucide-react'
 import { siteServices, buildingServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, dprServices, processServices, convertDocsToArray, supervisorServices, syncSiteToSupervisors, syncSingleStaffToSite } from '../services/firebaseServices'
+import { onSnapshot, collection, query, where, doc } from 'firebase/firestore'
+import { storage, db } from '../firebase'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import storageService from '../services/storageService'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { storage } from '../firebase'
 import Footer from '../components/Footer'
 import { useNavigate } from 'react-router-dom'
 import StatusModal from '../components/StatusModal'
@@ -118,136 +119,91 @@ const Dashboard = ({ userRole }) => {
     return () => clearInterval(timer)
   }, [])
 
-  // Load real data from Firebase
+  // Load real data from Firebase in Real-Time
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true)
+    let unsubscribers = []
 
-        console.log('🔍 Dashboard loading data for role:', userRole)
-        console.log('🔍 Current supervisor from context:', currentSupervisor)
+    setLoading(true)
 
-        // Load sites
-        if (userRole === 'supervisor') {
-          // Guard: wait until SupervisorContext finishes resolving.
-          // currentSupervisor is set first, then assignedSites resolves async.
-          if (!currentSupervisor) {
-            console.log('👷 Dashboard: supervisor context not ready yet, waiting...')
-            setLoading(false)
-            return
-          }
-
-          console.log('👷 Loading supervisor data for:', user?.email)
-          console.log('📍 Assigned sites from context:', assignedSites.length, assignedSites.map(s => s.name))
-
-          const sitesData = assignedSites
-          setSites(sitesData)
-
-          if (sitesData.length === 0) {
-            console.log('👷 Dashboard: no assigned sites, showing empty state')
-            setBuildings([]); setStaff([]); setAttendance([]); setMaterials([]); setDprRecords([])
-            setLoading(false)
-            return
-          }
-
-          const assignedSiteIds = sitesData.map(site => site.id)
-
-          // Use per-site queries — full collection scans trigger permission errors
-          // on documents belonging to other sites.
-          const [buildingsResults, staffResults, dprResults] = await Promise.all([
-            Promise.all(assignedSiteIds.map(id => buildingServices.getBuildingsBySite(id))),
-            Promise.all(assignedSiteIds.map(id => labourServices.getLabourBySite(id))),
-            Promise.all(assignedSiteIds.map(id => dprServices.getDPRBySiteId(id))),
-          ])
-
-          setBuildings(buildingsResults.flatMap(snap => convertDocsToArray(snap)))
-          setStaff(staffResults.flatMap(snap => convertDocsToArray(snap)))
-          setDprRecords(dprResults.flatMap(snap => convertDocsToArray(snap)))
-
-          const today = new Date().toISOString().split('T')[0]
-          const attendanceResults = await Promise.all(
-            assignedSiteIds.map(id => attendanceServices.getAttendanceBySiteAndDate(id, today))
-          )
-          setAttendance(attendanceResults.flatMap(snap => convertDocsToArray(snap)))
-
-          // Materials are global — supervisors can read all per Firestore rules
-          const materialsSnapshot = await materialServices.getAllMaterials()
-          setMaterials(convertDocsToArray(materialsSnapshot))
-        } else {
-          // Admin sees all data
-          const sitesSnapshot = await siteServices.getAllSites()
-          setSites(convertDocsToArray(sitesSnapshot))
-
-          const buildingsSnapshot = await buildingServices.getAllBuildings()
-          setBuildings(convertDocsToArray(buildingsSnapshot))
-
-          const staffSnapshot = await labourServices.getAllLabour()
-          setStaff(convertDocsToArray(staffSnapshot))
-
-          const today = new Date().toISOString().split('T')[0]
-          const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
-          setAttendance(convertDocsToArray(attendanceSnapshot))
-
-          const materialsSnapshot = await materialServices.getAllMaterials()
-          setMaterials(convertDocsToArray(materialsSnapshot))
-
-          const dprSnapshot = await dprServices.getAllDPR()
-          setDprRecords(convertDocsToArray(dprSnapshot))
-
-          // Load supervisors list for the site-creation supervisor picker
-          try {
-            const supSnap = await supervisorServices.getAllSupervisors()
-            setSupervisorsList(convertDocsToArray(supSnap).filter(s => s.status === 'active'))
-          } catch { }
-        }
-
-      } catch (error) {
-        console.error('Error loading data:', error)
-      } finally {
+    if (userRole === 'supervisor') {
+      if (!currentSupervisor) {
         setLoading(false)
+        return
       }
+
+      setSites(assignedSites)
+
+      if (assignedSites.length === 0) {
+        setBuildings([]); setStaff([]); setAttendance([]); setMaterials([]); setDprRecords([])
+        setLoading(false)
+        return
+      }
+
+      const assignedSiteIds = assignedSites.map(site => site.id)
+      const today = new Date().toISOString().split('T')[0]
+
+      // Setup state containers for mapping multiple snapshot merges
+      const buildingsMap = {}
+      const staffMap = {}
+      const dprMap = {}
+      const attendanceMap = {}
+
+      assignedSiteIds.forEach(id => {
+        unsubscribers.push(
+          onSnapshot(query(collection(db, 'buildings'), where('siteId', '==', id)), (snap) => {
+            buildingsMap[id] = convertDocsToArray(snap)
+            setBuildings(Object.values(buildingsMap).flat())
+          })
+        )
+        unsubscribers.push(
+          onSnapshot(query(collection(db, 'labour'), where('siteId', '==', id)), (snap) => {
+            staffMap[id] = convertDocsToArray(snap)
+            setStaff(Object.values(staffMap).flat())
+          })
+        )
+        unsubscribers.push(
+          onSnapshot(query(collection(db, 'dpr'), where('siteId', '==', id)), (snap) => {
+            dprMap[id] = convertDocsToArray(snap)
+            setDprRecords(Object.values(dprMap).flat())
+          })
+        )
+        unsubscribers.push(
+          onSnapshot(query(collection(db, 'attendance'), where('siteId', '==', id), where('date', '==', today)), (snap) => {
+            attendanceMap[id] = convertDocsToArray(snap)
+            setAttendance(Object.values(attendanceMap).flat())
+          })
+        )
+      })
+
+      // Materials are global
+      unsubscribers.push(
+        onSnapshot(collection(db, 'materials'), (snap) => {
+          setMaterials(convertDocsToArray(snap))
+        })
+      )
+      
+      setLoading(false)
+    } else {
+      // Admin sees all data
+      const today = new Date().toISOString().split('T')[0]
+
+      unsubscribers.push(
+        onSnapshot(collection(db, 'sites'), (snap) => setSites(convertDocsToArray(snap))),
+        onSnapshot(collection(db, 'buildings'), (snap) => setBuildings(convertDocsToArray(snap))),
+        onSnapshot(collection(db, 'labour'), (snap) => setStaff(convertDocsToArray(snap))),
+        onSnapshot(collection(db, 'materials'), (snap) => setMaterials(convertDocsToArray(snap))),
+        onSnapshot(collection(db, 'dpr'), (snap) => setDprRecords(convertDocsToArray(snap))),
+        onSnapshot(query(collection(db, 'attendance'), where('date', '==', today)), (snap) => setAttendance(convertDocsToArray(snap))),
+        onSnapshot(query(collection(db, 'supervisors'), where('status', '==', 'active')), (snap) => setSupervisorsList(convertDocsToArray(snap)))
+      )
+
+      setLoading(false)
     }
 
-    loadData()
+    return () => {
+      unsubscribers.forEach(unsub => unsub())
+    }
   }, [userRole, currentSupervisor, assignedSites])
-
-  // Note: Real-time listeners removed - data only loads on manual refresh
-  // useEffect(() => {
-  //   const unsubscribeStaff = labourServices.onLabourChange((snapshot) => {
-  //     const staffData = convertDocsToArray(snapshot)
-  //     console.log('Staff data from Firestore:', staffData)
-  //     setStaff(staffData)
-  //   })
-
-  //   const unsubscribeAttendance = attendanceServices.onAttendanceChange((snapshot) => {
-  //     const attendanceData = convertDocsToArray(snapshot)
-  //     console.log('Attendance data from Firestore:', attendanceData)
-  //     setAttendance(attendanceData)
-  //   })
-
-  //   const unsubscribeMaterials = materialServices.onMaterialsChange((snapshot) => {
-  //     setMaterials(convertDocsToArray(snapshot))
-  //   })
-
-  //   const unsubscribeSites = siteServices.onSitesChange((snapshot) => {
-  //     setSites(convertDocsToArray(snapshot))
-  //   })
-
-  //   const unsubscribeDPR = dprServices.onDPRChange((snapshot) => {
-  //     const today = new Date().toISOString().split('T')[0]
-  //     const dprData = convertDocsToArray(snapshot).filter(record => record.date === today)
-  //     console.log('DPR data from Firestore:', dprData)
-  //     setDprRecords(dprData)
-  //   })
-
-  //   return () => {
-  //     unsubscribeStaff()
-  //     unsubscribeAttendance()
-  //     unsubscribeMaterials()
-  //     unsubscribeSites()
-  //     unsubscribeDPR()
-  //   }
-  // }, [])
 
   // Filter staff by attendance status and DPR assignments
   const getStaffByAttendance = () => {
@@ -761,6 +717,34 @@ const Dashboard = ({ userRole }) => {
         await syncSiteToSupervisors(siteId, dprFormData.assignedSupervisors)
       }
 
+      // Material Allocation
+      let assignedMaterials = []
+      if (dprFormData.selectedMaterials && dprFormData.selectedMaterials.length > 0) {
+        for (const matId of dprFormData.selectedMaterials) {
+          const qty = parseInt(dprFormData.materialQuantities[matId]) || 0;
+          if (qty > 0) {
+            const material = materials.find(m => m.id === matId);
+            if (material) {
+              // 1. Subtract from global
+              await materialServices.updateMaterial(matId, {
+                currentStock: Math.max(0, material.available - qty)
+              });
+              // 2. Add to site
+              assignedMaterials.push({
+                materialId: material.id,
+                name: material.name,
+                category: material.category,
+                quantity: qty
+              });
+            }
+          }
+        }
+        
+        if (assignedMaterials.length > 0) {
+          await siteServices.updateSite(siteId, { assignedMaterials });
+        }
+      }
+
       // Then create the building in Firebase
       if (dprFormData.buildingId) {
         const buildingData = {
@@ -1101,7 +1085,9 @@ const Dashboard = ({ userRole }) => {
             ...(userRole === 'admin' ? [
               { icon: Users, label: 'Attendance', path: '/attendance', color: 'bg-emerald-500', desc: 'STAKEHOLDERS' }
             ] : []),
-            { icon: Building2, label: userRole === 'admin' ? 'Management' : 'My Sites', path: '/sites', color: 'bg-blue-500', desc: 'SITES' },
+            ...(userRole === 'admin' ? [
+              { icon: Building2, label: 'Management', path: '/sites', color: 'bg-blue-500', desc: 'SITES' }
+            ] : []),
             ...(userRole === 'admin' ? [
               { icon: Package, label: 'Inventory', path: '/materials', color: 'bg-orange-500', desc: 'MATERIALS' }
             ] : []),
@@ -1215,6 +1201,7 @@ const Dashboard = ({ userRole }) => {
               {dprStep === 1 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900">Step 1: Create Site</h3>
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Site Name *</label>
                     <input
@@ -1226,7 +1213,18 @@ const Dashboard = ({ userRole }) => {
                     />
                   </div>
 
-                  {/* Supervisor Assignment — admin only */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Location *</label>
+                    <input
+                      type="text"
+                      value={dprFormData.siteLocation}
+                      onChange={(e) => setDprFormData({ ...dprFormData, siteLocation: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="e.g., Downtown, City Center"
+                    />
+                  </div>
+
+                  {/* Supervisor Assignment — Commented out per user request
                   {userRole === 'admin' && supervisorsList.length > 0 && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1257,17 +1255,54 @@ const Dashboard = ({ userRole }) => {
                       </div>
                     </div>
                   )}
+                  */}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Location *</label>
-                    <input
-                      type="text"
-                      value={dprFormData.siteLocation}
-                      onChange={(e) => setDprFormData({ ...dprFormData, siteLocation: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="e.g., Downtown, City Center"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-200 pt-4 mt-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Building Name (Optional)</label>
+                      <input
+                        type="text"
+                        value={dprFormData.buildingId}
+                        onChange={(e) => setDprFormData({ ...dprFormData, buildingId: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="e.g., Tower A"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Floors (Optional)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={dprFormData.buildingFloors}
+                        onChange={(e) => setDprFormData({ ...dprFormData, buildingFloors: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="1"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Total Area (Sq Ft) (Optional)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={dprFormData.buildingArea}
+                        onChange={(e) => setDprFormData({ ...dprFormData, buildingArea: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="e.g., 5000"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Price Budget (₹) (Optional)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={dprFormData.buildingBudget}
+                        onChange={(e) => setDprFormData({ ...dprFormData, buildingBudget: e.target.value })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="e.g., 1000000"
+                      />
+                    </div>
                   </div>
+
                 </div>
               )}
 
