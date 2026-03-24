@@ -81,8 +81,9 @@ const PORequests = ({ userRole = 'admin' }) => {
       try {
         setLoading(true)
         if (userRole === 'supervisor') {
-          // Wait until context has resolved sites
-          if (assignedSites.length === 0 && !currentSupervisor) return
+          // For supervisors, only show their assigned sites
+          // Wait until supervisor context has resolved
+          if (!currentSupervisor && assignedSites.length === 0) return
           setSites(assignedSites || [])
         } else {
           const sitesSnapshot = await siteServices.getAllSites()
@@ -374,46 +375,46 @@ const PORequests = ({ userRole = 'admin' }) => {
               transition={{ delay: index * 0.1 }}
               className="bg-white rounded-xl shadow-sm border border-gray-200 p-6"
             >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg ${request.status === 'pending' ? 'bg-yellow-100' :
+              <div className="flex items-start justify-between mb-4 gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={`p-2.5 rounded-lg flex-shrink-0 ${request.status === 'pending' ? 'bg-yellow-100' :
                     request.status === 'approved' ? 'bg-green-100' : 'bg-red-100'
                     }`}>
-                    <StatusIcon className={`w-6 h-6 ${request.status === 'pending' ? 'text-yellow-600' :
+                    <StatusIcon className={`w-5 h-5 ${request.status === 'pending' ? 'text-yellow-600' :
                       request.status === 'approved' ? 'text-green-600' : 'text-red-600'
                       }`} />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{request.materialName}</h3>
-                    <p className="text-gray-600">{request.reason}</p>
+                  <div className="min-w-0">
+                    <h3 className="text-base font-semibold text-gray-900 leading-tight">{request.materialName}</h3>
+                    <p className="text-gray-500 text-sm mt-0.5 line-clamp-2">{request.reason}</p>
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(request.status)}`}>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0 ml-2">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${getStatusColor(request.status)}`}>
                     {request.status}
                   </span>
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${getUrgencyColor(request.urgency)}`}>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${getUrgencyColor(request.urgency)}`}>
                     {request.urgency} urgency
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">Quantity</p>
-                  <p className="font-semibold text-gray-900">{request.quantity} {request.unit}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Quantity</p>
+                  <p className="font-semibold text-gray-900 text-sm">{request.quantity} {request.unit}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">Expected Date</p>
-                  <p className="font-semibold text-gray-900">{request.expectedDate}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Expected Date</p>
+                  <p className="font-semibold text-gray-900 text-sm">{request.expectedDate || '—'}</p>
+                </div>
+                <div className="col-span-2 sm:col-span-1">
+                  <p className="text-xs text-gray-500 mb-0.5">Requested By</p>
+                  <p className="font-semibold text-gray-900 text-sm truncate max-w-[180px] sm:max-w-none">{request.requestedBy}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600 mb-1">Requested By</p>
-                  <p className="font-semibold text-gray-900">{request.requestedBy}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Request Date</p>
-                  <p className="font-semibold text-gray-900">{request.requestDate}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Request Date</p>
+                  <p className="font-semibold text-gray-900 text-sm">{request.requestDate}</p>
                 </div>
               </div>
 
@@ -480,17 +481,17 @@ const PORequests = ({ userRole = 'admin' }) => {
             onClick={(e) => e.stopPropagation()}
             className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
           >
-             <button
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">New Purchase Order Request</h2>
+                <p className="text-gray-600 mt-0.5 text-sm">Submit a request for materials needed</p>
+              </div>
+              <button
                 onClick={() => setShowCreateModal(false)}
-                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex-shrink-0"
               >
                 <ArrowLeft className="w-5 h-5 text-gray-600" />
               </button>
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">New Purchase Order Request</h2>
-                <p className="text-gray-600 mt-1">Submit a request for materials needed</p>
-              </div>
             </div>
 
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">
