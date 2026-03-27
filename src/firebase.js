@@ -2,7 +2,7 @@
 import { initializeApp, getApps } from "firebase/app";
 // import { getAnalytics } from "firebase/analytics"; // Disabled for development
 import { getFirestore, connectFirestoreEmulator, enableIndexedDbPersistence } from "firebase/firestore";
-import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration
@@ -35,10 +35,11 @@ export const auth = getAuth(app);
 export const storage = getStorage(app);
 
 // ─── Secondary Firebase App (for creating supervisor accounts) ────────────────
-// Using a secondary app prevents creating a new user from signing out the admin.
 const secondaryApp = getApps().find(a => a.name === 'secondary')
   || initializeApp(firebaseConfig, 'secondary');
 export const secondaryAuth = getAuth(secondaryApp);
+// Ensure secondary auth doesn't overwrite primary auth session
+setPersistence(secondaryAuth, inMemoryPersistence).catch(console.error);
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Suppress Firestore BloomFilter warnings (internal optimization warnings)

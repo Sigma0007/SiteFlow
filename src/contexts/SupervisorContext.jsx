@@ -1,25 +1,33 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { onAuthStateChanged } from 'firebase/auth'
-import { auth } from '../firebase'
 import { supervisorServices, convertDocsToArray } from '../services/firebaseServices'
 import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
+import { useAuth } from '../components/Auth'
 
 const SupervisorContext = createContext()
 
-const ADMIN_EMAIL = 'odedraarjun928@gmail.com'
-
 export const SupervisorProvider = ({ children }) => {
+  const { user, userRole, loading } = useAuth()
   const [currentSupervisor, setCurrentSupervisor] = useState(null)
   const [assignedSites, setAssignedSites] = useState([])
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('🔧 SupervisorContext: Auth state changed – user:', user?.email ?? 'none')
+    const fetchSupervisorContext = async () => {
+      // Wait for Auth context to finish initial loading
+      if (loading) return;
 
-      if (!user || user.email === ADMIN_EMAIL) {
+      console.log('🔧 SupervisorContext: State evaluated for user:', user?.email ?? 'none')
+
+      // If user is absent, OR if user is an admin, skip supervisor logic.
+      if (!user || userRole === 'admin') {
         setCurrentSupervisor(null)
         setAssignedSites([])
+        return
+      }
+
+      // If user exists but role isn't populated yet, wait.
+      // E.g., during the fraction of a second inside the login() flow.
+      if (user && !userRole) {
         return
       }
 
@@ -84,10 +92,10 @@ export const SupervisorProvider = ({ children }) => {
         setCurrentSupervisor(null)
         setAssignedSites([])
       }
-    })
+    }
 
-    return () => unsubscribe()
-  }, [])
+    fetchSupervisorContext()
+  }, [user, userRole, loading])
 
   const value = {
     currentSupervisor,

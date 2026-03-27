@@ -57,149 +57,76 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     setTimeout(() => setToastMessage({ text: '', type: 'success', visible: false }), 3000)
   }
 
-  // Load real data from Firebase
+
+
+  // Real-time synchronization for zero-delay updates (CRUD)
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true)
-
-        // Guard: Firestore rejects 'in []' queries; wait until sites resolve.
-        if (userRole === 'supervisor' && assignedSites.length === 0) {
-          console.log('⏳ Attendance: waiting for supervisor sites to resolve...')
-          setLoading(false)
-          return
-        }
-
-        console.log('📋 Attendance: loading for', userRole, '| sites:', assignedSites.map(s => s.name))
-
-        const accessibleSites = userRole === 'supervisor' ? assignedSites : null
-        const siteIds = accessibleSites?.map(s => s.id) || []
-
-        // Load staff
-        let staffQuery
-        if (userRole === 'supervisor' && siteIds.length > 0) {
-          staffQuery = query(labourCollection, where('siteId', 'in', siteIds))
-        } else {
-          staffQuery = labourCollection
-        }
-        const staffSnapshot = await getDocs(staffQuery)
-        const staffData = convertDocsToArray(staffSnapshot)
-        console.log('👷 Attendance: found', staffData.length, 'staff members')
-        setEmployees(staffData)
-
-        if (userRole === 'supervisor') {
-          setSites(assignedSites)
-        }
-        // (admin sites come from the real-time listener below)
-
-        // Load buildings (used for labour.buildingId selection)
-        let buildingsQuery
-        if (userRole === 'supervisor' && siteIds.length > 0) {
-          buildingsQuery = query(buildingsCollection, where('siteId', 'in', siteIds))
-        } else {
-          buildingsQuery = buildingsCollection
-        }
-        const buildingsSnapshot = await getDocs(buildingsQuery)
-        setBuildings(convertDocsToArray(buildingsSnapshot))
-
-        // Load attendance
-        let attendanceQuery
-        if (userRole === 'supervisor' && siteIds.length > 0) {
-          attendanceQuery = query(
-            attendanceCollection,
-            where('date', '==', selectedDate),
-            where('siteId', 'in', siteIds)
-          )
-        } else {
-          attendanceQuery = query(attendanceCollection, where('date', '==', selectedDate))
-        }
-        const attendanceSnapshot = await getDocs(attendanceQuery)
-        const attendanceData = convertDocsToArray(attendanceSnapshot)
-        setAttendance(attendanceData)
-
-        // Check if supervisor has already submitted attendance today
-        if (userRole === 'supervisor') {
-          const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
-          setSubmittedToday(
-            attendanceData.some(r => {
-              if (r.date !== selectedDate) return false
-              const submitted = !!r.submittedAt || !!r.isSubmitted
-              if (!submitted) return false
-              if (supervisorId && r.supervisorId === supervisorId) return true
-              // Back-compat
-              return r.markedBy === currentSupervisor?.email || r.markedBy === currentSupervisor?.name
-            })
-          )
-        }
-
-      } catch (error) {
-        console.error('Error loading data:', error)
-      } finally {
-        setLoading(false)
-      }
+    // Guard: wait if supervisor sites aren't resolved
+    if (userRole === 'supervisor' && assignedSites.length === 0) {
+      setLoading(false);
+      return;
     }
 
-    loadData()
-  }, [selectedDate, userRole, assignedSites])
+    setLoading(true);
+    const accessibleSites = userRole === 'supervisor' ? assignedSites : null;
+    const siteIds = accessibleSites?.map(s => s.id) || [];
+    const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null;
 
-  // Set up real-time listeners
-  useEffect(() => {
-    // Guard: don't set up listeners until sites are resolved
-    if (userRole === 'supervisor' && assignedSites.length === 0) return
-
-    const accessibleSites = userRole === 'supervisor' ? assignedSites : null
-    const siteIds = accessibleSites?.map(s => s.id) || []
-    const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
+    if (userRole === 'supervisor') {
+      setSites(assignedSites);
+    }
 
     const labourQuery = userRole === 'supervisor' && siteIds.length > 0
       ? query(labourCollection, where('siteId', 'in', siteIds))
-      : labourCollection
+      : labourCollection;
 
     const attendanceQuery = userRole === 'supervisor' && siteIds.length > 0
       ? query(attendanceCollection, where('date', '==', selectedDate), where('siteId', 'in', siteIds))
-      : query(attendanceCollection, where('date', '==', selectedDate))
+      : query(attendanceCollection, where('date', '==', selectedDate));
 
     const buildingsQuery = userRole === 'supervisor' && siteIds.length > 0
       ? query(buildingsCollection, where('siteId', 'in', siteIds))
-      : buildingsCollection
+      : buildingsCollection;
 
     const unsubscribeLabour = onSnapshot(labourQuery, (snapshot) => {
-      setEmployees(convertDocsToArray(snapshot))
-    })
+      setEmployees(convertDocsToArray(snapshot));
+    });
 
     const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
-      const attendanceData = convertDocsToArray(snapshot)
-      setAttendance(attendanceData)
+      const attendanceData = convertDocsToArray(snapshot);
+      setAttendance(attendanceData);
 
       if (userRole === 'supervisor') {
-        setSubmittedToday(
-          attendanceData.some(r => {
-            const submitted = !!r.submittedAt || !!r.isSubmitted
-            if (!submitted) return false
-            if (supervisorId && r.supervisorId === supervisorId) return true
-            return r.markedBy === currentSupervisor?.email || r.markedBy === currentSupervisor?.name
-          })
-        )
+        const isDone = attendanceData.some(r => {
+          const submitted = !!r.submittedAt || !!r.isSubmitted;
+          if (!submitted) return false;
+          if (supervisorId && r.supervisorId === supervisorId) return true;
+          return r.markedBy === currentSupervisor?.email || r.markedBy === currentSupervisor?.name;
+        });
+        setSubmittedToday(isDone);
       }
-    })
+      setLoading(false);
+    });
 
     const unsubscribeBuildings = onSnapshot(buildingsQuery, (snapshot) => {
-      setBuildings(convertDocsToArray(snapshot))
-    })
+      setBuildings(convertDocsToArray(snapshot));
+    });
 
-    // Admin-only: keep sites up to date via real-time listener
-    // Supervisor sites come from SupervisorContext, not this listener
-    const unsubscribeSites = userRole !== 'supervisor'
-      ? siteServices.onSitesChange((snapshot) => { setSites(convertDocsToArray(snapshot)) })
-      : null
+    // Admin site sync (reactive)
+    let unsubscribeSites = () => {};
+    if (userRole !== 'supervisor') {
+      unsubscribeSites = siteServices.onSitesChange((snapshot) => { 
+        setSites(convertDocsToArray(snapshot)); 
+      });
+    }
 
     return () => {
-      unsubscribeLabour()
-      unsubscribeAttendance()
-      unsubscribeBuildings()
-      if (unsubscribeSites) unsubscribeSites()
-    }
-  }, [selectedDate, userRole, assignedSites, currentSupervisor])
+      unsubscribeLabour();
+      unsubscribeAttendance();
+      unsubscribeBuildings();
+      unsubscribeSites();
+    };
+  }, [selectedDate, userRole, assignedSites, currentSupervisor]);
 
   const handleAttendanceChange = async (employeeId, newStatus) => {
     const employee = employees.find(emp => emp.id === employeeId)

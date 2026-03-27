@@ -230,70 +230,54 @@ const SiteManagement = ({ userRole }) => {
     }
   }
 
-  // Load data from Firebase on component mount
+  // Load and sync all Site Management data in real-time
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true)
+    setLoading(true);
+    console.log('🔄 SiteManagement: Starting real-time sync...');
 
-        console.log('🔍 Site Management - Current user role:', userRole)
-        console.log('🔍 Site Management - Current user email:', user?.email)
+    // 1. Sites
+    const unsubscribeSites = siteServices.onSitesChange((snapshot) => {
+      const sitesData = convertDocsToArray(snapshot).filter(s => !s.is_deleted);
+      setSites(sitesData);
+      setLoading(false);
+    });
 
-        let sitesData = []
-        let labourData = []
-        let attendanceData = []
-        let buildingsData = []
+    // 2. Labour / Workers
+    const unsubscribeLabour = labourServices.onLabourChange((snapshot) => {
+      const labourData = convertDocsToArray(snapshot);
+      setLabour(labourData);
+      if (userRole === 'admin') setAvailableStaff(labourData);
+    });
 
-        // Unconditionally load comprehensive lists.
-        console.log(`Loading all data unconditionally for ${userRole}...`);
-        
-        const sitesSnapshot = await siteServices.getAllSites()
-        sitesData = convertDocsToArray(sitesSnapshot).filter(s => !s.is_deleted)
+    // 3. Attendance (Today)
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const unsubscribeAttendance = attendanceServices.onAttendanceChange((snapshot) => {
+      const attendanceData = convertDocsToArray(snapshot).filter(r => r.date === today);
+      setAttendance(attendanceData);
+    });
 
-        const labourSnapshot = await labourServices.getAllLabour()
-        labourData = convertDocsToArray(labourSnapshot)
+    // 4. Buildings
+    const unsubscribeBuildings = buildingServices.onBuildingsChange((snapshot) => {
+      setBuildings(convertDocsToArray(snapshot));
+    });
 
-        const today = format(new Date(), 'yyyy-MM-dd')
-        const attendanceSnapshot = await attendanceServices.getAttendanceByDate(today)
-        attendanceData = convertDocsToArray(attendanceSnapshot)
-
-        const buildingsSnapshot = await buildingServices.getAllBuildings()
-        buildingsData = convertDocsToArray(buildingsSnapshot)
-
-        console.log('🏗️ Site Management - Buildings count:', buildingsData.length)
-
-        // Then load things admins might need specifically
-        if (userRole === 'admin') {
-          try {
-            const supervisorsSnapshot = await supervisorServices.getAllSupervisors()
-            const supervisorsData = convertDocsToArray(supervisorsSnapshot)
-            setAvailableSupervisors(supervisorsData.filter(s => s.status === 'active' && s.email !== user?.email))
-          } catch (error) {
-            console.error('Error loading supervisors:', error)
-          }
-
-          try {
-            const staffSnapshot = await labourServices.getAllLabour()
-            setAvailableStaff(convertDocsToArray(staffSnapshot))
-          } catch (error) {
-            console.error('Error loading staff:', error)
-          }
-        }
-
-        setSites(sitesData)
-        setLabour(labourData)
-        setAttendance(attendanceData)
-        setBuildings(buildingsData)
-
-      } catch (error) {
-        console.error('Error loading data:', error)
-      } finally {
-        setLoading(false)
-      }
+    // 5. Supervisors (Admin Only)
+    let unsubscribeSupervisors = () => {};
+    if (userRole === 'admin') {
+      unsubscribeSupervisors = onSnapshot(supervisorsCollection, (snap) => {
+        const sups = convertDocsToArray(snap);
+        setAvailableSupervisors(sups.filter(s => s.status === 'active' && s.email !== user?.email));
+      });
     }
 
-    loadData();
-  }, [userRole, user?.email, assignedSites])
+    return () => {
+      unsubscribeSites();
+      unsubscribeLabour();
+      unsubscribeAttendance();
+      unsubscribeBuildings();
+      unsubscribeSupervisors();
+    };
+  }, [userRole, user?.email, assignedSites]);
 
   const handleAdd = () => {
     setEditingSite(null)
@@ -632,10 +616,9 @@ const SiteManagement = ({ userRole }) => {
     }
     try {
       const site = sites.find(s => s.id === quickExpenseSite);
-      const currentExpenses = site.expenses || 0;
+      const currentExpenses = (site?.expenses) || 0;
       const newTotal = currentExpenses + expenseAmount;
       await siteServices.updateSite(quickExpenseSite, { expenses: newTotal });
-      setSites(sites.map(s => s.id === quickExpenseSite ? { ...s, expenses: newTotal } : s));
       showToast(`Added $${expenseAmount} to expenses successfully.`);
       setQuickExpenseSite(null);
     } catch (err) {
@@ -646,15 +629,6 @@ const SiteManagement = ({ userRole }) => {
   const handleToggleQuickStaff = async (siteId, staffId, isAdding) => {
     try {
       await syncSingleStaffToSite(staffId, isAdding ? siteId : null);
-
-      setSites(sites.map(s => {
-        const cleanedOld = (s.assignedStaff || []).filter(id => id !== staffId);
-        if (isAdding && s.id === siteId) {
-          return { ...s, assignedStaff: [...cleanedOld, staffId] };
-        }
-        return { ...s, assignedStaff: cleanedOld };
-      }));
-
       showToast(isAdding ? "Worker assigned to this site!" : "Worker removed from site.");
     } catch (err) {
       showToast("Operation failed: " + err.message, "error");
@@ -667,7 +641,6 @@ const SiteManagement = ({ userRole }) => {
     showConfirm('Remove Staff?', 'Are you sure you want to remove this staff from the site?', async () => {
       try {
         await syncSingleStaffToSite(staffId, null);
-        setSites(sites.map(s => s.id === siteId ? { ...s, assignedStaff: (s.assignedStaff || []).filter(id => id !== staffId) } : s));
         showToast("Staff removed successfully!");
       } catch (err) {
         showToast("Failed to remove staff: " + err.message, "error");

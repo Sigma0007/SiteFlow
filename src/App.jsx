@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 
 import { initializeSampleSupervisor, initializeUserDocuments, migrateEmailToUidBasedUsers, fixSupervisorSiteAssignments } from './services/firebaseServices'
-
+import { setupClientAccounts } from './setupAccounts'
 
 
 import Dashboard from './pages/Dashboard'
@@ -252,6 +252,17 @@ const AppContent = () => {
 
       }
 
+      window.setupClientAccounts = async () => {
+        try {
+          console.log('🔧 Setting up client accounts...');
+          await setupClientAccounts();
+          console.log('✅ Client accounts setup successfully!');
+          return 'SUCCESS: Client accounts created';
+        } catch (error) {
+          console.error('❌ Error setting up client accounts:', error);
+          return 'ERROR: ' + error.message;
+        }
+      };
 
 
       console.log('🔧 Test functions available:')
@@ -263,6 +274,7 @@ const AppContent = () => {
       console.log('  window.initializeUsers() - Initialize user documents')
 
       console.log('  window.fixSupervisorSiteAssignments() - Repair missing site assignments')
+      console.log('  window.setupClientAccounts() - Setup client accounts')
 
     }
 
@@ -284,8 +296,7 @@ const AppContent = () => {
 
 
 
-  // Handle sidebar state based on screen size
-
+  // Use the system theme preference initially
   useEffect(() => {
 
     const handleResize = () => {
