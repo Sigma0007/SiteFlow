@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft } from 'lucide-react'
-import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite } from '../services/firebaseServices'
+import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite, onSnapshot, supervisorsCollection } from '../services/firebaseServices'
 import { format } from 'date-fns'
 import Footer from '../components/Footer'
 import storageService from '../services/storageService'
@@ -1367,6 +1367,7 @@ const SiteManagement = ({ userRole }) => {
                   </select>
                 </div>
 
+                {/* Assign Supervisors Section - Commented out for future use
                 {userRole === 'admin' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1410,7 +1411,9 @@ const SiteManagement = ({ userRole }) => {
                     )}
                   </div>
                 )}
+                */}
 
+                {/* Assigned Staff Section - Commented out for future use
                 {userRole === 'admin' && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-800 mb-1 mt-6">
@@ -1461,7 +1464,6 @@ const SiteManagement = ({ userRole }) => {
                       )}
                     </div>
 
-                    {/* Assign Existing Worker Checkbox List */}
                     <div className="mt-4">
                       <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Select Workers from Attendance Roster</label>
                       <div className="space-y-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-white">
@@ -1509,6 +1511,9 @@ const SiteManagement = ({ userRole }) => {
                     </div>
                   </div>
                 )}
+                */}
+
+
 
 
                 {/* <div>
