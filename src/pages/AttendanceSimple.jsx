@@ -329,6 +329,22 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
+  // Inline site assignment from the table dropdown
+  const handleInlineSiteChange = async (employeeId, newSiteId) => {
+    try {
+      await labourServices.updateLabour(employeeId, {
+        siteId: newSiteId || '',
+        buildingId: '',
+        updatedAt: new Date().toISOString(),
+        updatedBy: userRole
+      })
+      showToast(newSiteId ? 'Site assigned!' : 'Site removed.')
+    } catch (error) {
+      console.error('Error updating site:', error)
+      showToast('Failed to update site.', 'error')
+    }
+  }
+
   const openEditStaffModal = (staff) => {
     setStaffToEdit(staff)
     setEditStaff({
@@ -671,7 +687,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               <tr>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Employee</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden sm:table-cell">Site</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden sm:table-cell">Role</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
               </tr>
@@ -694,18 +709,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     <td className="py-3 px-4">
                       <div>
                         <p className="font-medium text-gray-900">{employee.name}</p>
-                        <p className="text-xs text-gray-500">ID: {employee.id}</p>
-                        <p className="text-xs font-black text-blue-600 mt-1 uppercase tracking-widest sm:hidden">
-                          {sites.find(s => s.id === employee.siteId)?.name || 'No Site'}
-                        </p>
+                        <div className="sm:hidden mt-1">
+                          <select
+                            value={employee.siteId || ''}
+                            onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
+                            className="px-2 py-1 text-xs font-semibold rounded-md border border-blue-200 bg-blue-50 text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer w-full"
+                          >
+                            <option value="">No Site</option>
+                            {sites.map(site => (
+                              <option key={site.id} value={site.id}>{site.name}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </td>
                     <td className="py-3 px-4 hidden sm:table-cell">
-                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-bold uppercase border border-blue-100 italic">
-                        {sites.find(s => s.id === employee.siteId)?.name || 'No Site'}
-                      </span>
+                      <select
+                        value={employee.siteId || ''}
+                        onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
+                        className="px-2 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[120px]"
+                      >
+                        <option value="">No Site</option>
+                        {sites.map(site => (
+                          <option key={site.id} value={site.id}>{site.name}</option>
+                        ))}
+                      </select>
                     </td>
-                    <td className="py-3 px-4 text-gray-600 hidden sm:table-cell">{employee.role}</td>
                     <td className="py-3 px-4">
                       {status === 'present' && (
                         <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
@@ -888,13 +917,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
-                type="text"
-                placeholder="Role"
-                value={editStaff.role}
-                onChange={(e) => setEditStaff({ ...editStaff, role: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
                 type="number"
                 placeholder="Salary"
                 value={editStaff.dailyWage}
@@ -908,29 +930,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <select
-                value={editStaff.siteId}
-                onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select Site</option>
-                {sites.map(site => (
-                  <option key={site.id} value={site.id}>{site.name}</option>
-                ))}
-              </select>
-              <select
-                value={editStaff.buildingId}
-                onChange={(e) => setEditStaff({ ...editStaff, buildingId: e.target.value })}
-                disabled={!editStaff.siteId}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                <option value="">Select Building</option>
-                {buildings
-                  .filter(b => b.siteId === editStaff.siteId)
-                  .map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-              </select>
 
             </div>
             <div className="flex gap-3 mt-6">
