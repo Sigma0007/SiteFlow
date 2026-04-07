@@ -421,7 +421,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   }).map(employee => ({
     ...employee,
     site: sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
-  }))
+  })).sort((a, b) => a.name.localeCompare(b.name))
 
   const stats = getAttendanceStats()
 
@@ -685,9 +685,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Employee</th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10 min-w-[150px]">Employee</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden sm:table-cell">Site</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
               </tr>
             </thead>
@@ -706,7 +705,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     transition={{ delay: index * 0.05 }}
                     className="border-t border-gray-200 hover:bg-gray-50"
                   >
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 sticky left-0 bg-white z-10 min-w-[150px]">
                       <div>
                         <p className="font-medium text-gray-900">{employee.name}</p>
                         <div className="sm:hidden mt-1">
@@ -734,26 +733,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           <option key={site.id} value={site.id}>{site.name}</option>
                         ))}
                       </select>
-                    </td>
-                    <td className="py-3 px-4">
-                      {status === 'present' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">
-                          <CheckCircle className="w-4 h-4" />
-                          Present
-                        </span>
-                      )}
-                      {status === 'absent' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">
-                          <XCircle className="w-4 h-4" />
-                          Absent
-                        </span>
-                      )}
-                      {status === 'not-marked' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-sm font-medium">
-                          <Clock className="w-4 h-4" />
-                          Not Marked
-                        </span>
-                      )}
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex gap-2">
