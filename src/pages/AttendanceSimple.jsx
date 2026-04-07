@@ -19,7 +19,8 @@ import {
   UserPlus,
   ArrowLeft
 } from 'lucide-react'
-import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray, query, where, getDocs, onSnapshot, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
+import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray, query, where, getDocs, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
+import { onSnapshot } from 'firebase/firestore'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import Footer from '../components/Footer'
 
@@ -145,13 +146,26 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         record.date === selectedDate
       )
 
-      if (existingRecord && existingRecord.status !== newStatus) {
+      // If submitted, supervisor cannot modify even to the same status (or delete)
+      if (existingRecord && (existingRecord.status !== newStatus || newStatus === 'removed')) {
         showToast('You cannot modify attendance after submission.', 'error')
         return
       }
     }
 
     try {
+      // Check if attendance record already exists
+      const existingRecord = attendance.find(record =>
+        record.employeeId === employeeId && record.date === selectedDate
+      );
+
+      if (newStatus === 'removed') {
+        if (existingRecord) {
+          await attendanceServices.deleteAttendance(existingRecord.id);
+        }
+        return;
+      }
+
       const supervisorId = userRole === 'supervisor'
         ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null)
         : (currentSupervisor?.firebaseUid || null)
@@ -167,11 +181,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         checkOut: newStatus === 'present' ? '17:30' : null,
         updatedAt: new Date().toISOString()
       };
-
-      // Check if attendance record already exists
-      const existingRecord = attendance.find(record =>
-        record.employeeId === employeeId && record.date === selectedDate
-      );
 
       if (existingRecord) {
         // Update existing record
@@ -723,12 +732,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          onClick={() => handleAttendanceChange(employee.id, 'present')}
+                          onClick={() => handleAttendanceChange(employee.id, status === 'present' ? 'removed' : 'present')}
                           className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'present'
-                            ? 'bg-green-500 text-white'
+                            ? 'bg-green-500 text-white shadow-inner'
                             : 'bg-gray-200 text-gray-700 hover:bg-green-100'
                             } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title="Mark Present"
+                          title={status === 'present' ? "Remove Attendance" : "Mark Present"}
                           disabled={userRole === 'supervisor' && submittedToday}
                         >
                           P
@@ -736,12 +745,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
-                          onClick={() => handleAttendanceChange(employee.id, 'absent')}
+                          onClick={() => handleAttendanceChange(employee.id, status === 'absent' ? 'removed' : 'absent')}
                           className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'absent'
-                            ? 'bg-red-500 text-white'
+                            ? 'bg-red-500 text-white shadow-inner'
                             : 'bg-gray-200 text-gray-700 hover:bg-red-100'
                             } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title="Mark Absent"
+                          title={status === 'absent' ? "Remove Attendance" : "Mark Absent"}
                           disabled={userRole === 'supervisor' && submittedToday}
                         >
                           A

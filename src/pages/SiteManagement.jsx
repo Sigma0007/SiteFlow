@@ -152,13 +152,13 @@ const SiteManagement = ({ userRole }) => {
   }
 
   const [statusModal, setStatusModal] = useState({ visible: false, type: 'success', title: '', message: '', onConfirm: null, onCancel: null })
-  
+
   const showConfirm = (title, message, onConfirm) => {
-    setStatusModal({ 
-      visible: true, 
-      type: 'confirm', 
-      title, 
-      message, 
+    setStatusModal({
+      visible: true,
+      type: 'confirm',
+      title,
+      message,
       onConfirm: () => {
         onConfirm();
         setStatusModal(prev => ({ ...prev, visible: false }));
@@ -168,11 +168,11 @@ const SiteManagement = ({ userRole }) => {
   }
 
   const showAlert = (title, message, type = 'success') => {
-    setStatusModal({ 
-      visible: true, 
-      type, 
-      title, 
-      message, 
+    setStatusModal({
+      visible: true,
+      type,
+      title,
+      message,
       onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false }))
     })
   }
@@ -181,7 +181,7 @@ const SiteManagement = ({ userRole }) => {
   // Keep showConfirm name for compatibility, but update its implementation to use statusModal if desired, 
   // or just use showConfirm as it is but wrap it correctly.
   // Actually, I'll just replace the confirmDialog state usage with statusModal for consistency.
-  
+
 
   // Image upload handler
   const handleImageUpload = async (e, formType) => {
@@ -262,7 +262,7 @@ const SiteManagement = ({ userRole }) => {
     });
 
     // 5. Supervisors (Admin Only)
-    let unsubscribeSupervisors = () => {};
+    let unsubscribeSupervisors = () => { };
     if (userRole === 'admin') {
       unsubscribeSupervisors = onSnapshot(supervisorsCollection, (snap) => {
         const sups = convertDocsToArray(snap);
@@ -1161,11 +1161,11 @@ const SiteManagement = ({ userRole }) => {
 
                 {/* Assigned Staff Preview for Admin */}
                 {userRole === 'admin' && (
-                    <div className="mb-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Users className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm font-semibold text-gray-800">Assigned Workers ({site.assignedStaff?.length || 0})</span>
-                      </div>
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-semibold text-gray-800">Assigned Workers ({site.assignedStaff?.length || 0})</span>
+                    </div>
                     {site.assignedStaff && site.assignedStaff.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {site.assignedStaff.slice(0, 10).map(staffId => {
@@ -1993,8 +1993,8 @@ const SiteManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
-      <StatusModal 
-        {...statusModal} 
+      <StatusModal
+        {...statusModal}
         onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
       />
       <Footer />
