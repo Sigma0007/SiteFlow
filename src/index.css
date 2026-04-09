@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    font-size: 110%; /* Scale entire UI up */
     --color-primary: #1e3a8a;
     --color-secondary: #ffffff;
     --color-accent: #3b82f6;
@@ -13,9 +14,9 @@
     --color-warning: #f59e0b;
     --color-error: #ef4444;
     
-    --border-radius-sm: 0.375rem;
-    --border-radius-md: 0.5rem;
-    --border-radius-lg: 0.75rem;
+    --border-radius-sm: 0.5rem;   /* Scaled from 0.375 */
+    --border-radius-md: 0.75rem;  /* Scaled from 0.5 */
+    --border-radius-lg: 1rem;    /* Scaled from 0.75 */
     --border-width: 1px;
     --border-color: #e5e7eb;
   }
@@ -27,9 +28,11 @@
   }
 
   body {
+    font-size: 1rem; /* Base font size relative to root scale */
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    @apply text-gray-900;
   }
 
   h1, h2, h3, h4, h5, h6 {

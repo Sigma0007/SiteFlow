@@ -159,6 +159,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         record.employeeId === employeeId && record.date === selectedDate
       );
 
+      // Prevent changing from Leave to Present/Absent unless it's explicitly removing the leave or if Admin
+      if (existingRecord && existingRecord.status === 'leave' && newStatus !== 'removed' && newStatus !== 'leave') {
+        if (userRole !== 'admin') {
+          showToast('Leave status is locked. Please click "L" to remove leave status first.', 'error');
+          return;
+        }
+      }
+
       if (newStatus === 'removed') {
         if (existingRecord) {
           await attendanceServices.deleteAttendance(existingRecord.id);
@@ -762,6 +770,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           disabled={userRole === 'supervisor' && submittedToday}
                         >
                           A
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleAttendanceChange(employee.id, status === 'leave' ? 'removed' : 'leave')}
+                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'leave'
+                            ? 'bg-yellow-500 text-white shadow-inner'
+                            : 'bg-gray-200 text-gray-700 hover:bg-yellow-100'
+                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          title={status === 'leave' ? "Remove Leave" : "Mark Leave"}
+                          disabled={userRole === 'supervisor' && submittedToday}
+                        >
+                          L
                         </motion.button>
 
                         {/* Staff Management (Admin Only) */}

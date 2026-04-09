@@ -1091,7 +1091,6 @@ const Dashboard = ({ userRole }) => {
             ...(userRole === 'admin' ? [
               { icon: Package, label: 'Inventory', path: '/materials', color: 'bg-orange-500', desc: 'MATERIALS' }
             ] : []),
-            { icon: FileText, label: 'Processes', path: '/processes', color: 'bg-rose-500', desc: 'WORKFLOW' },
             { icon: DollarSign, label: 'PO Requests', path: '/po-requests', color: 'bg-amber-500', desc: 'PURCHASES' },
             // ...(userRole === 'admin' ? [
             //   { icon: TrendingUp, label: 'Reports', path: '/reports', color: 'bg-indigo-500', desc: 'ANALYTICS' },
@@ -1489,6 +1488,7 @@ const Dashboard = ({ userRole }) => {
                 <div className="space-y-1.5 px-2 pb-4">
                   {staff
                     .filter(s => (s.name + s.role + s.phone).toLowerCase().includes(staffSearchTerm.toLowerCase()))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                     .map(st => {
                       const theSite = sites.find(s => s.id === quickStaffSite);
                       const isAssignedToThis = (theSite?.assignedStaff || []).includes(st.id);

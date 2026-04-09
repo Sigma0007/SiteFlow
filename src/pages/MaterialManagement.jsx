@@ -16,6 +16,9 @@ const MaterialManagement = ({ userRole }) => {
   const [activeTab, setActiveTab] = useState('materials')
   const [showPOModal, setShowPOModal] = useState(false)
   const [showMaterialModal, setShowMaterialModal] = useState(false)
+  const [showToolModal, setShowToolModal] = useState(false)
+  const [showAllocationModal, setShowAllocationModal] = useState(false)
+  const [allocationData, setAllocationData] = useState({ material: null, siteId: '', quantity: 1 })
   const [editingMaterial, setEditingMaterial] = useState(null)
   const [loading, setLoading] = useState(true)
   const [poFormData, setPoFormData] = useState({
@@ -171,6 +174,17 @@ const MaterialManagement = ({ userRole }) => {
     setShowMaterialModal(true)
   }
 
+  const handleAddTool = () => {
+    setEditingMaterial(null)
+    setMaterialForm({
+      name: '',
+      category: 'tool',
+      unit: 'pcs',
+      currentStock: 0,
+    })
+    setShowToolModal(true)
+  }
+
   const handleEditMaterial = (material) => {
     setEditingMaterial(material)
     setMaterialForm(material)
@@ -211,7 +225,11 @@ const MaterialManagement = ({ userRole }) => {
         showAlert('Success', 'Material added successfully!')
       }
 
-      setShowMaterialModal(false)
+      if (showToolModal) {
+        setShowToolModal(false)
+      } else {
+        setShowMaterialModal(false)
+      }
       setMaterialForm({
         name: '',
         category: 'material',
@@ -226,7 +244,7 @@ const MaterialManagement = ({ userRole }) => {
       setEditingMaterial(null)
     } catch (error) {
       console.error('Error saving material:', error)
-      showAlert('Error', 'Error saving material: ' + error.message, 'error')
+      showAlert('Error', 'Error saving: ' + error.message, 'error')
     }
   }
 
@@ -263,6 +281,50 @@ const MaterialManagement = ({ userRole }) => {
     }
   }
 
+  const handleAllocateToSite = async (material, siteId, quantity) => {
+    if (quantity <= 0 || quantity > material.currentStock) {
+      showAlert('Invalid Quantity', 'Please ensure you have enough stock available.', 'error');
+      return;
+    }
+    try {
+      // 1. Reduce from central inventory
+      await materialServices.updateMaterial(material.id, {
+        currentStock: material.currentStock - quantity,
+        updatedAt: new Date().toISOString()
+      });
+      
+      // 2. Add to site's assigned materials
+      const targetSite = sites.find(s => s.id === siteId);
+      if (targetSite) {
+        const currentMaterials = targetSite.assignedMaterials || [];
+        const existingMatIndex = currentMaterials.findIndex(m => m.materialId === material.id);
+        
+        let newSiteMaterials = [...currentMaterials];
+        if (existingMatIndex >= 0) {
+          newSiteMaterials[existingMatIndex].quantity += quantity;
+        } else {
+          newSiteMaterials.push({
+            materialId: material.id,
+            name: material.name,
+            category: material.category || 'material',
+            quantity: quantity,
+            unit: material.unit || ''
+          });
+        }
+        
+        await siteServices.updateSite(siteId, { 
+          assignedMaterials: newSiteMaterials,
+          updatedAt: new Date().toISOString()
+        });
+        
+        showAlert('Success', `${quantity} ${material.unit || ''} of ${material.name} allocated to ${targetSite.name}.`);
+      }
+    } catch (err) {
+      console.error(err);
+      showAlert('Error', 'Failed to allocate to site: ' + err.message, 'error');
+    }
+  };
+
   const handlePOStatusUpdate = async (poId, newStatus) => {
     try {
       const po = purchaseOrders.find(p => p.id === poId)
@@ -278,12 +340,41 @@ const MaterialManagement = ({ userRole }) => {
       if (newStatus === 'Received') {
         const material = materials.find(m => m.id === po.materialId)
         if (material) {
-          const updatedStock = material.currentStock + po.quantity
-          await materialServices.updateMaterial(material.id, {
-            currentStock: updatedStock,
-            updatedAt: new Date().toISOString()
-          })
-          showAlert('Success', `Material stock for ${material.name} updated!`, 'info')
+          // If PO was for a specific site, allocate it directly to that site
+          if (po.siteId) {
+            const targetSite = sites.find(s => s.id === po.siteId)
+            if (targetSite) {
+              const currentMaterials = targetSite.assignedMaterials || []
+              const existingMatIndex = currentMaterials.findIndex(m => m.materialId === po.materialId)
+              
+              let newSiteMaterials = [...currentMaterials]
+              if (existingMatIndex >= 0) {
+                newSiteMaterials[existingMatIndex].quantity += po.quantity
+              } else {
+                newSiteMaterials.push({
+                  materialId: po.materialId,
+                  name: po.materialName,
+                  category: material.category || 'material',
+                  quantity: po.quantity,
+                  unit: po.unit || ''
+                })
+              }
+
+              await siteServices.updateSite(po.siteId, { 
+                assignedMaterials: newSiteMaterials,
+                updatedAt: new Date().toISOString()
+              })
+              showAlert('Success', `Materials received directly at ${targetSite.name}!`, 'info')
+            }
+          } else {
+            // Allocate to general warehouse (Godown)
+            const updatedStock = material.currentStock + po.quantity
+            await materialServices.updateMaterial(material.id, {
+              currentStock: updatedStock,
+              updatedAt: new Date().toISOString()
+            })
+            showAlert('Success', `Material stock for ${material.name} updated in general warehouse (Godown).`, 'info')
+          }
         }
       }
     } catch (error) {
@@ -371,6 +462,16 @@ const MaterialManagement = ({ userRole }) => {
               <span className="hidden sm:inline">Add Material</span>
               <span className="sm:hidden">Add</span>
             </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAddTool}
+              className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Add Tool</span>
+              <span className="sm:hidden">Add</span>
+            </motion.button>
           </div>
         )}
       </div>
@@ -398,9 +499,28 @@ const MaterialManagement = ({ userRole }) => {
         </motion.div>
       )}
 
+      <div className="flex border-b border-gray-200 mb-6 mt-4 whitespace-nowrap overflow-x-auto overflow-y-hidden">
+        <button
+          className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors focus:outline-none ${activeTab === 'materials' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('materials')}
+        >
+          Materials
+        </button>
+        <button
+          className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors focus:outline-none ${activeTab === 'tools' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('tools')}
+        >
+          Tools
+        </button>
+        <button
+          className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors focus:outline-none ${activeTab === 'purchase-orders' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          onClick={() => setActiveTab('purchase-orders')}
+        >
+          Purchase Orders
+        </button>
+      </div>
+
       <div className="card">
-
-
         {activeTab === 'materials' && (
           <>
             {loading ? (
@@ -426,7 +546,7 @@ const MaterialManagement = ({ userRole }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {materials.map((material, index) => {
+                    {materials.filter(m => m.category !== 'tool').map((material, index) => {
                       const stockStatus = getStockStatus(material)
                       return (
                         <motion.tr
@@ -476,6 +596,18 @@ const MaterialManagement = ({ userRole }) => {
                                 <motion.button
                                   whileHover={{ scale: 1.05 }}
                                   whileTap={{ scale: 0.95 }}
+                                  onClick={() => {
+                                    setAllocationData({ material: material, siteId: '', quantity: 1 });
+                                    setShowAllocationModal(true);
+                                  }}
+                                  className="text-indigo-600 hover:text-indigo-800 p-1"
+                                  title="Allocate to Site"
+                                >
+                                  <Package className="w-4 h-4" />
+                                </motion.button>
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
                                   onClick={() => handleEditMaterial(material)}
                                   className="text-blue-600 hover:text-blue-800 p-1"
                                 >
@@ -500,6 +632,111 @@ const MaterialManagement = ({ userRole }) => {
                 {materials.length === 0 && (
                   <div className="text-center py-12">
                     <p className="text-gray-500 text-lg">No materials found. Add your first material to get started.</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === 'tools' && (
+          <>
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <span className="ml-3 text-gray-600">Loading tools...</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto -mx-4 sm:mx-0">
+                <table className="w-full min-w-[600px] sm:min-w-0">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Tool Name</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Total Quantity</th>
+                      <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Status</th>
+                      {(userRole === 'admin' || userRole === 'manager') && (
+                        <th className="text-left py-3 px-2 sm:px-4 font-semibold text-gray-700 text-xs sm:text-sm">Actions</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materials.filter(m => m.category === 'tool').map((tool, index) => {
+                      const stockStatus = getStockStatus(tool)
+                      return (
+                        <motion.tr
+                          key={tool.id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="border-t border-gray-200 hover:bg-gray-50"
+                        >
+                          <td className="py-3 px-2 sm:px-4 font-medium text-gray-900">{tool.name}</td>
+                          <td className="py-3 px-2 sm:px-4">
+                            <span className={`font-semibold text-sm ${Number(tool.currentStock || 0) <= 5 ? 'text-red-600' : 'text-gray-900'}`}>
+                              {Number(tool.currentStock || 0)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 sm:px-4 text-xs">
+                            {(() => {
+                              const allocations = sites.reduce((acc, site) => {
+                                const sm = (site.assignedMaterials || []).find(m => m.materialId === tool.id);
+                                if (sm && Number(sm.quantity || 0) > 0) acc.push(`${site.name}: ${Number(sm.quantity || 0)}`);
+                                return acc;
+                              }, []);
+                              return allocations.length > 0 ? (
+                                <div className="space-y-1">
+                                  {allocations.map((a, i) => <div key={i} className="text-indigo-600 bg-indigo-50 inline-block px-1.5 py-0.5 rounded mr-1 mb-1">{a}</div>)}
+                                </div>
+                              ) : <span className="text-gray-400">Not allocated</span>;
+                            })()}
+                          </td>
+                          <td className="py-3 px-2 sm:px-4">
+                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${stockStatus.color}`}>
+                              {stockStatus.label}
+                            </span>
+                          </td>
+                          <td className="py-3 px-2 sm:px-4">
+                            <div className="flex gap-2">
+                              {(userRole === 'admin' || userRole === 'manager') && (
+                                <button
+                                  onClick={() => {
+                                    setAllocationData({ material: tool, siteId: '', quantity: 1 });
+                                    setShowAllocationModal(true);
+                                  }}
+                                  className="p-1 sm:p-2 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                  title="Allocate to Site"
+                                >
+                                  <Package className="w-4 h-4" />
+                                </button>
+                              )}
+                              {(userRole === 'admin' || userRole === 'manager') && (
+                                <>
+                                  <button
+                                    onClick={() => handleEditMaterial(tool)}
+                                    className="p-1 sm:p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                    title="Edit Tool"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMaterial(tool.id)}
+                                    className="p-1 sm:p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="Delete Tool"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </motion.tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {materials.filter(m => m.category === 'tool').length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500 text-lg">No tools found. Click "Add Tool" to get started.</p>
                   </div>
                 )}
               </div>
@@ -556,7 +793,7 @@ const MaterialManagement = ({ userRole }) => {
                   <div className="flex items-center justify-between pt-3 border-t border-gray-200">
                     <div>
                       <p className="text-sm text-gray-600">Total Amount</p>
-                      <p className="text-xl font-bold text-primary">₹{po.totalAmount.toLocaleString()}</p>
+                      <p className="text-xl font-bold text-primary">₹{(po.totalAmount || 0).toLocaleString()}</p>
                     </div>
                     {(userRole === 'admin' || userRole === 'manager') && po.status !== 'Received' && po.status !== 'Cancelled' && (
                       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mt-3 sm:mt-0">
@@ -645,20 +882,35 @@ const MaterialManagement = ({ userRole }) => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Material *</label>
-                  <select
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name (Material/Tool) *</label>
+                  <input
+                    list="material-suggestions"
                     required
-                    value={poFormData.materialId}
-                    onChange={(e) => setPoFormData({ ...poFormData, materialId: e.target.value })}
+                    placeholder="Search material or tool..."
+                    value={poFormData.materialName || ''}
+                    onChange={(e) => {
+                      const selected = materials.find(m => m.name === e.target.value);
+                      if (selected) {
+                        setPoFormData({ 
+                          ...poFormData, 
+                          materialId: selected.id, 
+                          materialName: selected.name,
+                          category: selected.category,
+                          unit: selected.unit 
+                        });
+                      } else {
+                        setPoFormData({ ...poFormData, materialName: e.target.value, materialId: '' });
+                      }
+                    }}
                     className="input-field"
-                  >
-                    <option value="">Select material</option>
+                  />
+                  <datalist id="material-suggestions">
                     {materials.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} (Stock: {m.currentStock} {m.unit})
+                      <option key={m.id} value={m.name}>
+                        {m.category === 'tool' ? '🛠️ Tool' : '📦 Material'} - Stock: {m.currentStock} {m.unit}
                       </option>
                     ))}
-                  </select>
+                  </datalist>
                 </div>
 
                 <div>
@@ -858,11 +1110,161 @@ const MaterialManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
+      {/* Tool Modal (Simplified 2 inputs) */}
+      <AnimatePresence>
+        {showToolModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-4 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                <h2 className="text-xl font-bold text-gray-900">Add Tool</h2>
+                <button
+                  onClick={() => setShowToolModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors focus:outline-none"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-6 overflow-y-auto min-h-[150px]">
+                <form id="toolForm" onSubmit={(e) => { e.preventDefault(); handleMaterialSubmit(e); }} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tool Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={materialForm.name}
+                      onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-all text-sm"
+                      placeholder="Enter tool name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Quantity/Stock *</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      value={materialForm.currentStock}
+                      onChange={(e) => setMaterialForm({ ...materialForm, currentStock: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary transition-all text-sm"
+                      placeholder="0"
+                    />
+                  </div>
+                </form>
+              </div>
+
+              <div className="p-4 sm:p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowToolModal(false)}
+                  className="px-4 py-2 border border-blue-200 text-gray-600 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="toolForm"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm text-sm font-medium focus:outline-none"
+                >
+                  Save Tool
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <StatusModal 
         {...statusModal} 
         onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
       />
       <Footer />
+      {/* ALLOCATION MODAL */}
+      <AnimatePresence>
+        {showAllocationModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <Package className="w-6 h-6 text-indigo-600" />
+                  Allocate to Site
+                </h3>
+                <button
+                  onClick={() => setShowAllocationModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100 mb-4">
+                  <p className="text-sm font-semibold text-indigo-900">{allocationData.material?.name}</p>
+                  <p className="text-xs text-indigo-700">Available in Godown: {allocationData.material?.currentStock} {allocationData.material?.unit}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Select Target Site</label>
+                  <select
+                    value={allocationData.siteId}
+                    onChange={(e) => setAllocationData({ ...allocationData, siteId: e.target.value })}
+                    className="input-field w-full px-4 py-2 border rounded-lg"
+                  >
+                    <option value="">Select a site...</option>
+                    {sites.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Quantity to Allocate</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={allocationData.material?.currentStock}
+                    value={allocationData.quantity}
+                    onChange={(e) => setAllocationData({ ...allocationData, quantity: parseInt(e.target.value) || 0 })}
+                    className="input-field w-full px-4 py-2 border rounded-lg"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => setShowAllocationModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!allocationData.siteId || allocationData.quantity <= 0) {
+                        showAlert('Error', 'Please select a site and enter a valid quantity.', 'error');
+                        return;
+                      }
+                      handleAllocateToSite(allocationData.material, allocationData.siteId, allocationData.quantity);
+                      setShowAllocationModal(false);
+                    }}
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700"
+                  >
+                    Allot Now
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

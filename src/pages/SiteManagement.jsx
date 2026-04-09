@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft } from 'lucide-react'
+import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft, ChevronRight } from 'lucide-react'
 import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite, onSnapshot, supervisorsCollection } from '../services/firebaseServices'
 import { format } from 'date-fns'
 import Footer from '../components/Footer'
@@ -105,6 +105,7 @@ const SiteManagement = ({ userRole }) => {
   const [showBuildingsForSite, setShowBuildingsForSite] = useState(null)
   const [availableSupervisors, setAvailableSupervisors] = useState([])
   const [availableStaff, setAvailableStaff] = useState([])
+  const [expandedSiteId, setExpandedSiteId] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -520,6 +521,15 @@ const SiteManagement = ({ userRole }) => {
     )
   }
 
+  const handleQuickStatusChange = async (siteId, newStatus) => {
+    try {
+      await siteServices.updateSite(siteId, { status: newStatus });
+    } catch (error) {
+      console.error('Error updating status:', error);
+      alert('Error updating status: ' + error.message);
+    }
+  };
+
   const handleBuildingSubmit = async (e) => {
     e.preventDefault()
 
@@ -668,11 +678,11 @@ const SiteManagement = ({ userRole }) => {
   }, [sites, buildings])
 
   const filteredSites = sites.filter(site => {
-    const matchesSearch = site.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      site.location.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesSearch = site.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      site.location?.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'All' || site.status === filterStatus
     return matchesSearch && matchesFilter
-  })
+  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -911,27 +921,30 @@ const SiteManagement = ({ userRole }) => {
                 transition={{ delay: index * 0.1 }}
                 className="card-hover border border-gray-200"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                <div 
+                  className={`flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer group ${expandedSiteId === site.id ? '' : 'mb-0'}`}
+                  onClick={() => setExpandedSiteId(expandedSiteId === site.id ? null : site.id)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-3 mb-2 mt-1">
                       {site.image && (
                         <img
                           src={site.image}
                           alt={site.name}
-                          className="h-16 w-16 object-cover rounded-lg"
+                          className="h-16 w-16 object-cover rounded-lg flex-shrink-0"
                         />
                       )}
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-1">{site.name}</h3>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-xl font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors truncate sm:whitespace-normal">{site.name}</h3>
                         <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-1 text-sm text-gray-600">
-                            <MapPin className="w-4 h-4" />
-                            {site.location}
+                          <div className="flex items-center gap-1 text-sm text-gray-500">
+                            <MapPin className="w-4 h-4 flex-shrink-0" />
+                            <span className="truncate sm:whitespace-normal">{site.location}</span>
                           </div>
                           {userRole === 'admin' && site.assignedSupervisors && site.assignedSupervisors.length > 0 && (
                             <div className="flex items-center gap-1 text-xs text-blue-600 mt-1">
-                              <Users className="w-3 h-3" />
-                              <span className="font-medium">
+                              <Users className="w-3 h-3 flex-shrink-0" />
+                              <span className="font-medium truncate sm:whitespace-normal">
                                 Supervisors: {site.assignedSupervisors.map(id => availableSupervisors.find(s => s.firebaseUid === id || s.id === id)?.name || id).join(', ')}
                               </span>
                             </div>
@@ -940,12 +953,37 @@ const SiteManagement = ({ userRole }) => {
                       </div>
                     </div>
                   </div>
-                  <span className={`badge border ${getStatusColor(site.status)}`}>
-                    {site.status}
-                  </span>
+                  <div className="flex items-center justify-between sm:justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                    {(userRole === 'admin' || userRole === 'manager') ? (
+                      <select
+                        value={site.status}
+                        onChange={(e) => handleQuickStatusChange(site.id, e.target.value)}
+                        className={`text-sm font-bold px-4 py-1.5 rounded-lg border-2 outline-none cursor-pointer hover:bg-opacity-90 transition-all shadow-sm ${getStatusColor(site.status)}`}
+                      >
+                        <option value="Active">Active</option>
+                        <option value="On Hold">On Hold</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    ) : (
+                      <span className={`badge border-2 font-bold px-3 py-1 ${getStatusColor(site.status)}`}>
+                        {site.status}
+                      </span>
+                    )}
+                    <ChevronRight 
+                      className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expandedSiteId === site.id ? 'rotate-90' : ''}`} 
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-3 mb-4">
+                <AnimatePresence>
+                  {expandedSiteId === site.id && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="space-y-3 mb-4 mt-6 pt-4 border-t border-gray-100">
                   {/* <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600 flex items-center gap-1">
                       <Calendar className="w-4 h-4" />
@@ -1168,28 +1206,32 @@ const SiteManagement = ({ userRole }) => {
                     </div>
                     {site.assignedStaff && site.assignedStaff.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
-                        {site.assignedStaff.slice(0, 10).map(staffId => {
-                          const st = availableStaff.find(s => s.id === staffId);
-                          if (!st) return null;
-                          const dPresent = attendance.filter(r => r.employeeId === staffId && r.siteId === site.id && String(r.status).toLowerCase() === 'present').length;
-                          return (
-                            <div key={staffId} className="group relative flex flex-col bg-white border border-gray-200 rounded-lg p-2 min-w-[120px] max-w-[140px] shadow-sm">
-                              <button
-                                onClick={() => handleQuickRemoveStaff(site.id, staffId)}
-                                className="absolute -top-2 -right-2 bg-red-100 text-red-600 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-200"
-                                title="Remove Worker"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                              <span className="text-xs font-bold text-gray-900 truncate pr-2">{st.name}</span>
-                              <span className="text-[10px] text-gray-500 truncate">{st.role}</span>
-                              <div className="mt-1 flex items-center justify-between text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-100">
-                                <span>Worked:</span>
-                                <span>{dPresent}d</span>
+                        {(site.assignedStaff || [])
+                          .map(id => availableStaff.find(s => s.id === id))
+                          .filter(s => !!s)
+                          .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                          .slice(0, 10)
+                          .map(st => {
+                            const staffId = st.id;
+                            const dPresent = attendance.filter(r => r.employeeId === staffId && r.siteId === site.id && String(r.status).toLowerCase() === 'present').length;
+                            return (
+                              <div key={staffId} className="group relative flex flex-col bg-white border border-gray-200 rounded-lg p-2 min-w-[120px] max-w-[140px] shadow-sm">
+                                <button
+                                  onClick={() => handleQuickRemoveStaff(site.id, staffId)}
+                                  className="absolute -top-2 -right-2 bg-red-100 text-red-600 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-200"
+                                  title="Remove Worker"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                                <span className="text-xs font-bold text-gray-900 truncate pr-2">{st.name}</span>
+                                <span className="text-[10px] text-gray-500 truncate">{st.role}</span>
+                                <div className="mt-1 flex items-center justify-between text-[10px] font-medium text-green-700 bg-green-50 px-1.5 py-0.5 rounded border border-green-100">
+                                  <span>Worked:</span>
+                                  <span>{dPresent}d</span>
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })}
+                            )
+                          })}
                         {site.assignedStaff.length > 10 && (
                           <div className="flex items-center justify-center bg-gray-50 border border-gray-200 rounded-lg p-2 min-w-[40px] shadow-sm text-xs font-bold text-gray-500">
                             +{site.assignedStaff.length - 10}
@@ -1234,6 +1276,9 @@ const SiteManagement = ({ userRole }) => {
                     </motion.button>
                   </div>
                 )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             ))}
           </div>
@@ -1432,6 +1477,7 @@ const SiteManagement = ({ userRole }) => {
                         <>
                           {availableStaff
                             .filter(staff => formData.assignedStaff.includes(staff.id))
+                            .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                             .map((staff) => {
                               // Calculate stats
                               const daysPresent = attendance.filter(r => r.employeeId === staff.id && r.siteId === editingSite?.id && String(r.status).toLowerCase() === 'present').length;
@@ -1470,7 +1516,9 @@ const SiteManagement = ({ userRole }) => {
                         {availableStaff.length === 0 ? (
                           <p className="text-sm text-gray-500">No staff available in attendance.</p>
                         ) : (
-                          availableStaff.map((staff) => {
+                          availableStaff
+                            .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                            .map((staff) => {
                             const isAssignedToThis = formData.assignedStaff.includes(staff.id);
                             const currentSiteInfo = staff.siteId && staff.siteId !== editingSite?.id ? sites.find(s => s.id === staff.siteId) : null;
                             return (
@@ -1569,17 +1617,13 @@ const SiteManagement = ({ userRole }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Building Type</label>
-                      <select
-                        value={formData.buildingType || 'Mixed Use'}
+                      <input
+                        type="text"
+                        value={formData.buildingType || ''}
                         onChange={(e) => setFormData({ ...formData, buildingType: e.target.value })}
                         className="input-field"
-                      >
-                        <option>Residential</option>
-                        <option>Commercial</option>
-                        <option>Industrial</option>
-                        <option>Mixed Use</option>
-                        <option>Institutional</option>
-                      </select>
+                        placeholder="e.g. Residential, Commercial"
+                      />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
@@ -1712,19 +1756,14 @@ const SiteManagement = ({ userRole }) => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Building Type *</label>
-                  <select
+                  <input
+                    type="text"
                     required
                     value={buildingForm.type}
                     onChange={(e) => setBuildingForm({ ...buildingForm, type: e.target.value })}
                     className="input-field"
-                  >
-                    <option value="">Select building type</option>
-                    <option>Residential</option>
-                    <option>Commercial</option>
-                    <option>Industrial</option>
-                    <option>Mixed Use</option>
-                    <option>Institutional</option>
-                  </select>
+                    placeholder="e.g. Residential, Commercial"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1942,6 +1981,7 @@ const SiteManagement = ({ userRole }) => {
                 <div className="space-y-1.5 px-2 pb-4">
                   {availableStaff
                     .filter(s => (s.name + s.role + (s.phone || '')).toLowerCase().includes(staffSearchTerm.toLowerCase()))
+                    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
                     .map(staff => {
                       const theSite = sites.find(s => s.id === quickStaffSite);
                       const isAssignedToThis = (theSite?.assignedStaff || []).includes(staff.id);

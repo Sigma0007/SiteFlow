@@ -141,6 +141,46 @@ const PORequests = ({ userRole = 'admin' }) => {
     }
   }
 
+  const handleArrived = async (request) => {
+    try {
+      // 1. Update PO status
+      const updateData = {
+        status: 'arrived',
+        arrivedDate: new Date().toISOString().split('T')[0]
+      }
+      await supervisorServices.updatePORequest(request.id, updateData)
+
+      // 2. Add material directly to site
+      const siteDoc = await siteServices.getSiteById(request.siteId)
+      if (siteDoc.exists()) {
+        const siteData = siteDoc.data()
+        let assignedMaterials = siteData.assignedMaterials || []
+        
+        const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === request.materialName.toLowerCase())
+        const quantityNum = parseFloat(request.quantity) || 1
+        
+        if (existingMatIndex >= 0) {
+          assignedMaterials[existingMatIndex].quantity += quantityNum
+        } else {
+          assignedMaterials.push({
+            materialId: `direct_po_${Date.now()}`,
+            name: request.materialName,
+            category: 'PO Directed',
+            quantity: quantityNum
+          })
+        }
+        
+        await siteServices.updateSite(request.siteId, { assignedMaterials })
+      }
+
+      await reloadRequests()
+      showAlert('Arrived & Allocated', 'PO material has arrived and stock was allocated to the site!')
+    } catch (error) {
+      console.error('Error marking PO arrived:', error)
+      showAlert('Error', 'Error updating PO workflow. Please try again.', 'error')
+    }
+  }
+
   const handleReject = async (requestId, notes) => {
     setInputModal({
       visible: true,
@@ -186,7 +226,8 @@ const PORequests = ({ userRole = 'admin' }) => {
   const getStatusColor = (status) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
-      case 'approved': return 'bg-green-100 text-green-700 border-green-200'
+      case 'approved': return 'bg-blue-100 text-blue-700 border-blue-200'
+      case 'arrived': return 'bg-green-100 text-green-700 border-green-200'
       case 'rejected': return 'bg-red-100 text-red-700 border-red-200'
       default: return 'bg-gray-100 text-gray-700 border-gray-200'
     }
@@ -196,6 +237,7 @@ const PORequests = ({ userRole = 'admin' }) => {
     switch (status) {
       case 'pending': return Clock
       case 'approved': return CheckCircle
+      case 'arrived': return Package
       case 'rejected': return XCircle
       default: return FileText
     }
@@ -221,6 +263,7 @@ const PORequests = ({ userRole = 'admin' }) => {
     total: poRequests.length,
     pending: poRequests.filter(r => r.status === 'pending').length,
     approved: poRequests.filter(r => r.status === 'approved').length,
+    arrived: poRequests.filter(r => r.status === 'arrived').length,
     rejected: poRequests.filter(r => r.status === 'rejected').length
   }
 
@@ -425,7 +468,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => handleApprove(request.id)}
-                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
+                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
                   >
                     <CheckCircle className="w-4 h-4 inline mr-2" />
                     Approve
@@ -438,6 +481,20 @@ const PORequests = ({ userRole = 'admin' }) => {
                   >
                     <XCircle className="w-4 h-4 inline mr-2" />
                     Reject
+                  </motion.button>
+                </div>
+              )}
+
+              {userRole === 'admin' && request.status === 'approved' && (
+                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleArrived(request)}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
+                  >
+                    <Package className="w-4 h-4 inline mr-2" />
+                    Mark Arrived (Allocate to Site)
                   </motion.button>
                 </div>
               )}

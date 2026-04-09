@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Building2, Search, MapPin, ChevronRight, FileText, ArrowLeft } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Building2, Search, MapPin, ChevronRight, FileText, ArrowLeft, IndianRupee, X, Plus, Trash2 } from 'lucide-react';
 import { siteServices, convertDocsToArray } from '../services/firebaseServices';
 import { useSupervisor } from '../contexts/SupervisorContext.jsx';
 import { useAuth } from '../components/Auth';
 import { useNavigate } from 'react-router-dom';
+import { collection, addDoc, query, where, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const DPRSites = ({ userRole }) => {
   const { currentSupervisor, assignedSites } = useSupervisor();
@@ -14,14 +16,21 @@ const DPRSites = ({ userRole }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // Expense modal state
+  const [expenseModal, setExpenseModal] = useState({ open: false, siteId: '', siteName: '' });
+  const [expenseForm, setExpenseForm] = useState({ description: '', amount: '' });
+  const [siteExpenses, setSiteExpenses] = useState([]);
+  const [savingExpense, setSavingExpense] = useState(false);
+
+  const todayDate = new Date().toISOString().split('T')[0];
+
   useEffect(() => {
     const loadSites = async () => {
       setLoading(true);
       try {
-        // All roles see all active sites in DPR
         const snapshot = await siteServices.getAllSites();
         const allSites = convertDocsToArray(snapshot);
-        setSites(allSites.filter(s => !s.is_deleted));
+        setSites(allSites.filter(s => !s.is_deleted && s.status === 'Active'));
       } catch (error) {
         console.error('Error loading sites:', error);
       } finally {
@@ -32,10 +41,67 @@ const DPRSites = ({ userRole }) => {
     loadSites();
   }, []);
 
-  // Filter and sort sites (A-Z)
+  // Load expenses when modal opens
+  useEffect(() => {
+    if (!expenseModal.open || !expenseModal.siteId) return;
+
+    const q = query(
+      collection(db, 'expenses'),
+      where('siteId', '==', expenseModal.siteId),
+      where('date', '==', todayDate)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const list = [];
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+      setSiteExpenses(list);
+    });
+
+    return () => unsub();
+  }, [expenseModal.open, expenseModal.siteId, todayDate]);
+
+  const openExpenseModal = (site, e) => {
+    e.stopPropagation();
+    setExpenseModal({ open: true, siteId: site.id, siteName: site.name });
+    setExpenseForm({ description: '', amount: '' });
+  };
+
+  const handleAddExpense = async () => {
+    const amt = parseFloat(expenseForm.amount);
+    if (!expenseForm.description.trim() || !amt || amt <= 0) return;
+
+    setSavingExpense(true);
+    try {
+      await addDoc(collection(db, 'expenses'), {
+        siteId: expenseModal.siteId,
+        siteName: expenseModal.siteName,
+        date: todayDate,
+        description: expenseForm.description.trim(),
+        amount: amt,
+        addedBy: user?.email || '',
+        createdAt: new Date().toISOString()
+      });
+      setExpenseForm({ description: '', amount: '' });
+    } catch (err) {
+      console.error('Error adding expense:', err);
+    } finally {
+      setSavingExpense(false);
+    }
+  };
+
+  const handleDeleteExpense = async (expId) => {
+    try {
+      await deleteDoc(doc(db, 'expenses', expId));
+    } catch (err) {
+      console.error('Error deleting expense:', err);
+    }
+  };
+
   const filteredSites = sites
     .filter(site => site.name?.toLowerCase().includes(searchTerm.toLowerCase()))
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  const expenseTotal = siteExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8 min-h-screen bg-gray-50">
@@ -50,11 +116,11 @@ const DPRSites = ({ userRole }) => {
             <ArrowLeft className="w-6 h-6" />
           </motion.button>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
-              <FileText className="w-8 h-8 text-blue-600" />
+            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 flex items-center gap-3">
+              <FileText className="w-9 h-9 text-blue-600" />
               Daily Progress Reports (DPR)
             </h1>
-            <p className="text-gray-600 mt-1">Select a site to manage its daily tracking</p>
+            <p className="text-gray-600 mt-1 text-base">Select a site to manage its daily tracking</p>
           </div>
         </div>
 
@@ -65,7 +131,7 @@ const DPRSites = ({ userRole }) => {
             placeholder="Search sites A-Z..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2 w-full sm:w-64 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm"
+            className="pl-10 pr-4 py-2.5 w-full sm:w-72 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm text-base"
           />
         </div>
       </div>
@@ -96,12 +162,12 @@ const DPRSites = ({ userRole }) => {
                   className="flex-1 cursor-pointer"
                   onClick={() => navigate(`/dpr/${site.id}`)}
                 >
-                  <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
                     {site.name}
                   </h3>
                   {site.location && (
-                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                      <MapPin className="w-3 h-3" /> {site.location}
+                    <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                      <MapPin className="w-4 h-4" /> {site.location}
                     </p>
                   )}
                 </div>
@@ -110,17 +176,26 @@ const DPRSites = ({ userRole }) => {
                   <motion.button
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
+                    onClick={(e) => openExpenseModal(site, e)}
+                    className="p-2.5 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors border border-green-100 shadow-sm"
+                    title="Expenses"
+                  >
+                    <IndianRupee className="w-5 h-5" />
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
                     onClick={(e) => {
                       e.stopPropagation();
                       navigate(`/dpr/${site.id}/history`);
                     }}
-                    className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100 shadow-sm"
+                    className="p-2.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100 shadow-sm"
                     title="View Report History"
                   >
                     <FileText className="w-5 h-5" />
                   </motion.button>
                   <ChevronRight 
-                    className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all cursor-pointer" 
+                    className="w-6 h-6 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all cursor-pointer" 
                     onClick={() => navigate(`/dpr/${site.id}`)}
                   />
                 </div>
@@ -129,6 +204,106 @@ const DPRSites = ({ userRole }) => {
           ))}
         </div>
       )}
+
+      {/* Expense Modal */}
+      <AnimatePresence>
+        {expenseModal.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setExpenseModal({ open: false, siteId: '', siteName: '' })}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="bg-green-50 border-b border-green-100 px-6 py-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <IndianRupee className="w-5 h-5 text-green-600" /> Expenses
+                  </h3>
+                  <p className="text-sm text-gray-500">{expenseModal.siteName} · {todayDate}</p>
+                </div>
+                <button
+                  onClick={() => setExpenseModal({ open: false, siteId: '', siteName: '' })}
+                  className="p-1.5 hover:bg-green-100 rounded-lg transition"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              {/* Input Fields */}
+              <div className="px-6 py-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Description</label>
+                  <input
+                    type="text"
+                    value={expenseForm.description}
+                    onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))}
+                    placeholder="e.g., Labour wages, Transport"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={expenseForm.amount}
+                    onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))}
+                    placeholder="e.g., 5000"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-base"
+                  />
+                </div>
+                <button
+                  onClick={handleAddExpense}
+                  disabled={savingExpense || !expenseForm.description.trim() || !expenseForm.amount}
+                  className="w-full py-2.5 bg-green-600 text-white rounded-lg font-bold text-base hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-5 h-5" /> Add Expense
+                </button>
+              </div>
+
+              {/* Today's Expenses List */}
+              <div className="border-t border-gray-100 px-6 py-4 max-h-60 overflow-y-auto">
+                {siteExpenses.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center py-4">No expenses recorded today.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {siteExpenses.map(exp => (
+                      <div key={exp.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2.5">
+                        <div>
+                          <p className="font-medium text-gray-900 text-sm">{exp.description}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-green-700 text-base">₹{(exp.amount || 0).toLocaleString('en-IN')}</span>
+                          <button onClick={() => handleDeleteExpense(exp.id)} className="text-red-400 hover:text-red-600 transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Total */}
+              {siteExpenses.length > 0 && (
+                <div className="border-t border-gray-200 px-6 py-3 bg-gray-50 flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Total</span>
+                  <span className="text-xl font-black text-green-700">₹{expenseTotal.toLocaleString('en-IN')}</span>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

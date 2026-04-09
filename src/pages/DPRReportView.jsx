@@ -207,7 +207,13 @@ const DPRReportView = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {[...presentLabour, ...absentLabour].map((att) => {
+                    {[...presentLabour, ...absentLabour]
+                      .sort((a, b) => {
+                        const empA = getEmpDetails(a.employeeId);
+                        const empB = getEmpDetails(b.employeeId);
+                        return (empA.name || '').localeCompare(empB.name || '');
+                      })
+                      .map((att) => {
                       const emp = getEmpDetails(att.employeeId);
                       const isPresent = att.status === 'present';
                       return (
@@ -268,20 +274,19 @@ const DPRReportView = () => {
             )}
           </div>
 
-          {/* Section 4: Daily Expenses */}
+          {/* Section 4: Daily Expenses (Conditional) */}
+          {expenses && expenses.length > 0 && (
           <div className="mb-6 page-break-inside-avoid">
             <div className="flex items-center gap-2 mb-4">
               <IndianRupee className="w-5 h-5 text-gray-700" />
               <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Daily Expenses</h2>
             </div>
-            
-            {expenses && expenses.length > 0 ? (
               <div className="overflow-x-auto border border-gray-200 rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Description</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Category</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Category</th>
                       <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Amount</th>
                     </tr>
                   </thead>
@@ -289,7 +294,7 @@ const DPRReportView = () => {
                     {expenses.map((exp, idx) => (
                       <tr key={idx}>
                         <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{exp.description}</td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">{exp.category}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell">{exp.category || '-'}</td>
                         <td className="px-6 py-3 whitespace-nowrap text-sm font-bold text-gray-900 text-right">₹{exp.amount.toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
@@ -302,10 +307,8 @@ const DPRReportView = () => {
                   </tfoot>
                 </table>
               </div>
-            ) : (
-              <p className="text-gray-500 text-sm italic py-2">No expenses recorded for today.</p>
-            )}
           </div>
+          )}
 
           {/* Footer Signature Block */}
           <div className="mt-12 sm:mt-16 pt-8 border-t border-gray-300 flex flex-col sm:flex-row justify-between gap-12 sm:gap-4 px-4 sm:px-8 text-sm text-gray-600 page-break-inside-avoid relative z-10">
