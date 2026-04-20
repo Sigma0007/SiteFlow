@@ -376,7 +376,7 @@ const DPRSiteDetails = ({ userRole }) => {
       showAlert('Invalid', 'Please enter a valid sq ft value.', 'warning');
       return;
     }
-
+``
     try {
       // 1. Update today's DPR processProgress
       let dprRef = todayDpr;
@@ -675,18 +675,35 @@ const DPRSiteDetails = ({ userRole }) => {
               </p>
             </div>
             
+            {/* Attendance Count Cards */}
+            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
+                  <div className="text-2xl font-bold text-gray-800">{todayAttendance.filter(a => (a.status === 'present' || a.status === 'absent') && a.siteId === siteId).length}</div>
+                  <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Marked</div>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200 text-center">
+                  <div className="text-2xl font-bold text-green-600">{todayAttendance.filter(a => a.status === 'present' && a.siteId === siteId).length}</div>
+                  <div className="text-xs font-medium text-green-500 uppercase tracking-wider">Present</div>
+                </div>
+                <div className="bg-red-50 rounded-lg p-4 border border-red-200 text-center">
+                  <div className="text-2xl font-bold text-red-600">{todayAttendance.filter(a => a.status === 'absent' && a.siteId === siteId).length}</div>
+                  <div className="text-xs font-medium text-red-500 uppercase tracking-wider">Absent</div>
+                </div>
+              </div>
+            </div>
+            
             <div className="overflow-x-auto p-0">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
                   <tr>
                     <th className="px-4 py-3 font-semibold">Employee</th>
-                    <th className="px-4 py-3 font-semibold hidden sm:table-cell">Role</th>
                     <th className="px-4 py-3 font-semibold text-right">Status (P/A)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {visibleEmployees.length === 0 ? (
-                    <tr><td colSpan="4" className="text-center py-8 text-gray-500">No available employees to show</td></tr>
+                    <tr><td colSpan="2" className="text-center py-8 text-gray-500">No available employees to show</td></tr>
                   ) : visibleEmployees.map(emp => {
                     const att = todayAttendance.find(a => a.employeeId === emp.id && a.siteId === siteId);
                     const status = att?.status || 'unmarked';
@@ -695,9 +712,7 @@ const DPRSiteDetails = ({ userRole }) => {
                       <tr key={emp.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <p className="font-semibold text-gray-900 text-base">{emp.name}</p>
-                          <p className="text-xs text-gray-500 sm:hidden">{emp.role}</p>
                         </td>
-                        <td className="px-4 py-3 text-gray-600 hidden sm:table-cell">{emp.role}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end gap-3">
                             <button

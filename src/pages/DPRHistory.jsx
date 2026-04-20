@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Building2, Calendar, FileText, Search, ChevronRight, Clock, MapPin } from 'lucide-react';
+import { ArrowLeft, Building2, Calendar, FileText, Search, ChevronRight, Clock, MapPin, Trash2 } from 'lucide-react';
 import { siteServices, dprServices, convertDocsToArray } from '../services/firebaseServices';
 import Footer from '../components/Footer';
+import StatusModal from '../components/StatusModal';
 
 const DPRHistory = () => {
   const { siteId } = useParams();
@@ -12,6 +13,26 @@ const DPRHistory = () => {
   const [site, setSite] = useState(null);
   const [reports, setReports] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [statusModal, setStatusModal] = useState({
+    visible: false,
+    type: 'success',
+    title: '',
+    message: '',
+    onConfirm: null,
+    onCancel: null
+  });
+
+  const showAlert = (title, message, type = 'success', onConfirm = null, onCancel = null) => {
+    setStatusModal({ 
+      visible: true, 
+      type, 
+      title, 
+      message, 
+      onConfirm: onConfirm || (() => setStatusModal(prev => ({ ...prev, visible: false }))),
+      onCancel: onCancel || (() => setStatusModal(prev => ({ ...prev, visible: false })))
+    });
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -46,6 +67,25 @@ const DPRHistory = () => {
   const filteredReports = reports.filter(report => 
     report.date.includes(searchTerm)
   );
+
+  const handleDeleteReport = (e, reportId) => {
+    e.stopPropagation();
+    showAlert(
+      'Confirm Deletion',
+      'Are you sure you want to delete this report? This action cannot be undone.',
+      'confirm',
+      async () => {
+        try {
+          await dprServices.updateDPR(reportId, { is_deleted: true });
+          setReports(prev => prev.filter(r => r.id !== reportId));
+          setStatusModal(prev => ({ ...prev, visible: false }));
+        } catch (err) {
+          console.error("Error deleting report:", err);
+          showAlert('Error', 'Failed to delete report.', 'error');
+        }
+      }
+    );
+  };
 
   if (loading && !site) {
     return (
@@ -175,8 +215,17 @@ const DPRHistory = () => {
                           </div>
                         </div>
                       </div>
-                      <div className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all">
-                        <ChevronRight className="w-5 h-5" />
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={(e) => handleDeleteReport(e, report.id)}
+                          className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all z-10"
+                          title="Delete Report"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                        <div className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all">
+                          <ChevronRight className="w-5 h-5" />
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -187,6 +236,7 @@ const DPRHistory = () => {
         </div>
       </div>
       <Footer />
+      <StatusModal {...statusModal} />
     </div>
   );
 };

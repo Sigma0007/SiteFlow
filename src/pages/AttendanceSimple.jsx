@@ -650,9 +650,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Sites</option>
-              {sites.map(site => (
-                <option key={site.id} value={site.id}>{site.name}</option>
-              ))}
+              {sites.map(site => {
+                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
+                return (
+                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
+                );
+              })}
             </select>
           </div>
         )}
@@ -691,11 +694,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10 min-w-[150px]">Employee</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700 hidden sm:table-cell">Site</th>
-                <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-20 w-16">S.No</th>
+                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-16 bg-gray-50 z-20 min-w-[180px]">Employee</th>
+                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell min-w-[150px]">Site</th>
+                <th className="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -713,7 +717,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     transition={{ delay: index * 0.05 }}
                     className="border-t border-gray-200 hover:bg-gray-50"
                   >
-                    <td className="py-3 px-4 sticky left-0 bg-white z-10 min-w-[150px]">
+                    <td className="py-3 px-4 text-sm text-gray-600 font-medium">{index + 1}</td>
+                    <td className="py-3 px-4 sticky left-0 bg-white z-10 min-w-[180px]">
                       <div>
                         <p className="font-medium text-gray-900">{employee.name}</p>
                         <div className="sm:hidden mt-1">
@@ -723,26 +728,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                             className="px-2 py-1 text-xs font-semibold rounded-md border border-blue-200 bg-blue-50 text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer w-full"
                           >
                             <option value="">No Site</option>
-                            {sites.map(site => (
-                              <option key={site.id} value={site.id}>{site.name}</option>
-                            ))}
+                            {sites.map(site => {
+                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
+                return (
+                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
+                );
+              })}
                           </select>
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4 hidden sm:table-cell">
+                    <td className="py-3 px-4 hidden sm:table-cell min-w-[150px]">
                       <select
                         value={employee.siteId || ''}
                         onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
                         className="px-2 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[120px]"
                       >
                         <option value="">No Site</option>
-                        {sites.map(site => (
-                          <option key={site.id} value={site.id}>{site.name}</option>
-                        ))}
+                        {sites.map(site => {
+                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
+                return (
+                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
+                );
+              })}
                       </select>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 text-center w-48">
                       <div className="flex gap-2">
                         {/* Attendance Actions */}
                         <motion.button

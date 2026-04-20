@@ -935,7 +935,7 @@ const SiteManagement = ({ userRole }) => {
                         />
                       )}
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-xl font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors truncate sm:whitespace-normal">{site.name}</h3>
+                        <h3 className="text-xl font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors truncate sm:whitespace-normal">{index + 1}. {site.name}</h3>
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1 text-sm text-gray-500">
                             <MapPin className="w-4 h-4 flex-shrink-0" />

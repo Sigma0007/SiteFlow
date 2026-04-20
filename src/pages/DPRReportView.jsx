@@ -202,7 +202,6 @@ const DPRReportView = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Employee Name (ID)</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Designation / Role</th>
                       <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                     </tr>
                   </thead>
@@ -221,7 +220,6 @@ const DPRReportView = () => {
                           <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
                             {emp.name} <span className="text-gray-400 text-xs ml-1">({emp.id ? emp.id.substring(0,6) : 'N/A'})</span>
                           </td>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500">{emp.role}</td>
                           <td className={`px-6 py-3 whitespace-nowrap text-sm font-bold ${isPresent ? 'text-green-600' : 'text-red-600'}`}>
                             {isPresent ? 'P' : 'A'}
                           </td>
