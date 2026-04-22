@@ -50,6 +50,8 @@ export default defineConfig(({ command }) => ({
         maximumFileSizeToCacheInBytes: 5000000,
         skipWaiting: true,
         clientsClaim: true,
+        // Clean up old caches so stale CSS/JS never persists across deploys
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
