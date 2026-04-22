@@ -35,6 +35,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('all')
+  const [workerTypeFilter, setWorkerTypeFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [submittedToday, setSubmittedToday] = useState(false)
 
@@ -44,8 +45,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [staffToDelete, setStaffToDelete] = useState(null)
   const [staffToEdit, setStaffToEdit] = useState(null)
-  const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
-  const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
+  const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
+  const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
 
   // Attendance editing states
   const [editingAttendance, setEditingAttendance] = useState(null)
@@ -263,19 +264,40 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       todayRecords = todayRecords.filter(record => record.siteId === selectedSiteFilter)
     }
 
-    const present = todayRecords.filter(record => record.status === 'present').length
-    const absent = todayRecords.filter(record => record.status === 'absent').length
-    const total = employees.filter(emp => {
+    // Apply worker type filter to both records and employees
+    let filteredEmployees = employees.filter(emp => {
+      const employmentType = emp.employmentType || 'permanent'
+      const isDailyWorker = emp.isDailyWorker || emp.temporary
+      
+      // Apply worker type filter
+      let matchesWorkerType = true;
+      if (workerTypeFilter === 'permanent') {
+        matchesWorkerType = employmentType === 'permanent' && !isDailyWorker;
+      } else if (workerTypeFilter === 'contract') {
+        matchesWorkerType = employmentType === 'contract' && !isDailyWorker;
+      } else if (workerTypeFilter === 'daily') {
+        matchesWorkerType = isDailyWorker;
+      }
+
       let matchesSite = true;
       if (userRole === 'supervisor') {
         matchesSite = emp.siteId && assignedSites.some(site => site.id === emp.siteId);
       } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
         matchesSite = emp.siteId === selectedSiteFilter;
       }
-      return matchesSite;
-    }).length; // Total employees to calculate correct percentage based on staff count, not marked records. However, earlier it was total = todayRecords.length. Let's stick with todayRecords.length for consistency.
+      
+      return matchesSite && matchesWorkerType;
+    });
 
-    const finalTotal = todayRecords.length;
+    // Filter records to only include employees that match the current filters
+    const filteredEmployeeIds = new Set(filteredEmployees.map(emp => emp.id));
+    todayRecords = todayRecords.filter(record => filteredEmployeeIds.has(record.employeeId));
+
+    const present = todayRecords.filter(record => record.status === 'present').length
+    const absent = todayRecords.filter(record => record.status === 'absent').length
+    const total = filteredEmployees.length;
+
+    const finalTotal = total;
     return { present, absent, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
@@ -296,7 +318,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       }
 
       await labourServices.addLabour(staffData)
-      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
+      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
       setShowAddStaffModal(false)
       showToast('Staff added successfully!')
     } catch (error) {
@@ -317,7 +339,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       await labourServices.updateLabour(staffToEdit.id, staffData)
       setShowEditStaffModal(false)
       setStaffToEdit(null)
-      setEditStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '' })
+      setEditStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
       showToast('Staff updated successfully!')
     } catch (error) {
       console.error('Error updating staff:', error)
@@ -361,7 +383,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       dailyWage: staff.dailyWage.toString(),
       phone: staff.phone || '',
       siteId: staff.siteId || '',
-      buildingId: staff.buildingId || ''
+      buildingId: staff.buildingId || '',
+      employmentType: staff.employmentType || 'permanent'
     })
     setShowEditStaffModal(true)
   }
@@ -408,6 +431,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       record.employeeId === employee.id && record.date === selectedDate
     )
     const status = attendanceRecord?.status || 'not-marked'
+    
+    // Check employee employment type
+    const employmentType = employee.employmentType || 'permanent'
+    const isDailyWorker = employee.isDailyWorker || employee.temporary
 
     // Get site name from sites data
     const siteName = sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
@@ -416,6 +443,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       siteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.role.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || status === filterStatus
+    
+    // Filter by worker type
+    let matchesWorkerType = true;
+    if (workerTypeFilter === 'permanent') {
+      matchesWorkerType = employmentType === 'permanent' && !isDailyWorker;
+    } else if (workerTypeFilter === 'contract') {
+      matchesWorkerType = employmentType === 'contract' && !isDailyWorker;
+    } else if (workerTypeFilter === 'daily') {
+      matchesWorkerType = isDailyWorker;
+    }
 
     // Filter by assigned sites for supervisors, or selected site for admin
     let matchesSite = true;
@@ -425,11 +462,30 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       matchesSite = employee.siteId === selectedSiteFilter;
     }
 
-    return matchesSearch && matchesFilter && matchesSite
-  }).map(employee => ({
-    ...employee,
-    site: sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
-  })).sort((a, b) => a.name.localeCompare(b.name))
+    return matchesSearch && matchesFilter && matchesSite && matchesWorkerType
+  }).map(employee => {
+    // Determine employment type for display
+    let displayEmploymentType = employee.employmentType || 'permanent';
+    if (employee.isDailyWorker || employee.temporary) {
+      displayEmploymentType = 'daily';
+    }
+    
+    return {
+      ...employee,
+      site: sites.find(site => site.id === employee.siteId)?.name || 'Unassigned',
+      employmentType: displayEmploymentType
+    };
+  }).sort((a, b) => {
+    // Sort: permanent → contract → daily, then by name
+    const order = { permanent: 0, contract: 1, daily: 2 };
+    const aOrder = order[a.employmentType] || 0;
+    const bOrder = order[b.employmentType] || 0;
+    
+    if (aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+    return a.name.localeCompare(b.name);
+  })
 
   const stats = getAttendanceStats()
 
@@ -659,6 +715,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             </select>
           </div>
         )}
+        <div className="md:w-48">
+          <select
+            value={workerTypeFilter}
+            onChange={(e) => setWorkerTypeFilter(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="all">All Workers</option>
+            <option value="permanent">Permanent Staff</option>
+            <option value="contract">Contract Workers</option>
+            <option value="daily">Daily Workers</option>
+          </select>
+        </div>
         <div className="flex gap-2">
           <button
             onClick={() => setFilterStatus('all')}
@@ -715,34 +783,84 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="border-t border-gray-200 hover:bg-gray-50"
+                    className={`border-t hover:bg-gray-50 ${
+                      employee.employmentType === 'daily' 
+                        ? 'bg-purple-50 border-purple-200 hover:bg-purple-100' 
+                        : employee.employmentType === 'contract'
+                        ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+                        : 'border-gray-200'
+                    }`}
                   >
                     <td className="py-3 px-4 text-sm text-gray-600 font-medium">{index + 1}</td>
-                    <td className="py-3 px-4 sticky left-0 bg-white z-10 min-w-[180px]">
-                      <div>
-                        <p className="font-medium text-gray-900">{employee.name}</p>
-                        <div className="sm:hidden mt-1">
-                          <select
-                            value={employee.siteId || ''}
-                            onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                            className="px-2 py-1 text-xs font-semibold rounded-md border border-blue-200 bg-blue-50 text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer w-full"
-                          >
-                            <option value="">No Site</option>
-                            {sites.map(site => {
+                    <td className={`py-3 px-4 sticky left-0 z-10 min-w-[180px] ${
+                      employee.employmentType === 'daily' ? 'bg-purple-50' : 
+                      employee.employmentType === 'contract' ? 'bg-orange-50' : 'bg-white'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className={`font-medium ${
+                              employee.employmentType === 'daily' ? 'text-purple-900' : 
+                              employee.employmentType === 'contract' ? 'text-orange-900' : 'text-gray-900'
+                            }`}>{employee.name}</p>
+                            {employee.employmentType === 'daily' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                Daily
+                              </span>
+                            )}
+                            {employee.employmentType === 'contract' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                Contract
+                              </span>
+                            )}
+                            {employee.employmentType === 'permanent' && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                Permanent
+                              </span>
+                            )}
+                          </div>
+                          <p className={`text-sm ${
+                            employee.employmentType === 'daily' ? 'text-purple-600' : 
+                            employee.employmentType === 'contract' ? 'text-orange-600' : 'text-gray-600'
+                          }`}>{employee.role}</p>
+                        </div>
+                      <div className="sm:hidden mt-1">
+                        <select
+                          value={employee.siteId || ''}
+                          onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
+                          className={`px-2 py-1 text-xs font-semibold rounded-md border cursor-pointer w-full focus:outline-none focus:ring-2 ${
+                            employee.employmentType === 'daily'
+                              ? 'border-purple-200 bg-purple-50 text-purple-700 focus:ring-purple-400'
+                              : employee.employmentType === 'contract'
+                              ? 'border-orange-200 bg-orange-50 text-orange-700 focus:ring-orange-400'
+                              : 'border-blue-200 bg-blue-50 text-blue-700 focus:ring-blue-400'
+                          }`}
+                        >
+                          <option value="">No Site</option>
+                          {sites.map(site => {
                 const staffCount = employees.filter(emp => emp.siteId === site.id).length;
                 return (
                   <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
                 );
               })}
-                          </select>
-                        </div>
+                        </select>
+                      </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4 hidden sm:table-cell min-w-[150px]">
+                    <td className={`py-3 px-4 hidden sm:table-cell min-w-[150px] ${
+                      employee.employmentType === 'daily' ? 'bg-purple-50' : 
+                      employee.employmentType === 'contract' ? 'bg-orange-50' : ''
+                    }`}>
                       <select
                         value={employee.siteId || ''}
                         onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                        className="px-2 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer min-w-[120px]"
+                        className={`px-2 py-1.5 text-xs font-semibold rounded-lg border cursor-pointer min-w-[120px] focus:outline-none focus:ring-2 ${
+                          employee.employmentType === 'daily'
+                            ? 'border-purple-200 bg-purple-50 text-purple-700 focus:ring-purple-400'
+                            : employee.employmentType === 'contract'
+                            ? 'border-orange-200 bg-orange-50 text-orange-700 focus:ring-orange-400'
+                            : 'border-gray-200 bg-white text-gray-700 focus:ring-blue-400'
+                        }`}
                       >
                         <option value="">No Site</option>
                         {sites.map(site => {
@@ -866,6 +984,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <select
+                value={newStaff.employmentType}
+                onChange={(e) => setNewStaff({ ...newStaff, employmentType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="permanent">Permanent Staff</option>
+                <option value="contract">Contract Worker</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Select Site</label>
@@ -941,6 +1067,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <select
+                value={editStaff.employmentType}
+                onChange={(e) => setEditStaff({ ...editStaff, employmentType: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="permanent">Permanent Staff</option>
+                <option value="contract">Contract Worker</option>
+              </select>
 
             </div>
             <div className="flex gap-3 mt-6">

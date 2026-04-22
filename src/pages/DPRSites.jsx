@@ -25,20 +25,18 @@ const DPRSites = ({ userRole }) => {
   const todayDate = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    const loadSites = async () => {
-      setLoading(true);
-      try {
-        const snapshot = await siteServices.getAllSites();
-        const allSites = convertDocsToArray(snapshot);
-        setSites(allSites.filter(s => !s.is_deleted && s.status === 'Active'));
-      } catch (error) {
-        console.error('Error loading sites:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    setLoading(true);
+    // Use real-time listener (same as SiteManagement) so newly created sites
+    // appear immediately without requiring a page refresh.
+    const unsubscribe = siteServices.onSitesChange((snapshot) => {
+      const allSites = convertDocsToArray(snapshot);
+      // Show all non-deleted sites (not restricted to 'Active' only,
+      // so sites that were just created always appear).
+      setSites(allSites.filter(s => !s.is_deleted));
+      setLoading(false);
+    });
 
-    loadSites();
+    return () => unsubscribe();
   }, []);
 
   // Load expenses when modal opens
@@ -158,7 +156,7 @@ const DPRSites = ({ userRole }) => {
               className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-all group"
             >
               <div className="flex items-center justify-between">
-                <div 
+                <div
                   className="flex-1 cursor-pointer"
                   onClick={() => navigate(`/dpr/${site.id}`)}
                 >
@@ -171,7 +169,7 @@ const DPRSites = ({ userRole }) => {
                     </p>
                   )}
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <motion.button
                     whileHover={{ scale: 1.1 }}
@@ -194,8 +192,8 @@ const DPRSites = ({ userRole }) => {
                   >
                     <FileText className="w-5 h-5" />
                   </motion.button>
-                  <ChevronRight 
-                    className="w-6 h-6 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all cursor-pointer" 
+                  <ChevronRight
+                    className="w-6 h-6 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all cursor-pointer"
                     onClick={() => navigate(`/dpr/${site.id}`)}
                   />
                 </div>

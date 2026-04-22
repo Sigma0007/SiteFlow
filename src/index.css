@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    font-size: 110%; /* Scale entire UI up */
+    font-size: 93%; /* Slightly compact UI */
     --color-primary: #1e3a8a;
     --color-secondary: #ffffff;
     --color-accent: #3b82f6;

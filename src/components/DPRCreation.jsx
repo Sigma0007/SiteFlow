@@ -30,7 +30,7 @@ const DPRCreation = ({
   sites, 
   buildings, 
   staff, 
-  materials, 
+  materials = [], 
   attendance, 
   supervisorsList,
   onDPRCreated 
@@ -52,13 +52,16 @@ const DPRCreation = ({
     selectedMaterials: [],
     materialQuantities: {},
     selectedStaff: [],
+    dailyWorkersCount: 0,
+    dailyWorkers: [],
+    contractWorkers: [],
     assignedSupervisors: []
   })
 
   const [staffSearchTerm, setStaffSearchTerm] = useState('')
   const [showStaffModal, setShowStaffModal] = useState(false)
   const [showMaterialsModal, setShowMaterialsModal] = useState(false)
-  const [showMaterialsList, setShowMaterialsList] = useState(false)
+  const [showMaterialsList, setShowMaterialsList] = useState(true)
   const [showToolsList, setShowToolsList] = useState(false)
 
   const dprSteps = [
@@ -144,6 +147,9 @@ const DPRCreation = ({
         selectedStaff: dprFormData.selectedStaff,
         selectedMaterials: dprFormData.selectedMaterials,
         materialQuantities: dprFormData.materialQuantities,
+        dailyWorkersCount: dprFormData.dailyWorkersCount,
+        dailyWorkers: dprFormData.dailyWorkers,
+        contractWorkers: dprFormData.contractWorkers,
         createdAt: new Date().toISOString(),
         createdBy: userRole,
         status: 'submitted',
@@ -172,6 +178,43 @@ const DPRCreation = ({
         await syncStaffToSite(createdSiteId, dprFormData.selectedStaff)
       }
 
+      // Create and assign daily workers to site
+      if (dprFormData.dailyWorkersCount > 0 && dprFormData.dailyWorkers.length > 0) {
+        for (const dailyWorker of dprFormData.dailyWorkers) {
+          const workerData = {
+            name: dailyWorker.name,
+            role: dailyWorker.role,
+            siteId: createdSiteId,
+            isDailyWorker: true,
+            temporary: true,
+            createdAt: new Date().toISOString(),
+            createdBy: userRole,
+            status: 'active',
+            joinDate: new Date().toISOString().split('T')[0]
+          };
+          
+          await labourServices.addLabour(workerData);
+        }
+      }
+
+      // Create and assign contract workers to site
+      if (dprFormData.contractWorkers && dprFormData.contractWorkers.length > 0) {
+        for (const contractWorker of dprFormData.contractWorkers) {
+          const workerData = {
+            name: contractWorker.name,
+            role: contractWorker.role,
+            siteId: createdSiteId,
+            employmentType: 'contract',
+            createdAt: new Date().toISOString(),
+            createdBy: userRole,
+            status: 'active',
+            joinDate: new Date().toISOString().split('T')[0]
+          };
+          
+          await labourServices.addLabour(workerData);
+        }
+      }
+
       // Sync supervisors
       if (dprFormData.assignedSupervisors && dprFormData.assignedSupervisors.length > 0) {
         await syncSiteToSupervisors(createdSiteId, dprFormData.assignedSupervisors)
@@ -195,6 +238,9 @@ const DPRCreation = ({
         selectedMaterials: [],
         materialQuantities: {},
         selectedStaff: [],
+        dailyWorkersCount: 0,
+        dailyWorkers: [],
+        contractWorkers: [],
         assignedSupervisors: []
       })
 
@@ -410,6 +456,35 @@ const DPRCreation = ({
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900">Step 2: Add Materials & Tools</h3>
                   
+                  {/* Quick Tags Section */}
+                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <p className="text-sm font-medium text-gray-700 mb-3">Quick Add Common Items:</p>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium cursor-pointer hover:bg-blue-200">🧱 Bricks</span>
+                      <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium cursor-pointer hover:bg-green-200">🔧 Tools</span>
+                      <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium cursor-pointer hover:bg-yellow-200">⚡ Electrical</span>
+                      <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium cursor-pointer hover:bg-purple-200">🔨 Hardware</span>
+                      <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-medium cursor-pointer hover:bg-orange-200">👷 Workers</span>
+                    </div>
+                  </div>
+
+                  {/* Always Visible Info Section */}
+                  <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h4 className="text-md font-medium text-blue-900 mb-2">📋 DPR Creation Guide</h4>
+                    <div className="space-y-2 text-sm text-blue-800">
+                      <p>• Select materials and tools from inventory</p>
+                      <p>• Add daily workers (count-based)</p>
+                      <p>• Add contract workers (named individuals)</p>
+                      <p>• Review inventory impact before submission</p>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span className="px-2 py-1 bg-white text-blue-600 rounded text-xs font-medium">Materials</span>
+                      <span className="px-2 py-1 bg-white text-blue-600 rounded text-xs font-medium">Tools</span>
+                      <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">Daily Workers</span>
+                      <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium">Contract Workers</span>
+                    </div>
+                  </div>
+                  
                   <div className="flex gap-4 mb-4">
                     <button
                       onClick={() => setShowMaterialsList(!showMaterialsList)}
@@ -419,7 +494,7 @@ const DPRCreation = ({
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                       }`}
                     >
-                      Materials ({materials.filter(m => m.category !== 'tool' && (m.available || m.currentStock || 0) > 0).length})
+                      Materials ({materials?.filter(m => m.category !== 'tool' && (m.available || m.currentStock || 0) > 0).length || 0})
                     </button>
                     <button
                       onClick={() => setShowToolsList(!showToolsList)}
@@ -429,7 +504,7 @@ const DPRCreation = ({
                           : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                       }`}
                     >
-                      Tools ({materials.filter(m => m.category === 'tool' && (m.available || m.currentStock || 0) > 0).length})
+                      Tools ({materials?.filter(m => m.category === 'tool' && (m.available || m.currentStock || 0) > 0).length || 0})
                     </button>
                   </div>
 
@@ -438,73 +513,84 @@ const DPRCreation = ({
                     <div className="mb-6">
                       <h4 className="text-md font-medium text-gray-700 mb-3">Available Materials</h4>
                       <div className="space-y-3">
-                        {materials.filter(item => item.category !== 'tool' && (item.available || item.currentStock || 0) > 0).map(item => (
-                          <div key={item.id} className="p-4 border border-gray-200 rounded-lg">
-                            <div className="flex items-center justify-between mb-3">
-                              <div>
-                                <p className="font-medium text-gray-900">{item.name}</p>
-                                <p className="text-sm text-gray-600">
-                                  Material • Available: {item.available || item.currentStock} {item.unit || 'units'}
-                                </p>
-                              </div>
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleMaterialToggle(item.id)}
-                                className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${dprFormData.selectedMaterials.includes(item.id)
-                                  ? 'bg-blue-500 text-white'
-                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                  }`}
-                              >
-                                {dprFormData.selectedMaterials.includes(item.id) ? 'Added' : 'Add'}
-                              </motion.button>
-                            </div>
-                            {dprFormData.selectedMaterials.includes(item.id) && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                className="mt-3"
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <label className="block text-sm font-medium text-gray-700">
-                                    Quantity Used ({item.unit || 'units'})
-                                  </label>
-                                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                                    Stock: {item.available || item.currentStock} {item.unit || 'units'}
-                                  </span>
-                                </div>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max={item.available || item.currentStock}
-                                  value={dprFormData.materialQuantities[item.id] || ''}
-                                  onChange={(e) => {
-                                    const value = parseInt(e.target.value) || 0;
-                                    const maxStock = item.available || item.currentStock;
-                                    if (value <= maxStock) {
-                                      handleMaterialQuantityChange(item.id, e.target.value);
-                                    } else {
-                                      alert(`Only ${maxStock} ${item.unit || 'units'} available in stock!`);
-                                      e.target.value = maxStock;
-                                      handleMaterialQuantityChange(item.id, maxStock.toString());
-                                    }
-                                  }}
-                                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                                    parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock)
-                                      ? 'border-red-300 bg-red-50'
-                                      : 'border-gray-300'
-                                  }`}
-                                  placeholder={`Max: ${item.available || item.currentStock} ${item.unit || 'units'}`}
-                                />
-                                {parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock) && (
-                                  <p className="text-xs text-red-600 mt-1">
-                                    ⚠️ Exceeds available stock!
+                        {(materials || []).filter(item => item.category !== 'tool' && (item.available || item.currentStock || 0) > 0).length > 0 ? (
+                          (materials || []).filter(item => item.category !== 'tool' && (item.available || item.currentStock || 0) > 0).map(item => (
+                            <div key={item.id} className="p-4 border border-gray-200 rounded-lg">
+                              <div className="flex items-center justify-between mb-3">
+                                <div>
+                                  <p className="font-medium text-gray-900">{item.name}</p>
+                                  <p className="text-sm text-gray-600">
+                                    Material • Available: {item.available || item.currentStock} {item.unit || 'units'}
                                   </p>
-                                )}
-                              </motion.div>
-                            )}
+                                </div>
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleMaterialToggle(item.id)}
+                                  className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${dprFormData.selectedMaterials.includes(item.id)
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`}
+                                >
+                                  {dprFormData.selectedMaterials.includes(item.id) ? 'Added' : 'Add'}
+                                </motion.button>
+                              </div>
+                              {dprFormData.selectedMaterials.includes(item.id) && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  className="mt-3"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex-1">
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">Quantity to Use</label>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max={item.available || item.currentStock}
+                                        value={dprFormData.materialQuantities[item.id] || ''}
+                                        onChange={(e) => {
+                                          const value = parseInt(e.target.value) || 0;
+                                          const maxStock = item.available || item.currentStock;
+                                          if (value <= maxStock) {
+                                            handleMaterialQuantityChange(item.id, e.target.value);
+                                          } else {
+                                            alert(`Only ${maxStock} ${item.unit || 'units'} available in stock!`);
+                                            e.target.value = maxStock;
+                                            handleMaterialQuantityChange(item.id, maxStock.toString());
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                          parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock)
+                                            ? 'border-red-300 bg-red-50'
+                                            : 'border-gray-300'
+                                        }`}
+                                        placeholder={`Max: ${item.available || item.currentStock} ${item.unit || 'units'}`}
+                                      />
+                                      {parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock) && (
+                                        <p className="text-xs text-red-600 mt-1">
+                                          ⚠️ Exceeds available stock!
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                            <Package className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                            <p className="text-gray-600 font-medium mb-2">No Materials Available</p>
+                            <p className="text-sm text-gray-500 mb-4">Add materials to inventory first</p>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">Cement</span>
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Steel</span>
+                              <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">Bricks</span>
+                              <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">Sand</span>
+                            </div>
                           </div>
-                        ))}
+                        )}
                       </div>
                     </div>
                   )}
@@ -514,73 +600,84 @@ const DPRCreation = ({
                     <div>
                       <h4 className="text-md font-medium text-gray-700 mb-3">Available Tools</h4>
                       <div className="space-y-3">
-                        {materials.filter(item => item.category === 'tool' && (item.available || item.currentStock || 0) > 0).map(item => (
-                          <div key={item.id} className="p-4 border border-gray-200 rounded-lg">
-                            <div className="flex items-center justify-between mb-3">
-                              <div>
-                                <p className="font-medium text-gray-900">{item.name}</p>
-                                <p className="text-sm text-gray-600">
-                                  Tool • Available: {item.available || item.currentStock} {item.unit || 'units'}
-                                </p>
-                              </div>
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleMaterialToggle(item.id)}
-                                className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${dprFormData.selectedMaterials.includes(item.id)
-                                  ? 'bg-green-500 text-white'
-                                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                                  }`}
-                              >
-                                {dprFormData.selectedMaterials.includes(item.id) ? 'Added' : 'Add'}
-                              </motion.button>
-                            </div>
-                            {dprFormData.selectedMaterials.includes(item.id) && (
-                              <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: 'auto' }}
-                                className="mt-3"
-                              >
-                                <div className="flex items-center justify-between mb-2">
-                                  <label className="block text-sm font-medium text-gray-700">
-                                    Quantity Used ({item.unit || 'units'})
-                                  </label>
-                                  <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-1 rounded">
-                                    Stock: {item.available || item.currentStock} {item.unit || 'units'}
-                                  </span>
-                                </div>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max={item.available || item.currentStock}
-                                  value={dprFormData.materialQuantities[item.id] || ''}
-                                  onChange={(e) => {
-                                    const value = parseInt(e.target.value) || 0;
-                                    const maxStock = item.available || item.currentStock;
-                                    if (value <= maxStock) {
-                                      handleMaterialQuantityChange(item.id, e.target.value);
-                                    } else {
-                                      alert(`Only ${maxStock} ${item.unit || 'units'} available in stock!`);
-                                      e.target.value = maxStock;
-                                      handleMaterialQuantityChange(item.id, maxStock.toString());
-                                    }
-                                  }}
-                                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
-                                    parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock)
-                                      ? 'border-red-300 bg-red-50'
-                                      : 'border-gray-300'
-                                  }`}
-                                  placeholder={`Max: ${item.available || item.currentStock} ${item.unit || 'units'}`}
-                                />
-                                {parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock) && (
-                                  <p className="text-xs text-red-600 mt-1">
-                                    ⚠️ Exceeds available stock!
+                        {(materials || []).filter(item => item.category === 'tool' && (item.available || item.currentStock || 0) > 0).length > 0 ? (
+                          (materials || []).filter(item => item.category === 'tool' && (item.available || item.currentStock || 0) > 0).map(item => (
+                            <div key={item.id} className="p-4 border border-gray-200 rounded-lg">
+                              <div className="flex items-center justify-between mb-3">
+                                <div>
+                                  <p className="font-medium text-gray-900">{item.name}</p>
+                                  <p className="text-sm text-gray-600">
+                                    Tool • Available: {item.available || item.currentStock} {item.unit || 'units'}
                                   </p>
-                                )}
-                              </motion.div>
-                            )}
+                                </div>
+                                <motion.button
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => handleMaterialToggle(item.id)}
+                                  className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${dprFormData.selectedMaterials.includes(item.id)
+                                    ? 'bg-green-500 text-white'
+                                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                                    }`}
+                                >
+                                  {dprFormData.selectedMaterials.includes(item.id) ? 'Added' : 'Add'}
+                                </motion.button>
+                              </div>
+                              {dprFormData.selectedMaterials.includes(item.id) && (
+                                <motion.div
+                                  initial={{ opacity: 0, height: 0 }}
+                                  animate={{ opacity: 1, height: 'auto' }}
+                                  className="mt-3"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex-1">
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">Quantity to Use</label>
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max={item.available || item.currentStock}
+                                        value={dprFormData.materialQuantities[item.id] || ''}
+                                        onChange={(e) => {
+                                          const value = parseInt(e.target.value) || 0;
+                                          const maxStock = item.available || item.currentStock;
+                                          if (value <= maxStock) {
+                                            handleMaterialQuantityChange(item.id, e.target.value);
+                                          } else {
+                                            alert(`Only ${maxStock} ${item.unit || 'units'} available in stock!`);
+                                            e.target.value = maxStock;
+                                            handleMaterialQuantityChange(item.id, maxStock.toString());
+                                          }
+                                        }}
+                                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                                          parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock)
+                                            ? 'border-red-300 bg-red-50'
+                                            : 'border-gray-300'
+                                        }`}
+                                        placeholder={`Max: ${item.available || item.currentStock} ${item.unit || 'units'}`}
+                                      />
+                                      {parseInt(dprFormData.materialQuantities[item.id] || 0) > (item.available || item.currentStock) && (
+                                        <p className="text-xs text-red-600 mt-1">
+                                          ⚠️ Exceeds available stock!
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                            <Package className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                            <p className="text-gray-600 font-medium mb-2">No Tools Available</p>
+                            <p className="text-sm text-gray-500 mb-4">Add tools to inventory first</p>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">Drill</span>
+                              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">Saw</span>
+                              <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">Hammer</span>
+                              <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">Wrench</span>
+                            </div>
                           </div>
-                        ))}
+                        )}
                       </div>
                     </div>
                   )}
@@ -594,7 +691,7 @@ const DPRCreation = ({
                       </h4>
                       <div className="space-y-2">
                         {dprFormData.selectedMaterials.map(materialId => {
-                          const material = materials.find(m => m.id === materialId);
+                          const material = (materials || []).find(m => m.id === materialId);
                           const quantityUsed = parseInt(dprFormData.materialQuantities[materialId]) || 0;
                           const remainingStock = material ? (material.available || material.currentStock) - quantityUsed : 0;
                           
@@ -626,6 +723,180 @@ const DPRCreation = ({
                       </div>
                     </div>
                   )}
+
+                  {/* Daily Workers Section */}
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <h4 className="text-md font-medium text-gray-700 mb-3">Daily Workers</h4>
+                    <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5 shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <p className="font-medium text-gray-900">Daily Wage Workers</p>
+                          <p className="text-sm text-gray-600">Workers without names (count only)</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Users className="w-5 h-5 text-purple-600" />
+                          <span className="text-sm font-medium text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
+                            {dprFormData.dailyWorkersCount} workers
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Number of Daily Workers
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="20"
+                            value={dprFormData.dailyWorkersCount}
+                            onChange={(e) => {
+                              const count = parseInt(e.target.value) || 0;
+                              if (count <= 20) {
+                                setDprFormData({ 
+                                  ...dprFormData, 
+                                  dailyWorkersCount: count,
+                                  dailyWorkers: count > 0 ? Array.from({ length: count }, (_, i) => ({
+                                    id: `daily-worker-${Date.now()}-${i}`,
+                                    name: `Daily Worker ${i + 1}`,
+                                    role: 'Daily Wage Worker',
+                                    isDailyWorker: true,
+                                    temporary: true
+                                  })) : []
+                                });
+                              } else {
+                                alert('Maximum 20 daily workers allowed');
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                            placeholder="Enter number of workers (0-20)"
+                          />
+                        </div>
+                        
+                        <div className="flex items-end">
+                          <div className="text-xs text-gray-500">
+                            <p>💡 Enter count of daily workers</p>
+                            <p>System will auto-generate entries</p>
+                            <p>Max 20 workers per day</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Daily Workers Preview */}
+                      {dprFormData.dailyWorkersCount > 0 && (
+                        <div className="mt-4 p-3 bg-white rounded-lg border border-purple-200">
+                          <p className="text-sm font-medium text-gray-700 mb-2">Generated Workers:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {dprFormData.dailyWorkers.map((worker, index) => (
+                              <span key={worker.id} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                <Users className="w-3 h-3 mr-1" />
+                                {index + 1}. {worker.name}
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-xs text-purple-600 mt-2">
+                            ✓ These workers will be automatically assigned to the site when DPR is created
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Contract Workers Section */}
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <h4 className="text-md font-medium text-gray-700 mb-3">Contract Workers</h4>
+                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-xl p-5 shadow-sm">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <p className="font-medium text-gray-900">Contract Workers</p>
+                          <p className="text-sm text-gray-600">Named contract staff for this project</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Users className="w-5 h-5 text-orange-600" />
+                          <span className="text-sm font-medium text-orange-600 bg-orange-100 px-3 py-1 rounded-full">
+                            {dprFormData.contractWorkers.length} workers
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="text"
+                            placeholder="Worker name"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                            id="contractWorkerName"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Role/Skill"
+                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                            id="contractWorkerRole"
+                          />
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => {
+                              const nameInput = document.getElementById('contractWorkerName');
+                              const roleInput = document.getElementById('contractWorkerRole');
+                              const name = nameInput.value.trim();
+                              const role = roleInput.value.trim();
+                              
+                              if (name && role) {
+                                const newWorker = {
+                                  id: `contract-worker-${Date.now()}`,
+                                  name: name,
+                                  role: role,
+                                  employmentType: 'contract'
+                                };
+                                setDprFormData({
+                                  ...dprFormData,
+                                  contractWorkers: [...dprFormData.contractWorkers, newWorker]
+                                });
+                                nameInput.value = '';
+                                roleInput.value = '';
+                              } else {
+                                alert('Please enter both name and role');
+                              }
+                            }}
+                            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium"
+                          >
+                            Add
+                          </motion.button>
+                        </div>
+                      </div>
+
+                      {/* Contract Workers Preview */}
+                      {dprFormData.contractWorkers.length > 0 && (
+                        <div className="mt-4 p-3 bg-white rounded-lg border border-orange-200">
+                          <p className="text-sm font-medium text-gray-700 mb-2">Contract Workers:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {dprFormData.contractWorkers.map((worker, index) => (
+                              <span key={worker.id} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                <Users className="w-3 h-3 mr-1" />
+                                {index + 1}. {worker.name} ({worker.role})
+                                <button
+                                  onClick={() => {
+                                    setDprFormData({
+                                      ...dprFormData,
+                                      contractWorkers: dprFormData.contractWorkers.filter(w => w.id !== worker.id)
+                                    });
+                                  }}
+                                  className="ml-2 hover:text-orange-600"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-xs text-orange-600 mt-2">
+                            ✓ These contract workers will be assigned to the site when DPR is created
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
