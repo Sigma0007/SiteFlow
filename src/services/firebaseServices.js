@@ -31,17 +31,33 @@ export const materialsCollection = collection(db, 'materials');
 export const purchaseOrdersCollection = collection(db, 'purchaseOrders');
 export const processesCollection = collection(db, 'processes');
 export const supervisorsCollection = collection(db, 'supervisors');
+export const organizationsCollection = collection(db, 'organizations');
+export const siteInventoryCollection = collection(db, 'siteInventory');
+export const siteMaterialLogsCollection = collection(db, 'siteMaterialLogs');
 
 // Site Management Services
 export const siteServices = {
-  // Get all sites
-  getAllSites: () => getDocs(sitesCollection),
+  // Get all sites (Super Admin can see all, others filtered by organization)
+  getAllSites: (organizationId = null) => {
+    if (organizationId) {
+      const q = query(sitesCollection, where('organizationId', '==', organizationId));
+      return getDocs(q);
+    }
+    return getDocs(sitesCollection);
+  },
 
   // Get site by ID
   getSiteById: (id) => getDoc(doc(db, 'sites', id)),
 
-  // Add new site
-  addSite: (siteData) => addDoc(sitesCollection, siteData),
+  // Add new site (with organizationId)
+  addSite: (siteData) => {
+    const siteWithOrg = {
+      ...siteData,
+      organizationId: siteData.organizationId || null,
+      createdAt: new Date().toISOString()
+    };
+    return addDoc(sitesCollection, siteWithOrg);
+  },
 
   // Update site
   updateSite: (id, siteData) => updateDoc(doc(db, 'sites', id), siteData),
@@ -91,8 +107,14 @@ export const siteServices = {
 
 // Building Management Services
 export const buildingServices = {
-  // Get all buildings
-  getAllBuildings: () => getDocs(buildingsCollection),
+  // Get all buildings (Super Admin can see all, others filtered by organization)
+  getAllBuildings: (organizationId = null) => {
+    if (organizationId) {
+      const q = query(buildingsCollection, where('organizationId', '==', organizationId));
+      return getDocs(q);
+    }
+    return getDocs(buildingsCollection);
+  },
 
   // Get buildings by site ID
   getBuildingsBySite: (siteId) => {
@@ -103,8 +125,15 @@ export const buildingServices = {
   // Get building by ID
   getBuildingById: (id) => getDoc(doc(db, 'buildings', id)),
 
-  // Add new building
-  addBuilding: (buildingData) => addDoc(buildingsCollection, buildingData),
+  // Add new building (with organizationId)
+  addBuilding: (buildingData) => {
+    const buildingWithOrg = {
+      ...buildingData,
+      organizationId: buildingData.organizationId || null,
+      createdAt: new Date().toISOString()
+    };
+    return addDoc(buildingsCollection, buildingWithOrg);
+  },
 
   // Update building
   updateBuilding: (id, buildingData) => updateDoc(doc(db, 'buildings', id), buildingData),
@@ -237,18 +266,31 @@ export const attendanceServices = {
 
   // Add new attendance record
   addAttendance: (attendanceData) => {
+    if (attendanceData.employeeId && attendanceData.date) {
+      const customId = `${attendanceData.employeeId}_${attendanceData.date}`;
+      return setDoc(doc(db, 'attendance', customId), attendanceData)
+        .then(() => ({ id: customId }));
+    }
     return addDoc(attendanceCollection, attendanceData);
   },
 
   // Update attendance record
   updateAttendance: (id, attendanceData) => updateDoc(doc(db, 'attendance', id), attendanceData),
 
+  // Set attendance record directly (uses setDoc)
+  setAttendance: (id, attendanceData) => setDoc(doc(db, 'attendance', id), attendanceData),
+
   // Delete attendance record
   deleteAttendance: (id) => deleteDoc(doc(db, 'attendance', id)),
 
-  // Mark attendance (legacy function - now uses add/update)
+  // Mark attendance (standardized to use deterministic document IDs)
   markAttendance: (attendanceData) => {
-    // Check if attendance already exists for this employee and date
+    if (attendanceData.employeeId && attendanceData.date) {
+      const customId = `${attendanceData.employeeId}_${attendanceData.date}`;
+      return setDoc(doc(db, 'attendance', customId), attendanceData)
+        .then(() => ({ id: customId }));
+    }
+    // Fallback
     const q = query(
       attendanceCollection,
       where('employeeId', '==', attendanceData.employeeId),
@@ -257,10 +299,8 @@ export const attendanceServices = {
 
     return getDocs(q).then((snapshot) => {
       if (snapshot.empty) {
-        // Add new attendance record
         return addDoc(attendanceCollection, attendanceData);
       } else {
-        // Update existing record
         const docId = snapshot.docs[0].id;
         return updateDoc(doc(db, 'attendance', docId), attendanceData);
       }
@@ -313,6 +353,115 @@ export const materialServices = {
 
   // Real-time listener for materials
   onMaterialsChange: (callback) => onSnapshot(materialsCollection, callback)
+};
+
+// Site-Specific Inventory Services (Task 3)
+export const siteInventoryServices = {
+  // Get all items in site's inventory
+  getSiteInventory: (siteId) => {
+    const q = query(siteInventoryCollection, where('siteId', '==', siteId));
+    return getDocs(q);
+  },
+
+  // Real-time listener for site inventory
+  onSiteInventoryChange: (siteId, callback) => {
+    const q = query(siteInventoryCollection, where('siteId', '==', siteId));
+    return onSnapshot(q, callback);
+  },
+
+  // Add stock / Inward transaction
+  addInwardMaterial: async (siteId, materialName, category, unit, quantity, notes, userEmail) => {
+    const normalizedName = materialName.trim();
+    const docId = `${siteId}_${normalizedName.toLowerCase().replace(/\s+/g, '_')}`;
+    const docRef = doc(db, 'siteInventory', docId);
+    
+    // Check if item already exists
+    const docSnap = await getDoc(docRef);
+    let newQty = quantity;
+    let existingCategory = category || 'Raw Materials';
+    let existingUnit = unit || 'pcs';
+    if (docSnap.exists()) {
+      newQty = (docSnap.data().currentStock || 0) + quantity;
+      existingCategory = docSnap.data().category || existingCategory;
+      existingUnit = docSnap.data().unit || existingUnit;
+    }
+    
+    // Update or create inventory item
+    await setDoc(docRef, {
+      siteId,
+      name: normalizedName,
+      category: existingCategory,
+      unit: existingUnit,
+      currentStock: newQty,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Create movement log
+    await addDoc(siteMaterialLogsCollection, {
+      siteId,
+      materialName: normalizedName,
+      type: 'inward',
+      quantity,
+      notes: notes || '',
+      date: new Date().toISOString().split('T')[0],
+      addedBy: userEmail || '',
+      createdAt: new Date().toISOString()
+    });
+    
+    return { id: docId, currentStock: newQty };
+  },
+
+  // Report usage / Outward transaction
+  addOutwardMaterial: async (siteId, materialName, quantity, notes, userEmail) => {
+    const normalizedName = materialName.trim();
+    const docId = `${siteId}_${normalizedName.toLowerCase().replace(/\s+/g, '_')}`;
+    const docRef = doc(db, 'siteInventory', docId);
+
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) {
+      throw new Error(`Material ${normalizedName} does not exist at this site.`);
+    }
+
+    const currentStock = docSnap.data().currentStock || 0;
+    if (currentStock < quantity) {
+      throw new Error(`Insufficient stock. Available: ${currentStock}, Requested: ${quantity}`);
+    }
+
+    const newQty = currentStock - quantity;
+
+    // Update inventory
+    await setDoc(docRef, {
+      ...docSnap.data(),
+      currentStock: newQty,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Create movement log
+    await addDoc(siteMaterialLogsCollection, {
+      siteId,
+      materialName: normalizedName,
+      type: 'outward',
+      quantity,
+      notes: notes || '',
+      date: new Date().toISOString().split('T')[0],
+      addedBy: userEmail || '',
+      createdAt: new Date().toISOString()
+    });
+
+    return { id: docId, currentStock: newQty };
+  },
+
+  // Get movement logs for a site
+  getSiteLogs: (siteId) => {
+    const q = query(siteMaterialLogsCollection, where('siteId', '==', siteId));
+    return getDocs(q);
+  },
+
+  // Real-time listener for site logs
+  onSiteLogsChange: (siteId, callback) => {
+    const q = query(siteMaterialLogsCollection, where('siteId', '==', siteId));
+    return onSnapshot(q, callback);
+  }
 };
 
 // Purchase Order Management Services
@@ -785,8 +934,14 @@ export const initializeSampleSupervisor = async () => {
 
 // Supervisor Management Services
 export const supervisorServices = {
-  // Get all supervisors
-  getAllSupervisors: () => getDocs(supervisorsCollection),
+  // Get all supervisors (Super Admin can see all, others filtered by organization)
+  getAllSupervisors: (organizationId = null) => {
+    if (organizationId) {
+      const q = query(supervisorsCollection, where('organizationId', '==', organizationId));
+      return getDocs(q);
+    }
+    return getDocs(supervisorsCollection);
+  },
 
   // Get supervisor by ID
   getSupervisorById: (id) => getDoc(doc(db, 'supervisors', id)),
@@ -797,8 +952,15 @@ export const supervisorServices = {
     return getDocs(q);
   },
 
-  // Add new supervisor
-  addSupervisor: (supervisorData) => addDoc(supervisorsCollection, supervisorData),
+  // Add new supervisor (with organizationId)
+  addSupervisor: (supervisorData) => {
+    const supervisorWithOrg = {
+      ...supervisorData,
+      organizationId: supervisorData.organizationId || null,
+      createdAt: new Date().toISOString()
+    };
+    return addDoc(supervisorsCollection, supervisorWithOrg);
+  },
 
   // Update supervisor
   updateSupervisor: (id, supervisorData) => updateDoc(doc(db, 'supervisors', id), supervisorData),
@@ -901,6 +1063,45 @@ export const supervisorServices = {
       return { available: false, reason: 'Error checking email availability' };
     }
   }
+};
+
+// Organization Management Services (Super Admin)
+export const organizationServices = {
+  // Get all organizations (Super Admin only)
+  getAllOrganizations: () => getDocs(organizationsCollection),
+
+  // Get organization by ID
+  getOrganizationById: (id) => getDoc(doc(db, 'organizations', id)),
+
+  // Create new organization (Super Admin only)
+  createOrganization: (organizationData) => {
+    const newOrganization = {
+      ...organizationData,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+    return addDoc(organizationsCollection, newOrganization);
+  },
+
+  // Update organization
+  updateOrganization: (id, organizationData) => {
+    return updateDoc(doc(db, 'organizations', id), {
+      ...organizationData,
+      updatedAt: new Date().toISOString()
+    });
+  },
+
+  // Delete organization (Super Admin only)
+  deleteOrganization: (id) => deleteDoc(doc(db, 'organizations', id)),
+
+  // Get organizations by Super Admin email
+  getOrganizationsBySuperAdmin: (email) => {
+    const q = query(organizationsCollection, where('createdBy', '==', email));
+    return getDocs(q);
+  },
+
+  // Real-time listener for organizations
+  onOrganizationsChange: (callback) => onSnapshot(organizationsCollection, callback)
 };
 
 // Generate secure password
@@ -1068,18 +1269,66 @@ export const runDataMigration = async () => {
       }
     }
 
-    // Migrate Attendance
+    // Migrate & Deduplicate Attendance
     const attendanceSnap = await getDocs(attendanceCollection);
-    for (const docSnap of attendanceSnap.docs) {
-      const data = docSnap.data();
+    const rawAttendance = attendanceSnap.docs.map(doc => ({ id: doc.id, ref: doc.ref, ...doc.data() }));
 
-      if (data.labourId !== undefined) {
-        await updateDoc(docSnap.ref, {
-          employeeId: data.labourId,
-          labourId: deleteField()
-        });
-        migratedAttendance++;
-      }
+    // Grouping by ${employeeId}_${date}
+    const groupings = {};
+    for (const doc of rawAttendance) {
+      const empId = doc.employeeId || doc.labourId;
+      const date = doc.date;
+      if (!empId || !date) continue;
+      
+      const key = `${empId}_${date}`;
+      if (!groupings[key]) groupings[key] = [];
+      groupings[key].push(doc);
+    }
+
+    const docsToDelete = new Set();
+    
+    for (const [key, records] of Object.entries(groupings)) {
+      const [empId, date] = key.split('_');
+      const deterministicId = `${empId}_${date}`;
+
+      // Pick the best status among duplicate records: present > leave > absent
+      let bestRecord = records[0];
+      records.forEach(r => {
+        if (r.status === 'present') {
+          bestRecord = r;
+        } else if (r.status === 'leave' && bestRecord.status !== 'present') {
+          bestRecord = r;
+        }
+      });
+
+      const unifiedData = {
+        employeeId: empId,
+        siteId: bestRecord.siteId || null,
+        buildingId: bestRecord.buildingId || null,
+        supervisorId: bestRecord.supervisorId || null,
+        date: date,
+        status: bestRecord.status,
+        checkIn: bestRecord.checkIn || null,
+        checkOut: bestRecord.checkOut || null,
+        updatedAt: new Date().toISOString(),
+        createdAt: bestRecord.createdAt || new Date().toISOString()
+      };
+
+      // Write to deterministic ID document
+      await setDoc(doc(db, 'attendance', deterministicId), unifiedData);
+      migratedAttendance++;
+
+      // Mark all raw documents that are not the deterministic doc for deletion
+      records.forEach(r => {
+        if (r.id !== deterministicId) {
+          docsToDelete.add(r.id);
+        }
+      });
+    }
+
+    // Perform deletions
+    for (const idToDelete of docsToDelete) {
+      await deleteDoc(doc(db, 'attendance', idToDelete));
     }
 
     console.log(`✅ Migration complete. Migrated ${migratedLabour} labour docs, ${migratedAttendance} attendance docs.`);

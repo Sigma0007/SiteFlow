@@ -28,6 +28,10 @@ export const isSupervisor = (userRole) => {
   return userRole === 'supervisor';
 };
 
+export const isSuperAdmin = (userRole) => {
+  return userRole === 'superadmin';
+};
+
 // Hook-based role guards for convenience
 export const useIsAdmin = () => {
   const { userRole } = useAuth();
@@ -37,6 +41,11 @@ export const useIsAdmin = () => {
 export const useIsSupervisor = () => {
   const { userRole } = useAuth();
   return isSupervisor(userRole);
+};
+
+export const useIsSuperAdmin = () => {
+  const { userRole } = useAuth();
+  return isSuperAdmin(userRole);
 };
 
 // Function to determine role from Firestore
@@ -54,9 +63,9 @@ const determineRoleFromFirestore = async (email) => {
     const userData = userDoc.data();
     console.log('📄 User document found:', userData);
     
-    // Strict role validation
-    if (userData.role !== 'admin' && userData.role !== 'supervisor') {
-      console.log('❌ Invalid role in user document:', userData.role, '- Must be "admin" or "supervisor"');
+    // Strict role validation - now includes superadmin
+    if (userData.role !== 'admin' && userData.role !== 'supervisor' && userData.role !== 'superadmin') {
+      console.log('❌ Invalid role in user document:', userData.role, '- Must be "admin", "supervisor", or "superadmin"');
       return null;
     }
     
@@ -79,6 +88,10 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [currentOrganization, setCurrentOrganization] = useState(null);
+  const [userOrganizations, setUserOrganizations] = useState([]);
+  const [allOrganizations, setAllOrganizations] = useState([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -104,12 +117,17 @@ export const AuthProvider = ({ children }) => {
         
         // Set the validated role from Firestore
         setUserRole(firestoreRole);
+        setIsSuperAdmin(firestoreRole === 'superadmin');
         setLoading(false);
         
         console.log('✅ Session restored with validated role:', firestoreRole, 'for:', firebaseUser.email);
       } else {
         setUser(null);
         setUserRole(null);
+        setIsSuperAdmin(false);
+        setCurrentOrganization(null);
+        setUserOrganizations([]);
+        setAllOrganizations([]);
         setLoading(false);
       }
     });
@@ -143,6 +161,7 @@ export const AuthProvider = ({ children }) => {
       
       // Set the validated role from Firestore
       setUserRole(firestoreRole);
+      setIsSuperAdmin(firestoreRole === 'superadmin');
       setLoading(false);
       
       console.log('✅ Login successful with validated role:', firestoreRole, 'for:', user.email);
@@ -152,6 +171,10 @@ export const AuthProvider = ({ children }) => {
       // Reset role on login failure
       setUserRole(null);
       setUser(null);
+      setIsSuperAdmin(false);
+      setCurrentOrganization(null);
+      setUserOrganizations([]);
+      setAllOrganizations([]);
       
       // Pass through our custom error messages
       if (error.message.includes('Access denied')) {
@@ -172,16 +195,28 @@ export const AuthProvider = ({ children }) => {
       await signOut(auth);
       setUser(null);
       setUserRole(null);
+      setIsSuperAdmin(false);
+      setCurrentOrganization(null);
+      setUserOrganizations([]);
+      setAllOrganizations([]);
     } catch (error) {
       // Even if Firebase logout fails, clear local state
       setUser(null);
       setUserRole(null);
+      setIsSuperAdmin(false);
+      setCurrentOrganization(null);
+      setUserOrganizations([]);
+      setAllOrganizations([]);
     }
   };
 
   const value = {
     user,
     userRole,
+    isSuperAdmin,
+    currentOrganization,
+    userOrganizations,
+    allOrganizations,
     login,
     logout,
     loading
