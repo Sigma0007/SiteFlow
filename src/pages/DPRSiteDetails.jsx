@@ -18,11 +18,11 @@ const DPRSiteDetails = ({ userRole }) => {
   const { siteId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  
+
   const [site, setSite] = useState(null);
   const [currentStep, setCurrentStep] = useState(1); // 1=Process 2=Attendance 3=Materials
   const [loading, setLoading] = useState(true);
-  
+
   // Data States
   const [allMaterials, setAllMaterials] = useState([]);
   const [allLabour, setAllLabour] = useState([]);
@@ -35,11 +35,13 @@ const DPRSiteDetails = ({ userRole }) => {
 
   // 8 Waterproofing Processes
   const PROCESSES = [
-    { key: 'cleaning', name: 'Cleaning (Structure Preparation)', subProcesses: [
-      { key: 'chipping', name: 'Chipping' },
-      { key: 'grinding', name: 'Grinding' },
-      { key: 'washing', name: 'Washing (Pressure Jet)' }
-    ]},
+    {
+      key: 'cleaning', name: 'Cleaning (Structure Preparation)', subProcesses: [
+        { key: 'chipping', name: 'Chipping' },
+        { key: 'grinding', name: 'Grinding' },
+        { key: 'washing', name: 'Washing (Pressure Jet)' }
+      ]
+    },
     { key: 'primer_coat', name: 'Primer Coat', subProcesses: [] },
     { key: 'crack_filling', name: 'Crack Filling', subProcesses: [] },
     { key: 'pipe_sealing', name: 'Pipe Sealing', subProcesses: [] },
@@ -48,7 +50,7 @@ const DPRSiteDetails = ({ userRole }) => {
     { key: 'testing', name: 'Testing', subProcesses: [] },
     { key: 'repairing', name: 'Repairing', subProcesses: [] }
   ];
-  
+
   const todayDate = new Date().toISOString().split('T')[0];
 
   // Status Modal State
@@ -62,12 +64,12 @@ const DPRSiteDetails = ({ userRole }) => {
   });
 
   const showAlert = (title, message, type = 'success') => {
-    setStatusModal({ 
-      visible: true, 
-      type, 
-      title, 
-      message, 
-      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) 
+    setStatusModal({
+      visible: true,
+      type,
+      title,
+      message,
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false }))
     });
   };
 
@@ -128,7 +130,7 @@ const DPRSiteDetails = ({ userRole }) => {
         setAllLabour(convertDocsToArray(snap));
       }, (err) => console.error('Labour Error:', err))
     );
-    
+
     // 4. Fetch today's Attendance
     unsubscribers.push(
       onSnapshot(query(collection(db, 'attendance'), where('date', '==', todayDate)), (snap) => {
@@ -154,7 +156,7 @@ const DPRSiteDetails = ({ userRole }) => {
 
   // --- TAB: MATERIALS ---
   const [matSearch, setMatSearch] = useState('');
-  
+
   const handleAddMaterialToSite = async (material, quantity) => {
     if (quantity <= 0 || quantity > material.currentStock) {
       showAlert('Invalid Quantity', 'Please ensure you have enough stock available.', 'error');
@@ -168,7 +170,7 @@ const DPRSiteDetails = ({ userRole }) => {
       // 2. Add to site's assigned materials
       const currentSiteMaterials = site.assignedMaterials || [];
       const existingMatIndex = currentSiteMaterials.findIndex(m => m.materialId === material.id);
-      
+
       let newSiteMaterials = [...currentSiteMaterials];
       if (existingMatIndex >= 0) {
         newSiteMaterials[existingMatIndex].quantity += quantity;
@@ -180,9 +182,9 @@ const DPRSiteDetails = ({ userRole }) => {
           quantity: quantity
         });
       }
-      
+
       await siteServices.updateSite(siteId, { assignedMaterials: newSiteMaterials });
-      
+
       // Update local state
       setSite(prev => ({ ...prev, assignedMaterials: newSiteMaterials }));
       setAllMaterials(prev => prev.map(m => m.id === material.id ? { ...m, currentStock: m.currentStock - quantity } : m));
@@ -203,7 +205,7 @@ const DPRSiteDetails = ({ userRole }) => {
       // 1. Reduce from site's assigned materials
       let newSiteMaterials = [...(site.assignedMaterials || [])];
       const matIndex = newSiteMaterials.findIndex(m => m.materialId === siteMat.materialId);
-      
+
       if (matIndex >= 0) {
         newSiteMaterials[matIndex].quantity -= useQty;
         // If it reaches 0, we can keep it in list with 0 or remove it. 
@@ -211,9 +213,9 @@ const DPRSiteDetails = ({ userRole }) => {
         // Let's filter out only if they return it.
         if (newSiteMaterials[matIndex].quantity < 0) newSiteMaterials[matIndex].quantity = 0;
       }
-      
+
       await siteServices.updateSite(siteId, { assignedMaterials: newSiteMaterials });
-      
+
       // 2. Track usage in today's DPR for reporting
       let dprRef = todayDpr;
       if (!dprRef) {
@@ -232,7 +234,7 @@ const DPRSiteDetails = ({ userRole }) => {
 
       const currentUsage = dprRef.materialUsage || [];
       const existingUsageIndex = currentUsage.findIndex(u => u.materialId === siteMat.materialId);
-      
+
       let newUsage = [...currentUsage];
       if (existingUsageIndex >= 0) {
         newUsage[existingUsageIndex].quantity += useQty;
@@ -263,15 +265,17 @@ const DPRSiteDetails = ({ userRole }) => {
       return;
     }
     try {
-      // 1. Add back to central inventory
+      // 1. Add back to central inventory (update both currentStock and available for compatibility)
       const mat = allMaterials.find(m => m.id === siteMat.materialId);
       if (mat) {
-        await materialServices.updateMaterial(mat.id, { 
-          currentStock: (mat.currentStock || 0) + returnQty,
+        const newStock = (mat.currentStock || mat.available || 0) + returnQty;
+        await materialServices.updateMaterial(mat.id, {
+          currentStock: newStock,
+          available: newStock,
           updatedAt: new Date().toISOString()
         });
       }
-      
+
       // 2. Reduce from site's assigned materials
       let newSiteMaterials = [...(site.assignedMaterials || [])];
       const matIndex = newSiteMaterials.findIndex(m => m.materialId === siteMat.materialId);
@@ -281,9 +285,9 @@ const DPRSiteDetails = ({ userRole }) => {
           newSiteMaterials.splice(matIndex, 1);
         }
       }
-      
+
       await siteServices.updateSite(siteId, { assignedMaterials: newSiteMaterials });
-      
+
       // Update local state
       setSite(prev => ({ ...prev, assignedMaterials: newSiteMaterials }));
       if (mat) {
@@ -299,11 +303,12 @@ const DPRSiteDetails = ({ userRole }) => {
 
   // --- TAB: ATTENDANCE ---
   // The rule: If an employee is marked PRESENT at ANOTHER site today, do NOT show them here.
-  // Otherwise, show them.
+  // Also hide employees who are currently on leave.
   const visibleEmployees = allLabour.filter(emp => {
     const empAtt = todayAttendance.filter(a => a.employeeId === emp.id);
     const markedPresentElsewhere = empAtt.some(a => a.status === 'present' && a.siteId !== siteId);
-    return !markedPresentElsewhere;
+    const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
+    return !markedPresentElsewhere && !isOnLeave;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const handleMarkAttendance = async (employeeId, status) => {
@@ -313,21 +318,17 @@ const DPRSiteDetails = ({ userRole }) => {
         // If they have a record here, we update it
         if (existingRecord.siteId === siteId) {
           await attendanceServices.updateAttendance(existingRecord.id, { status, updatedAt: new Date().toISOString() });
-          setTodayAttendance(prev => prev.map(a => a.id === existingRecord.id ? { ...a, status } : a));
           
-          if (status === 'present') {
-            const emp = allLabour.find(l => l.id === employeeId);
-            if (emp && emp.siteId !== siteId) {
-              await labourServices.updateLabour(employeeId, { siteId });
-            }
-          }
+
+          
         } else {
           // Record is at another site. Should not happen if they are marked Present there. 
           // If they are marked absent there, we can override and mark present here? 
           if (existingRecord && existingRecord.siteId !== siteId) {
-      showAlert('Warning', 'Employee already has an attendance record at another site today.', 'warning');
-      return;
-    }    }
+            showAlert('Warning', 'Employee already has an attendance record at another site today.', 'warning');
+            return;
+          }
+        }
       } else {
         // Create new record
         const attData = {
@@ -337,10 +338,10 @@ const DPRSiteDetails = ({ userRole }) => {
           status,
           createdAt: new Date().toISOString()
         };
-        const newDoc = await attendanceServices.addAttendance(attData);
-        setTodayAttendance(prev => [...prev, { id: newDoc.id, ...attData }]);
+        await attendanceServices.addAttendance(attData);
+        
       }
-      
+
       // Update employee's base siteId so they appear on the Attendance roster
       if (status === 'present') {
         const emp = allLabour.find(l => l.id === employeeId);
@@ -348,7 +349,7 @@ const DPRSiteDetails = ({ userRole }) => {
           await labourServices.updateLabour(employeeId, { siteId });
         }
       }
-      
+
       loadData();
     } catch (err) {
       console.error(err);
@@ -376,7 +377,7 @@ const DPRSiteDetails = ({ userRole }) => {
       showAlert('Invalid', 'Please enter a valid sq ft value.', 'warning');
       return;
     }
-``
+    ``
     try {
       // 1. Update today's DPR processProgress
       let dprRef = todayDpr;
@@ -440,7 +441,7 @@ const DPRSiteDetails = ({ userRole }) => {
   if (loading) {
     return <div className="p-8 text-center bg-gray-50 min-h-screen">Loading...</div>;
   }
-  
+
   if (!site) {
     return <div className="p-8 text-center text-red-600 bg-gray-50 min-h-screen">Site not found!</div>;
   }
@@ -470,7 +471,7 @@ const DPRSiteDetails = ({ userRole }) => {
                 </p>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => navigate(`/dpr/${siteId}/history`)}
               className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors font-semibold text-sm flex items-center gap-2"
             >
@@ -478,9 +479,9 @@ const DPRSiteDetails = ({ userRole }) => {
               History
             </button>
           </div>
-          
+
           {todayDpr && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="mb-4 p-4 bg-green-50 border border-green-100 rounded-xl flex items-center justify-between"
@@ -503,7 +504,7 @@ const DPRSiteDetails = ({ userRole }) => {
               </button>
             </motion.div>
           )}
-          
+
           {/* STEPPER - 3 Steps: Process → Attendance → Material */}
           <div className="flex items-center justify-between mt-6 max-w-xl mx-auto">
             <div className={`flex flex-col items-center cursor-pointer ${currentStep >= 1 ? 'text-blue-600' : 'text-gray-400'}`} onClick={() => setCurrentStep(1)}>
@@ -674,7 +675,7 @@ const DPRSiteDetails = ({ userRole }) => {
                 If an employee is marked present at another site today, they will not appear below.
               </p>
             </div>
-            
+
             {/* Attendance Count Cards */}
             <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
               <div className="grid grid-cols-3 gap-4">
@@ -692,7 +693,7 @@ const DPRSiteDetails = ({ userRole }) => {
                 </div>
               </div>
             </div>
-            
+
             <div className="overflow-x-auto p-0">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50 text-gray-700 border-b border-gray-200">
@@ -707,7 +708,7 @@ const DPRSiteDetails = ({ userRole }) => {
                   ) : visibleEmployees.map(emp => {
                     const att = todayAttendance.find(a => a.employeeId === emp.id && a.siteId === siteId);
                     const status = att?.status || 'unmarked';
-                    
+
                     return (
                       <tr key={emp.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
@@ -770,6 +771,8 @@ const DPRSiteDetails = ({ userRole }) => {
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               <button
+                                type="button"
+                                disabled={allMaterials.length === 0}
                                 onClick={() => {
                                   showPrompt(
                                     'Report Usage',
@@ -782,11 +785,13 @@ const DPRSiteDetails = ({ userRole }) => {
                                     <TrendingUp className="w-12 h-12 text-green-500" />
                                   );
                                 }}
-                                className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs font-bold bg-green-50 px-3 py-1.5 rounded-lg border border-green-100"
+                                className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border ${allMaterials.length === 0 ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed' : 'text-green-600 hover:text-green-800 bg-green-50 border-green-100'}`}
                               >
                                 <Activity className="w-3.5 h-3.5" /> Use
                               </button>
                               <button
+                                type="button"
+                                disabled={allMaterials.length === 0}
                                 onClick={() => {
                                   showPrompt(
                                     'Return Material',
@@ -799,7 +804,7 @@ const DPRSiteDetails = ({ userRole }) => {
                                     <RotateCcw className="w-12 h-12 text-orange-500" />
                                   );
                                 }}
-                                className="text-orange-600 hover:text-orange-800 flex items-center gap-1 text-xs font-bold bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-100"
+                                className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border ${allMaterials.length === 0 ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-not-allowed' : 'text-orange-600 hover:text-orange-800 bg-orange-50 border-orange-100'}`}
                               >
                                 <RotateCcw className="w-3.5 h-3.5" /> Return
                               </button>
@@ -813,61 +818,63 @@ const DPRSiteDetails = ({ userRole }) => {
               )}
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">Allocate from Global Inventory</h3>
-              
-              <div className="relative mb-6">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search materials..."
-                  className="pl-10 pr-4 py-2 w-full md:w-96 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={matSearch}
-                  onChange={(e) => setMatSearch(e.target.value)}
-                />
-              </div>
+            {userRole === 'admin' && (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Allocate from Global Inventory</h3>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {allMaterials
-                  .filter(m => m.name.toLowerCase().includes(matSearch.toLowerCase()))
-                  .slice(0, 12)
-                  .map(mat => (
-                  <div key={mat.id} className="border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
-                    <div>
-                      <h4 className="font-semibold text-gray-900">{mat.name}</h4>
-                      <p className="text-xs text-gray-500 flex items-center justify-between mt-1">
-                        <span>{mat.category || 'Uncategorized'}</span>
-                        <span className="font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Stock: {mat.currentStock}</span>
-                      </p>
-                    </div>
-                    
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                      {mat.currentStock > 0 ? (
-                        <button
-                          onClick={() => {
-                      showPrompt(
-                        'Allocate Material',
-                        `Enter quantity of ${mat.name} to send to ${site.name}:`,
-                        '1',
-                        (val) => {
-                          const qty = parseInt(val);
-                          if (!isNaN(qty)) handleAddMaterialToSite(mat, qty);
-                        },
-                        <PlusCircle className="w-12 h-12 text-blue-500" />
-                      );
-                    }}
-                          className="w-full text-center bg-blue-50 hover:bg-blue-100 text-blue-700 py-1.5 rounded-lg text-sm font-semibold transition-colors"
-                        >
-                          Allocate
-                        </button>
-                      ) : (
-                        <span className="block w-full text-center text-sm font-medium text-red-500 bg-red-50 py-1.5 rounded-lg">Out of Stock</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                <div className="relative mb-6">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search materials..."
+                    className="pl-10 pr-4 py-2 w-full md:w-96 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={matSearch}
+                    onChange={(e) => setMatSearch(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {allMaterials
+                    .filter(m => m.name.toLowerCase().includes(matSearch.toLowerCase()))
+                    .slice(0, 12)
+                    .map(mat => (
+                      <div key={mat.id} className="border border-gray-200 rounded-xl p-4 flex flex-col justify-between">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{mat.name}</h4>
+                          <p className="text-xs text-gray-500 flex items-center justify-between mt-1">
+                            <span>{mat.category || 'Uncategorized'}</span>
+                            <span className="font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Stock: {mat.currentStock}</span>
+                          </p>
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          {mat.currentStock > 0 ? (
+                            <button
+                              onClick={() => {
+                                showPrompt(
+                                  'Allocate Material',
+                                  `Enter quantity of ${mat.name} to send to ${site.name}:`,
+                                  '1',
+                                  (val) => {
+                                    const qty = parseInt(val);
+                                    if (!isNaN(qty)) handleAddMaterialToSite(mat, qty);
+                                  },
+                                  <PlusCircle className="w-12 h-12 text-blue-500" />
+                                );
+                              }}
+                              className="w-full text-center bg-blue-50 hover:bg-blue-100 text-blue-700 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                            >
+                              Allocate
+                            </button>
+                          ) : (
+                            <span className="block w-full text-center text-sm font-medium text-red-500 bg-red-50 py-1.5 rounded-lg">Out of Stock</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -906,8 +913,8 @@ const DPRSiteDetails = ({ userRole }) => {
       </div>
 
       {/* Modals */}
-      <StatusModal 
-        {...statusModal} 
+      <StatusModal
+        {...statusModal}
         onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
       />
       <InputModal

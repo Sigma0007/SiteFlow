@@ -10,6 +10,7 @@ import { useAuth } from '../components/Auth'
 import { useNavigate } from 'react-router-dom'
 import PropTypes from 'prop-types'
 import StatusModal from '../components/StatusModal'
+import MonthlySiteAnalysisModal from '../components/MonthlySiteAnalysisModal'
 
 const SiteManagement = ({ userRole }) => {
   const navigate = useNavigate();
@@ -106,6 +107,7 @@ const SiteManagement = ({ userRole }) => {
   const [availableSupervisors, setAvailableSupervisors] = useState([])
   const [availableStaff, setAvailableStaff] = useState([])
   const [expandedSiteId, setExpandedSiteId] = useState(null)
+  const [analysisModalSite, setAnalysisModalSite] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -725,10 +727,10 @@ const SiteManagement = ({ userRole }) => {
     const leave = staffAtSite.filter(staff => {
       const attendanceRecord = attendance.find(a =>
         a.employeeId === staff.id &&
-        a.date === today &&
-        String(a.status || '').toLowerCase() === 'leave'
+        a.date === today
       )
-      return attendanceRecord !== undefined
+      const isLeaveRecord = attendanceRecord && String(attendanceRecord.status || '').toLowerCase() === 'leave'
+      return isLeaveRecord || staff.onLeave
     }).length
 
     const unmarked = staffAtSite.length - present - absent - leave
@@ -767,10 +769,10 @@ const SiteManagement = ({ userRole }) => {
     const leave = staffAtBuilding.filter(staff => {
       const attendanceRecord = attendance.find(a =>
         a.employeeId === staff.id &&
-        a.date === today &&
-        String(a.status || '').toLowerCase() === 'leave'
+        a.date === today
       )
-      return attendanceRecord !== undefined
+      const isLeaveRecord = attendanceRecord && String(attendanceRecord.status || '').toLowerCase() === 'leave'
+      return isLeaveRecord || staff.onLeave
     }).length
 
     const unmarked = staffAtBuilding.length - present - absent - leave
@@ -873,7 +875,7 @@ const SiteManagement = ({ userRole }) => {
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
             >
               <Plus className="w-5 h-5" />
-              Add Site
+              Add New Site
             </motion.button>
           </>
         )}
@@ -1034,6 +1036,14 @@ const SiteManagement = ({ userRole }) => {
                             ${((site.budget || 0) - (site.expenses || 0)).toLocaleString()}
                           </span>
                         </div>
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setAnalysisModalSite(site)}
+                            className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                          >
+                            <TrendingUp className="w-4 h-4" /> View Monthly Analysis
+                          </button>
+                        </div>
                       </>
                     )
                   })()}
@@ -1057,36 +1067,7 @@ const SiteManagement = ({ userRole }) => {
                   </div>
                 </div>
 
-                {userRole === 'admin' && (
-                  <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-4 h-4 text-gray-600" />
-                      <span className="text-sm font-semibold text-gray-700">Today&apos;s Attendance</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3 text-green-600" />
-                        <span className="text-gray-600">Present:</span>
-                        <span className="font-semibold text-green-600">{getSiteAttendanceStats(site.id).present}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <XCircle className="w-3 h-3 text-red-600" />
-                        <span className="text-gray-600">Absent:</span>
-                        <span className="font-semibold text-red-600">{getSiteAttendanceStats(site.id).absent}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-yellow-600" />
-                        <span className="text-gray-600">Leave:</span>
-                        <span className="font-semibold text-yellow-600">{getSiteAttendanceStats(site.id).leave}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Users className="w-3 h-3 text-gray-600" />
-                        <span className="text-gray-600">Total:</span>
-                        <span className="font-semibold text-gray-700">{getSiteAttendanceStats(site.id).total}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+
 
                 <div className="mb-4 p-3 bg-blue-50 rounded-lg">
                   <div className="flex items-center justify-between mb-3">
@@ -1755,24 +1736,22 @@ const SiteManagement = ({ userRole }) => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Building Type *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Building Type</label>
                   <input
                     type="text"
-                    required
                     value={buildingForm.type}
                     onChange={(e) => setBuildingForm({ ...buildingForm, type: e.target.value })}
                     className="input-field"
-                    placeholder="e.g. Residential, Commercial"
+                    placeholder="e.g. Residential, Commercial (optional)"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Floors *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Floors</label>
                     <input
                       type="number"
-                      required
-                      min="1"
+                      min="0"
                       value={buildingForm.floors}
                       onChange={(e) => setBuildingForm({ ...buildingForm, floors: e.target.value })}
                       className="input-field"
@@ -1780,11 +1759,10 @@ const SiteManagement = ({ userRole }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Units *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Units</label>
                     <input
                       type="number"
-                      required
-                      min="1"
+                      min="0"
                       value={buildingForm.units}
                       onChange={(e) => setBuildingForm({ ...buildingForm, units: e.target.value })}
                       className="input-field"
@@ -2030,6 +2008,16 @@ const SiteManagement = ({ userRole }) => {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {analysisModalSite && (
+          <MonthlySiteAnalysisModal
+            site={analysisModalSite}
+            labour={labour}
+            onClose={() => setAnalysisModalSite(null)}
+          />
         )}
       </AnimatePresence>
 

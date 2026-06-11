@@ -390,11 +390,11 @@ const Dashboard = ({ userRole }) => {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 lg:space-y-6">
       {/* Mobile-First Header & Profile Section */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-8 bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
         <div className="text-center md:text-left">
-          <h1 className="text-3xl sm:text-4xl font-black text-gray-900 tracking-tight">Dashboard</h1>
+          <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">Dashboard</h1>
           <p className="text-gray-500 font-medium mt-1">
             Welcome back, <span className="text-blue-600 font-bold">{user?.email?.split('@')[0] || 'User'}</span>
           </p>
@@ -417,28 +417,28 @@ const Dashboard = ({ userRole }) => {
       </div>
 
       {/* Comprehensive Action Hub Grid */}
-      <div className=" flex flex-col justify-center max-w-4xl mx-auto w-full py-6 space-y-8">
+      <div className=" flex flex-col justify-center max-w-4xl mx-auto w-full py-2 space-y-4">
 
         {/* Main Hero Group */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <motion.div
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate('/dpr')}
-            className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 p-8 rounded-[2.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
+            className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 p-5 rounded-[1.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
           >
             <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-colors" />
-            <div className="flex items-center gap-5 relative z-10">
-              <div className="bg-white/20 p-5 rounded-3xl backdrop-blur-xl border border-white/30 shadow-inner">
-                <FileText className="w-10 h-10 text-white" />
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-xl border border-white/30 shadow-inner">
+                <FileText className="w-7 h-7 text-white" />
               </div>
               <div>
-                <h2 className="text-2xl font-black tracking-tight">DPR Report</h2>
-                <p className="text-indigo-100 font-medium opacity-90">Daily Updates</p>
+                <h2 className="text-lg font-black tracking-tight">DPR Report</h2>
+                <p className="text-indigo-100 text-xs font-medium opacity-90">Daily Updates</p>
               </div>
             </div>
-            <div className="bg-white/20 p-3 rounded-full backdrop-blur-md">
-              <Plus className="w-6 h-6" />
+            <div className="bg-white/20 p-2 rounded-full backdrop-blur-md">
+              <Plus className="w-5 h-5" />
             </div>
           </motion.div>
 
@@ -448,18 +448,18 @@ const Dashboard = ({ userRole }) => {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => setShowDPRFlow(true)}
-              className="bg-gradient-to-br from-emerald-500 to-teal-600 p-8 rounded-[2.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
+              className="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 rounded-[1.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
             >
-              <div className="flex items-center gap-5 relative z-10">
-                <div className="bg-white/20 p-5 rounded-3xl backdrop-blur-xl border border-white/30 shadow-inner">
-                  <Building2 className="w-10 h-10 text-white" />
+              <div className="flex items-center gap-3 relative z-10">
+                <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-xl border border-white/30 shadow-inner">
+                  <Building2 className="w-7 h-7 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight uppercase">New Site</h2>
-                  <p className="text-emerald-100 font-medium opacity-90">Create Site/Area</p>
+                  <h2 className="text-lg font-black tracking-tight uppercase">New Site</h2>
+                  <p className="text-emerald-100 text-xs font-medium opacity-90">Create Site/Area</p>
                 </div>
               </div>
-              <Plus className="w-8 h-8 opacity-50" />
+              <Plus className="w-6 h-6 opacity-50" />
             </motion.div>
           )}
         </div>
@@ -503,10 +503,10 @@ const Dashboard = ({ userRole }) => {
               whileHover={{ y: -5, scale: 1.02 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => item.path ? navigate(item.path) : item.action()}
-              className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-xl flex flex-col items-center justify-center gap-4 cursor-pointer group active:bg-gray-50"
+              className="bg-white p-4 rounded-2xl border border-gray-100 shadow-xl flex flex-col items-center justify-center gap-3 cursor-pointer group active:bg-gray-50"
             >
-              <div className={`${item.color} p-4 rounded-2xl text-white shadow-lg group-hover:rotate-6 transition-transform`}>
-                <item.icon className="w-6 h-6" />
+              <div className={`${item.color} p-3 rounded-xl text-white shadow-lg group-hover:rotate-6 transition-transform`}>
+                <item.icon className="w-5 h-5" />
               </div>
               <div className="text-center">
                 <p className="font-extrabold text-gray-900 text-sm leading-tight uppercase">{item.label}</p>

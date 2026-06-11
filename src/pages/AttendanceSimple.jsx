@@ -91,7 +91,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       : buildingsCollection;
 
     const unsubscribeLabour = onSnapshot(labourQuery, (snapshot) => {
-      setEmployees(convertDocsToArray(snapshot));
+      const allLabour = convertDocsToArray(snapshot);
+      // Filter out unassigned workers
+      setEmployees(allLabour.filter(emp => emp.siteId && emp.siteId !== 'unassigned' && emp.siteId !== ''));
     });
 
     const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
@@ -172,7 +174,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         if (existingRecord) {
           await attendanceServices.deleteAttendance(existingRecord.id);
         }
+        if (employee.onLeave) {
+          await labourServices.updateLabour(employeeId, { onLeave: false });
+        }
         return;
+      }
+
+      // Sync persistent leave state
+      if (newStatus === 'leave') {
+        if (!employee.onLeave) await labourServices.updateLabour(employeeId, { onLeave: true });
+      } else {
+        if (employee.onLeave) await labourServices.updateLabour(employeeId, { onLeave: false });
       }
 
       const supervisorId = userRole === 'supervisor'
@@ -295,10 +307,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const present = todayRecords.filter(record => record.status === 'present').length
     const absent = todayRecords.filter(record => record.status === 'absent').length
+    const leave = todayRecords.filter(record => record.status === 'leave').length + filteredEmployees.filter(emp => emp.onLeave && !todayRecords.some(r => r.employeeId === emp.id)).length
     const total = filteredEmployees.length;
 
     const finalTotal = total;
-    return { present, absent, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
+    return { present, absent, leave, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
   // Staff Management Functions
@@ -430,7 +443,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const attendanceRecord = attendance.find(record =>
       record.employeeId === employee.id && record.date === selectedDate
     )
-    const status = attendanceRecord?.status || 'not-marked'
+    const status = attendanceRecord?.status || (employee.onLeave ? 'leave' : 'not-marked')
     
     // Check employee employment type
     const employmentType = employee.employmentType || 'permanent'
@@ -526,7 +539,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   }
 
   return (
-    <div className="p-6 space-y-6 relative">
+    <div className="p-3 space-y-6 relative">
       <AnimatePresence>
         {toastMessage.visible && (
           <motion.div
@@ -567,66 +580,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-xl shadow-sm p-4 border border-gray-200"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Total Employees</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-            </div>
-            <Users className="w-8 h-8 text-blue-500" />
-          </div>
+      {/* Stats Cards - compact single row */}
+      <div className="grid grid-cols-5 gap-2 mb-4">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
+          <p className="text-[10px] text-gray-500 leading-tight">Total</p>
+          <p className="text-lg font-bold text-gray-900">{stats.total}</p>
+          <Users className="w-4 h-4 text-blue-500 mt-0.5" />
         </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-xl shadow-sm p-4 border border-gray-200"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Present</p>
-              <p className="text-2xl font-bold text-green-600">{stats.present}</p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-500" />
-          </div>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
+          <p className="text-[10px] text-gray-500 leading-tight">Present</p>
+          <p className="text-lg font-bold text-green-600">{stats.present}</p>
+          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
         </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.3 }}
-          className="bg-white rounded-xl shadow-sm p-4 border border-gray-200"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Absent</p>
-              <p className="text-2xl font-bold text-red-600">{stats.absent}</p>
-            </div>
-            <XCircle className="w-8 h-8 text-red-500" />
-          </div>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
+          <p className="text-[10px] text-gray-500 leading-tight">Absent</p>
+          <p className="text-lg font-bold text-red-600">{stats.absent}</p>
+          <XCircle className="w-4 h-4 text-red-500 mt-0.5" />
         </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.4 }}
-          className="bg-white rounded-xl shadow-sm p-4 border border-gray-200"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600">Attendance Rate</p>
-              <p className="text-2xl font-bold text-blue-600">{stats.percentage}%</p>
-            </div>
-            <TrendingUp className="w-8 h-8 text-blue-500" />
-          </div>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
+          <p className="text-[10px] text-gray-500 leading-tight">Leave</p>
+          <p className="text-lg font-bold text-yellow-600">{stats.leave}</p>
+          <Clock className="w-4 h-4 text-yellow-500 mt-0.5" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
+          <p className="text-[10px] text-gray-500 leading-tight">Rate</p>
+          <p className="text-lg font-bold text-blue-600">{stats.percentage}%</p>
+          <TrendingUp className="w-4 h-4 text-blue-500 mt-0.5" />
         </motion.div>
       </div>
 
@@ -685,76 +664,57 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       )}
 
       {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative w-full sm:flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Search by name or site..."
+              placeholder="Search..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             />
           </div>
-        </div>
-        {(userRole === 'admin' || userRole === 'supervisor') && (
-          <div className="md:w-64">
+          <div className="flex gap-2 w-full sm:w-auto">
+            {(userRole === 'admin' || userRole === 'supervisor') && (
+              <select
+                value={selectedSiteFilter}
+                onChange={(e) => setSelectedSiteFilter(e.target.value)}
+                className="px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm flex-1"
+              >
+                <option value="all">All Sites</option>
+                {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
+                  <option key={site.id} value={site.id}>{site.name}</option>
+                ))}
+              </select>
+            )}
             <select
-              value={selectedSiteFilter}
-              onChange={(e) => setSelectedSiteFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={workerTypeFilter}
+              onChange={(e) => setWorkerTypeFilter(e.target.value)}
+              className="px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm flex-1 sm:w-32"
             >
-              <option value="all">All Sites</option>
-              {sites.map(site => {
-                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
-                return (
-                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
-                );
-              })}
+              <option value="all">All Types</option>
+              <option value="permanent">Perm</option>
+              <option value="contract">Contract</option>
+              <option value="daily">Daily</option>
             </select>
           </div>
-        )}
-        <div className="md:w-48">
-          <select
-            value={workerTypeFilter}
-            onChange={(e) => setWorkerTypeFilter(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-          >
-            <option value="all">All Workers</option>
-            <option value="permanent">Permanent Staff</option>
-            <option value="contract">Contract Workers</option>
-            <option value="daily">Daily Workers</option>
-          </select>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setFilterStatus('all')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'all'
-              ? 'bg-blue-500 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setFilterStatus('present')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'present'
-              ? 'bg-green-500 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-          >
-            Present
-          </button>
-          <button
-            onClick={() => setFilterStatus('absent')}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'absent'
-              ? 'bg-red-500 text-white'
-              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-          >
-            Absent
-          </button>
+        <div className="flex gap-1">
+          {['all','present','absent','leave'].map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              className={`flex-1 py-1.5 rounded-lg font-medium text-xs transition-colors ${
+                filterStatus === s
+                  ? s === 'all' ? 'bg-blue-500 text-white'
+                    : s === 'present' ? 'bg-green-500 text-white'
+                    : s === 'absent' ? 'bg-red-500 text-white'
+                    : 'bg-yellow-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -764,10 +724,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-50 z-20 w-16">S.No</th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-16 bg-gray-50 z-20 min-w-[180px]">Employee</th>
-                <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell min-w-[150px]">Site</th>
-                <th className="py-3 px-4 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Actions</th>
+                <th className="py-2 px-1 text-left text-[10px] font-medium text-gray-400 uppercase w-5">#</th>
+                <th className="py-2 px-1 text-left text-[10px] font-medium text-gray-400 uppercase">Employee</th>
+                <th className="py-2 px-2 text-left text-[10px] font-medium text-gray-400 uppercase hidden sm:table-cell">Site</th>
+                <th className="py-2 px-2 text-center text-[10px] font-medium text-gray-400 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -775,7 +735,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 const attendanceRecord = attendance.find(record =>
                   record.employeeId === employee.id && record.date === selectedDate
                 )
-                const status = attendanceRecord?.status || 'not-marked'
+                const status = attendanceRecord?.status || (employee.onLeave ? 'leave' : 'not-marked')
 
                 return (
                   <motion.tr
@@ -791,154 +751,109 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         : 'border-gray-200'
                     }`}
                   >
-                    <td className="py-3 px-4 text-sm text-gray-600 font-medium">{index + 1}</td>
-                    <td className={`py-3 px-4 sticky left-0 z-10 min-w-[180px] ${
+                    <td className="py-2 px-1 text-[10px] text-gray-400 w-5 text-center">{index + 1}</td>
+                    <td className={`py-2 px-1 ${
                       employee.employmentType === 'daily' ? 'bg-purple-50' : 
                       employee.employmentType === 'contract' ? 'bg-orange-50' : 'bg-white'
                     }`}>
                       <div className="flex items-center gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className={`font-medium ${
-                              employee.employmentType === 'daily' ? 'text-purple-900' : 
-                              employee.employmentType === 'contract' ? 'text-orange-900' : 'text-gray-900'
-                            }`}>{employee.name}</p>
-                            {employee.employmentType === 'daily' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                                Daily
-                              </span>
-                            )}
-                            {employee.employmentType === 'contract' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                                Contract
-                              </span>
-                            )}
-                            {employee.employmentType === 'permanent' && (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                Permanent
-                              </span>
-                            )}
-                          </div>
-                          <p className={`text-sm ${
-                            employee.employmentType === 'daily' ? 'text-purple-600' : 
-                            employee.employmentType === 'contract' ? 'text-orange-600' : 'text-gray-600'
-                          }`}>{employee.role}</p>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0 ${
+                          employee.employmentType === 'daily' ? 'bg-purple-500' : 
+                          employee.employmentType === 'contract' ? 'bg-orange-500' : 'bg-blue-500'
+                        }`}>
+                          {employee.name.charAt(0).toUpperCase()}
                         </div>
+                        <div className="min-w-0">
+                          <p className="font-medium text-xs text-gray-900 truncate">{employee.name}</p>
+                          <p className="text-[10px] text-gray-500 truncate">{employee.role}</p>
+                        </div>
+                      </div>
                       <div className="sm:hidden mt-1">
                         <select
                           value={employee.siteId || ''}
                           onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                          className={`px-2 py-1 text-xs font-semibold rounded-md border cursor-pointer w-full focus:outline-none focus:ring-2 ${
+                          className={`px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[130px] focus:outline-none focus:ring-1 ${
                             employee.employmentType === 'daily'
-                              ? 'border-purple-200 bg-purple-50 text-purple-700 focus:ring-purple-400'
+                              ? 'border-purple-200 bg-purple-50 text-purple-700'
                               : employee.employmentType === 'contract'
-                              ? 'border-orange-200 bg-orange-50 text-orange-700 focus:ring-orange-400'
-                              : 'border-blue-200 bg-blue-50 text-blue-700 focus:ring-blue-400'
+                              ? 'border-orange-200 bg-orange-50 text-orange-700'
+                              : 'border-blue-200 bg-blue-50 text-blue-700'
                           }`}
                         >
                           <option value="">No Site</option>
-                          {sites.map(site => {
-                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
-                return (
-                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
-                );
-              })}
+                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
+                            <option key={site.id} value={site.id}>{site.name}</option>
+                          ))}
                         </select>
                       </div>
-                      </div>
                     </td>
-                    <td className={`py-3 px-4 hidden sm:table-cell min-w-[150px] ${
+                    <td className={`py-2 px-2 hidden sm:table-cell ${
                       employee.employmentType === 'daily' ? 'bg-purple-50' : 
                       employee.employmentType === 'contract' ? 'bg-orange-50' : ''
                     }`}>
                       <select
                         value={employee.siteId || ''}
                         onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                        className={`px-2 py-1.5 text-xs font-semibold rounded-lg border cursor-pointer min-w-[120px] focus:outline-none focus:ring-2 ${
+                        className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${
                           employee.employmentType === 'daily'
-                            ? 'border-purple-200 bg-purple-50 text-purple-700 focus:ring-purple-400'
+                            ? 'border-purple-200 bg-purple-50 text-purple-700'
                             : employee.employmentType === 'contract'
-                            ? 'border-orange-200 bg-orange-50 text-orange-700 focus:ring-orange-400'
-                            : 'border-gray-200 bg-white text-gray-700 focus:ring-blue-400'
+                            ? 'border-orange-200 bg-orange-50 text-orange-700'
+                            : 'border-gray-200 bg-white text-gray-700'
                         }`}
                       >
                         <option value="">No Site</option>
-                        {sites.map(site => {
-                const staffCount = employees.filter(emp => emp.siteId === site.id).length;
-                return (
-                  <option key={site.id} value={site.id}>{site.name} ({staffCount} staff)</option>
-                );
-              })}
+                        {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
+                          <option key={site.id} value={site.id}>{site.name}</option>
+                        ))}
                       </select>
                     </td>
-                    <td className="py-3 px-4 text-center w-48">
-                      <div className="flex gap-2">
-                        {/* Attendance Actions */}
+                    <td className="py-2 px-2">
+                      <div className="flex gap-0.5 sm:gap-1 items-center justify-end sm:justify-center">
                         <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => handleAttendanceChange(employee.id, status === 'present' ? 'removed' : 'present')}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'present'
-                            ? 'bg-green-500 text-white shadow-inner'
+                          className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'present'
+                            ? 'bg-green-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-green-100'
                             } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title={status === 'present' ? "Remove Attendance" : "Mark Present"}
                           disabled={userRole === 'supervisor' && submittedToday}
-                        >
-                          P
-                        </motion.button>
+                        >P</motion.button>
                         <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => handleAttendanceChange(employee.id, status === 'absent' ? 'removed' : 'absent')}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'absent'
-                            ? 'bg-red-500 text-white shadow-inner'
+                          className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'absent'
+                            ? 'bg-red-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-red-100'
                             } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title={status === 'absent' ? "Remove Attendance" : "Mark Absent"}
                           disabled={userRole === 'supervisor' && submittedToday}
-                        >
-                          A
-                        </motion.button>
+                        >A</motion.button>
                         <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
+                          whileTap={{ scale: 0.9 }}
                           onClick={() => handleAttendanceChange(employee.id, status === 'leave' ? 'removed' : 'leave')}
-                          className={`px-3 py-2 rounded-lg transition-colors text-sm font-medium ${status === 'leave'
-                            ? 'bg-yellow-500 text-white shadow-inner'
+                          className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'leave'
+                            ? 'bg-yellow-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-yellow-100'
                             } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          title={status === 'leave' ? "Remove Leave" : "Mark Leave"}
                           disabled={userRole === 'supervisor' && submittedToday}
-                        >
-                          L
-                        </motion.button>
-
-                        {/* Staff Management (Admin Only) */}
+                        >L</motion.button>
                         {userRole === 'admin' && (
-                          <div className="flex gap-1 border-l pl-2 ml-2">
+                          <>
                             <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
+                              whileTap={{ scale: 0.9 }}
                               onClick={() => openEditStaffModal(employee)}
-                              className="p-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
-                              title="Edit Staff"
+                              className="w-6 h-6 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors flex items-center justify-center ml-1"
                             >
-                              <Edit2 className="w-4 h-4" />
+                              <Edit2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                             </motion.button>
                             <motion.button
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => {
-                                setStaffToDelete(employee)
-                                setShowDeleteConfirm(true)
-                              }}
-                              className="p-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-                              title="Delete Staff"
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => { setStaffToDelete(employee); setShowDeleteConfirm(true) }}
+                              className="w-6 h-6 sm:w-7 sm:h-7 rounded-md sm:rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors flex items-center justify-center"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                             </motion.button>
-                          </div>
+                          </>
                         )}
                       </div>
                     </td>

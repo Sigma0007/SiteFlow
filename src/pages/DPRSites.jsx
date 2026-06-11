@@ -32,7 +32,7 @@ const DPRSites = ({ userRole }) => {
       const allSites = convertDocsToArray(snapshot);
       // Show all non-deleted sites (not restricted to 'Active' only,
       // so sites that were just created always appear).
-      setSites(allSites.filter(s => !s.is_deleted));
+      setSites(allSites.filter(s => !s.is_deleted && s.status !== 'On Hold' && s.status !== 'Completed'));
       setLoading(false);
     });
 
@@ -102,7 +102,7 @@ const DPRSites = ({ userRole }) => {
   const expenseTotal = siteExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8 min-h-screen bg-gray-50">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 lg:space-y-6 min-h-screen bg-gray-50">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <motion.button
@@ -114,11 +114,11 @@ const DPRSites = ({ userRole }) => {
             <ArrowLeft className="w-6 h-6" />
           </motion.button>
           <div>
-            <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 flex items-center gap-3">
-              <FileText className="w-9 h-9 text-blue-600" />
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <FileText className="w-7 h-7 text-blue-600" />
               Daily Progress Reports (DPR)
             </h1>
-            <p className="text-gray-600 mt-1 text-base">Select a site to manage its daily tracking</p>
+            <p className="text-gray-600 mt-1 text-sm">Select a site to manage its daily tracking</p>
           </div>
         </div>
 
@@ -129,7 +129,7 @@ const DPRSites = ({ userRole }) => {
             placeholder="Search sites A-Z..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2.5 w-full sm:w-72 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm text-base"
+            className="pl-10 pr-4 py-2 w-full sm:w-72 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm text-sm"
           />
         </div>
       </div>
@@ -145,7 +145,7 @@ const DPRSites = ({ userRole }) => {
           <p className="text-gray-500">Try adjusting your search</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredSites.map((site, index) => (
             <motion.div
               key={site.id}
@@ -153,14 +153,14 @@ const DPRSites = ({ userRole }) => {
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: index * 0.05 }}
               whileHover={{ scale: 1.02 }}
-              className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-all group"
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 cursor-pointer hover:shadow-md transition-all group"
             >
               <div className="flex items-center justify-between">
                 <div
                   className="flex-1 cursor-pointer"
                   onClick={() => navigate(`/dpr/${site.id}`)}
                 >
-                  <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
                     {site.name}
                   </h3>
                   {site.location && (

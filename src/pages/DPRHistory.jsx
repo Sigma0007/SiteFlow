@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Building2, Calendar, FileText, Search, ChevronRight, Clock, MapPin, Trash2 } from 'lucide-react';
+import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { siteServices, dprServices, convertDocsToArray } from '../services/firebaseServices';
 import Footer from '../components/Footer';
 import StatusModal from '../components/StatusModal';
@@ -76,6 +78,67 @@ const DPRHistory = () => {
       'confirm',
       async () => {
         try {
+          const reportToDelete = reports.find(r => r.id === reportId);
+          let updatedSiteFields = {};
+          let newSiteMaterials = [...(site.assignedMaterials || [])];
+
+          if (reportToDelete && reportToDelete.processProgress) {
+            const siteProgress = { ...(site.processProgress || {}) };
+            let newSiteDoneSq = site.doneSq || 0;
+
+            Object.entries(reportToDelete.processProgress).forEach(([processKey, processData]) => {
+              if (siteProgress[processKey]) {
+                const sqToSubtract = processData.doneSq || 0;
+                siteProgress[processKey].doneSq = Math.max(0, (siteProgress[processKey].doneSq || 0) - sqToSubtract);
+                newSiteDoneSq = Math.max(0, newSiteDoneSq - sqToSubtract);
+
+                if (processData.subProcesses && siteProgress[processKey].subProcesses) {
+                  Object.entries(processData.subProcesses).forEach(([subKey, subSq]) => {
+                    if (siteProgress[processKey].subProcesses[subKey]) {
+                      siteProgress[processKey].subProcesses[subKey] = Math.max(0, siteProgress[processKey].subProcesses[subKey] - subSq);
+                    }
+                  });
+                }
+              }
+            });
+
+            updatedSiteFields = { processProgress: siteProgress, doneSq: newSiteDoneSq };
+          }
+
+          if (reportToDelete && reportToDelete.materialUsage) {
+            reportToDelete.materialUsage.forEach(usage => {
+              const matIndex = newSiteMaterials.findIndex(m => m.materialId === usage.materialId);
+              if (matIndex >= 0) {
+                newSiteMaterials[matIndex].quantity = Number(newSiteMaterials[matIndex].quantity || 0) + Number(usage.quantity || 0);
+              } else {
+                newSiteMaterials.push({
+                  materialId: usage.materialId,
+                  name: usage.name,
+                  category: usage.category || 'material',
+                  quantity: usage.quantity,
+                  unit: usage.unit || ''
+                });
+              }
+            });
+            updatedSiteFields.assignedMaterials = newSiteMaterials;
+          }
+
+          if (Object.keys(updatedSiteFields).length > 0) {
+            await siteServices.updateSite(siteId, updatedSiteFields);
+            setSite(prev => ({ ...prev, ...updatedSiteFields }));
+          }
+
+          if (reportToDelete && reportToDelete.date) {
+            const attQuery = query(
+              collection(db, 'attendance'),
+              where('siteId', '==', siteId),
+              where('date', '==', reportToDelete.date)
+            );
+            const attSnapshot = await getDocs(attQuery);
+            const deletePromises = attSnapshot.docs.map(attDoc => deleteDoc(doc(db, 'attendance', attDoc.id)));
+            await Promise.all(deletePromises);
+          }
+
           await dprServices.updateDPR(reportId, { is_deleted: true });
           setReports(prev => prev.filter(r => r.id !== reportId));
           setStatusModal(prev => ({ ...prev, visible: false }));

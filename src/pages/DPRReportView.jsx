@@ -234,41 +234,34 @@ const DPRReportView = () => {
             )}
           </div>
 
-          {/* Section 3: Materials Snapshot */}
+          {/* Section 3: Material Usage */}
           <div className="mb-6 page-break-inside-avoid">
             <div className="flex items-center gap-2 mb-4">
               <Package className="w-5 h-5 text-gray-700" />
-              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Materials at Site (Current Snapshot)</h2>
+              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Material Usage Today</h2>
             </div>
 
-            {(site.assignedMaterials && site.assignedMaterials.length > 0) ? (
+            {(dpr?.materialUsage && dpr.materialUsage.length > 0) ? (
               <div className="overflow-x-auto border border-gray-200 rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Material / Item</th>
-                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider hidden sm:table-cell">Category</th>
-                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Qty at Site</th>
-                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Remaining Inventory</th>
+                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Used Qty</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {site.assignedMaterials.map((mat, idx) => {
-                      const globalData = getMaterialDetails(mat.materialId);
-                      return (
+                    {dpr.materialUsage.map((mat, idx) => (
                       <tr key={idx}>
                         <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{mat.name}</td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 hidden sm:table-cell">{mat.category || '-'}</td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 font-bold text-right">{mat.quantity}</td>
-                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 text-right">{globalData.currentStock}</td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 font-bold text-right">{mat.quantity} {mat.unit || ''}</td>
                       </tr>
-                      );
-                    })}
+                    ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-              <p className="text-gray-500 text-sm italic py-2">No materials currently allocated to this site.</p>
+              <p className="text-gray-500 text-sm italic py-2">No material usage recorded for today.</p>
             )}
           </div>
 

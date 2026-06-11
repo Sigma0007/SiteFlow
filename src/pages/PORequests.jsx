@@ -16,7 +16,7 @@ import {
   ArrowLeft
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supervisorServices, siteServices, convertDocsToArray } from '../services/firebaseServices'
+import { supervisorServices, siteServices, materialServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import StatusModal from '../components/StatusModal'
@@ -28,6 +28,7 @@ const PORequests = ({ userRole = 'admin' }) => {
   const { user } = useAuth()
   const [poRequests, setPORequests] = useState([])
   const [sites, setSites] = useState([])
+  const [materials, setMaterials] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
@@ -66,10 +67,8 @@ const PORequests = ({ userRole = 'admin' }) => {
     const snapshot = await supervisorServices.getPORequests()
     const all = convertDocsToArray(snapshot)
     if (userRole === 'supervisor') {
-      const allowedSiteIds = new Set((assignedSites || []).map(s => s.id))
       setPORequests(all.filter(r =>
-        r.requestedBy === (currentSupervisor?.email || user?.email) &&
-        (!r.siteId || allowedSiteIds.has(r.siteId))
+        r.requestedBy === (currentSupervisor?.email || user?.email)
       ))
     } else {
       setPORequests(all)
@@ -83,6 +82,8 @@ const PORequests = ({ userRole = 'admin' }) => {
         // Always load all sites for the dropdown so supervisors can create POs for any site
         const sitesSnapshot = await siteServices.getAllSites()
         setSites(convertDocsToArray(sitesSnapshot))
+        const materialsSnapshot = await materialServices.getAllMaterials()
+        setMaterials(convertDocsToArray(materialsSnapshot))
         await reloadRequests()
       } catch (error) {
         console.error('Error loading PO requests:', error)
@@ -106,8 +107,13 @@ const PORequests = ({ userRole = 'admin' }) => {
         showAlert('Required', 'Please enter a material name.', 'warning')
         return
       }
+      const selectedMaterial = materials.find(m => m.name === formData.materialName)
+      const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
+      const totalAmount = unitPrice * Number(formData.quantity || 1)
+
       const newRequest = {
         ...formData,
+        totalAmount,
         requestedBy: currentSupervisor?.email || user?.email || '',
         requestDate: new Date().toISOString().split('T')[0],
         status: 'pending',
@@ -382,11 +388,20 @@ const PORequests = ({ userRole = 'admin' }) => {
           <button
             onClick={() => setFilterStatus('approved')}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'approved'
-              ? 'bg-green-500 text-white'
+              ? 'bg-blue-500 text-white'
               : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
               }`}
           >
             Approved
+          </button>
+          <button
+            onClick={() => setFilterStatus('arrived')}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${filterStatus === 'arrived'
+              ? 'bg-green-500 text-white'
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+          >
+            Arrived
           </button>
           <button
             onClick={() => setFilterStatus('rejected')}
@@ -442,8 +457,14 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <p className="font-semibold text-gray-900 text-sm">{request.quantity} {request.unit}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Expected Date</p>
-                  <p className="font-semibold text-gray-900 text-sm">{request.expectedDate || '—'}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Est. Total</p>
+                  <p className="font-semibold text-gray-900 text-sm">₹{Number(request.totalAmount || 0).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-0.5">Site</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {sites.find(s => s.id === request.siteId)?.name || '—'}
+                  </p>
                 </div>
                 <div className="col-span-2 sm:col-span-1">
                   <p className="text-xs text-gray-500 mb-0.5">Requested By</p>
@@ -454,6 +475,19 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <p className="font-semibold text-gray-900 text-sm">{request.requestDate}</p>
                 </div>
               </div>
+
+              {request.status === 'arrived' && (
+                <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-4 flex items-center gap-3">
+                  <Package className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-green-800">Material Arrived & Allocated</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      Delivered to: <span className="font-semibold">{sites.find(s => s.id === request.siteId)?.name || request.siteId}</span>
+                      {request.arrivedDate && <span className="ml-2">on {request.arrivedDate}</span>}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {request.adminNotes && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4">
@@ -473,19 +507,21 @@ const PORequests = ({ userRole = 'admin' }) => {
                     <CheckCircle className="w-4 h-4 inline mr-2" />
                     Approve
                   </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => handleReject(request.id, request.adminNotes)}
-                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
-                  >
-                    <XCircle className="w-4 h-4 inline mr-2" />
-                    Reject
-                  </motion.button>
+                  {userRole === 'admin' && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleReject(request.id, request.adminNotes)}
+                      className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+                    >
+                      <XCircle className="w-4 h-4 inline mr-2" />
+                      Reject
+                    </motion.button>
+                  )}
                 </div>
               )}
 
-              {userRole === 'admin' && request.status === 'approved' && (
+              {request.status === 'approved' && (
                 <div className="flex gap-3 pt-4 border-t border-gray-200">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
@@ -499,8 +535,8 @@ const PORequests = ({ userRole = 'admin' }) => {
                 </div>
               )}
 
-              {/* Delete button - Admin can delete any, Supervisor can delete their own */}
-              {(userRole === 'admin' || (userRole === 'supervisor' && request.requestedBy === currentSupervisor?.email)) && (
+              {/* Delete button - Admin only */}
+              {userRole === 'admin' && (
                 <div className="flex gap-3 pt-2">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
@@ -548,15 +584,27 @@ const PORequests = ({ userRole = 'admin' }) => {
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Material Name *</label>
-                  <input
-                    type="text"
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name (Material/Tool) *</label>
+                  <select
                     required
                     value={formData.materialName}
-                    onChange={(e) => setFormData({ ...formData, materialName: e.target.value })}
+                    onChange={(e) => {
+                      const selectedMat = materials.find(m => m.name === e.target.value);
+                      setFormData({ 
+                        ...formData, 
+                        materialName: e.target.value,
+                        unit: selectedMat ? selectedMat.unit : formData.unit
+                      });
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., Cement"
-                  />
+                  >
+                    <option value="">Select an item</option>
+                    {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
+                      <option key={m.id} value={m.name}>
+                        {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Quantity</label>
@@ -591,7 +639,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
                     <option value="">Select site</option>
-                    {sites.map(site => (
+                    {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
                       <option key={site.id} value={site.id}>{site.name}</option>
                     ))}
                   </select>
