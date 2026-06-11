@@ -84,6 +84,23 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour }) => {
   }, [attendanceRecords, site, labour]);
 
   // Material analysis
+
+  console.log("DPR Records", dprRecords);
+console.log("All Materials", allMaterials);
+
+console.log(
+  "First Material",
+  dprRecords[0]?.materialUsage?.[0]
+);
+
+console.log("First Material From Collection", allMaterials[0]);
+console.log(
+  "Material Names",
+  allMaterials.map(m => ({
+    id: m.id,
+    name: m.name
+  }))
+);
   const materialAnalysis = useMemo(() => {
     const analysis = {};
     
@@ -93,7 +110,14 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour }) => {
         dpr.materialUsage.forEach(mu => {
           if (!analysis[mu.materialId]) {
             analysis[mu.materialId] = {
-              mat: allMaterials.find(m => m.id === mu.materialId) || { name: 'Unknown', category: '-', unitPrice: 0, unit: '' },
+              mat:
+           allMaterials.find(m => m.id === mu.materialId) ||
+           allMaterials.find(m => m.name === mu.name) || {
+             name: mu.name || 'Unknown',
+             category: '-',
+             unitPrice: 0,
+             unit: mu.unit || ''
+           },
               days: {},
               totalUsed: 0
             };
