@@ -48,6 +48,63 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [newStaff, setNewStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
   const [editStaff, setEditStaff] = useState({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
 
+  // Daily worker count management with 24-hour expiration
+  const [dailyWorkerCounts, setDailyWorkerCounts] = useState(() => {
+    const saved = localStorage.getItem('dailyWorkerCounts')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // Check if data is older than 24 hours
+      if (parsed.timestamp) {
+        const dataAge = Date.now() - parsed.timestamp
+        const twentyFourHours = 24 * 60 * 60 * 1000
+        if (dataAge > twentyFourHours) {
+          localStorage.removeItem('dailyWorkerCounts')
+          return {}
+        }
+        return parsed.data || {}
+      }
+    }
+    return {}
+  })
+  const [quickDailyWorkerCount, setQuickDailyWorkerCount] = useState(0)
+  const [showDailyWorkerModal, setShowDailyWorkerModal] = useState(false)
+
+  // Contract worker count management with 24-hour expiration
+  const [contractWorkerCounts, setContractWorkerCounts] = useState(() => {
+    const saved = localStorage.getItem('contractWorkerCounts')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // Check if data is older than 24 hours
+      if (parsed.timestamp) {
+        const dataAge = Date.now() - parsed.timestamp
+        const twentyFourHours = 24 * 60 * 60 * 1000
+        if (dataAge > twentyFourHours) {
+          localStorage.removeItem('contractWorkerCounts')
+          return {}
+        }
+        return parsed.data || {}
+      }
+    }
+    return {}
+  })
+  const [showContractWorkerModal, setShowContractWorkerModal] = useState(false)
+  const [newContractWorker, setNewContractWorker] = useState({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
+
+  // Persist counts to localStorage with timestamp
+  useEffect(() => {
+    localStorage.setItem('dailyWorkerCounts', JSON.stringify({
+      data: dailyWorkerCounts,
+      timestamp: Date.now()
+    }))
+  }, [dailyWorkerCounts])
+
+  useEffect(() => {
+    localStorage.setItem('contractWorkerCounts', JSON.stringify({
+      data: contractWorkerCounts,
+      timestamp: Date.now()
+    }))
+  }, [contractWorkerCounts])
+
   // Attendance editing states
   const [editingAttendance, setEditingAttendance] = useState(null)
   const [editAttendanceData, setEditAttendanceData] = useState({})
@@ -314,9 +371,381 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     return { present, absent, leave, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
-  // Staff Management Functions
+  // Daily Worker Count Management - Shared pool across sites
+  const handleDailyWorkerCountChange = (siteId, change) => {
+    setDailyWorkerCounts(prev => {
+      const currentCount = prev[siteId] || 0
+      const unassignedCount = prev['unassigned'] || 0
+      
+      // Calculate new count for this site (prevent negative)
+      const newCount = Math.max(0, currentCount + change)
+      
+      // Calculate actual change (could be 0 if trying to go below 0)
+      const actualChange = newCount - currentCount
+      
+      // If no actual change (e.g., trying to subtract from 0), do nothing
+      if (actualChange === 0) return prev
+      
+      // If adding, check if we have enough unassigned workers
+      if (actualChange > 0) {
+        if (unassignedCount < actualChange) {
+          showToast(`Only ${unassignedCount} unassigned workers available`, 'error')
+          return prev
+        }
+        // Deduct from unassigned and add to target site
+        return {
+          ...prev,
+          'unassigned': unassignedCount - actualChange,
+          [siteId]: newCount
+        }
+      }
+      
+      // If removing, add back to unassigned
+      if (actualChange < 0) {
+        return {
+          ...prev,
+          'unassigned': unassignedCount + Math.abs(actualChange),
+          [siteId]: newCount
+        }
+      }
+      
+      return prev
+    })
+  }
+
+  const getDailyWorkerCountForSite = (siteId) => {
+    return dailyWorkerCounts[siteId] || 0
+  }
+
+  const saveDailyWorkerAttendance = async (siteId) => {
+    const dailyData = dailyWorkerCounts[siteId]
+    const count = dailyData?.count || 0
+    
+    try {
+      // Create attendance record for daily workers (count-based)
+      const attendanceData = {
+        employeeId: `daily-${siteId}-${selectedDate}`,
+        siteId: siteId,
+        buildingId: dailyData?.buildingId || null,
+        supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
+        date: selectedDate,
+        status: 'present',
+        isDailyWorker: true,
+        dailyWorkerCount: count,
+        checkIn: new Date().toTimeString().slice(0, 5),
+        checkOut: '17:30',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      // Check if record already exists
+      const existingRecord = attendance.find(record =>
+        record.employeeId === attendanceData.employeeId &&
+        record.date === selectedDate
+      )
+
+      if (existingRecord) {
+        await attendanceServices.updateAttendance(existingRecord.id, {
+          ...attendanceData,
+          dailyWorkerCount: count
+        })
+      } else {
+        await attendanceServices.addAttendance(attendanceData)
+      }
+
+      showToast(`Daily workers saved: ${count} workers`)
+    } catch (error) {
+      console.error('Error saving daily worker attendance:', error)
+      showToast('Error saving daily worker attendance', 'error')
+    }
+  }
+
+  // Save unassigned count to database
+  const saveUnassignedDailyWorkers = async () => {
+    const count = dailyWorkerCounts['unassigned'] || 0
+    
+    try {
+      const attendanceData = {
+        employeeId: `daily-unassigned-${selectedDate}`,
+        siteId: 'unassigned',
+        buildingId: null,
+        supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
+        date: selectedDate,
+        status: 'present',
+        isDailyWorker: true,
+        dailyWorkerCount: count,
+        checkIn: new Date().toTimeString().slice(0, 5),
+        checkOut: '17:30',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      const existingRecord = attendance.find(record =>
+        record.employeeId === attendanceData.employeeId &&
+        record.date === selectedDate
+      )
+
+      if (existingRecord) {
+        await attendanceServices.updateAttendance(existingRecord.id, {
+          ...attendanceData,
+          dailyWorkerCount: count
+        })
+      } else {
+        await attendanceServices.addAttendance(attendanceData)
+      }
+    } catch (error) {
+      console.error('Error saving unassigned daily workers:', error)
+    }
+  }
+
+  // Contract Worker Count Management
+  const handleAddContractWorker = () => {
+    if (!newContractWorker.contractorName || newContractWorker.workerCount <= 0) {
+      showToast('Please enter contractor name and worker count', 'error')
+      return
+    }
+
+    const targetSiteId = newContractWorker.siteId || 'unassigned'
+    const targetBuildingId = newContractWorker.buildingId || ''
+
+    setContractWorkerCounts(prev => ({
+      ...prev,
+      [targetSiteId]: {
+        contractorName: newContractWorker.contractorName,
+        count: (prev[targetSiteId]?.count || 0) + newContractWorker.workerCount,
+        buildingId: targetBuildingId
+      }
+    }))
+
+    setNewContractWorker({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
+    showToast(`${newContractWorker.workerCount} contract workers added for ${newContractWorker.contractorName}`)
+  }
+
+  const handleContractWorkerAssignment = (siteId, change) => {
+    setContractWorkerCounts(prev => {
+      const unassigned = prev['unassigned'] || { contractorName: '', count: 0 }
+      const currentCount = (prev[siteId]?.count) || 0
+      
+      if (change > 0) {
+        if (unassigned.count < change) {
+          showToast(`Only ${unassigned.count} unassigned contract workers available`, 'error')
+          return prev
+        }
+        return {
+          ...prev,
+          'unassigned': { ...unassigned, count: unassigned.count - change },
+          [siteId]: {
+            contractorName: unassigned.contractorName,
+            count: currentCount + change
+          }
+        }
+      } else if (change < 0) {
+        const actualChange = Math.abs(change)
+        const newCount = Math.max(0, currentCount - actualChange)
+        const returnedCount = currentCount - newCount
+        return {
+          ...prev,
+          'unassigned': { ...unassigned, count: unassigned.count + returnedCount },
+          [siteId]: {
+            contractorName: prev[siteId]?.contractorName || unassigned.contractorName,
+            count: newCount
+          }
+        }
+      }
+      return prev
+    })
+  }
+
+  const saveContractWorkerAttendance = async (siteId) => {
+    const contractData = contractWorkerCounts[siteId]
+    if (!contractData || contractData.count <= 0) return
+
+    try {
+      const attendanceData = {
+        employeeId: `contract-${siteId}-${selectedDate}`,
+        siteId: siteId,
+        buildingId: contractData.buildingId || null,
+        supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
+        date: selectedDate,
+        status: 'present',
+        isContractWorker: true,
+        contractorName: contractData.contractorName,
+        contractWorkerCount: contractData.count,
+        checkIn: new Date().toTimeString().slice(0, 5),
+        checkOut: '17:30',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      const existingRecord = attendance.find(record =>
+        record.employeeId === attendanceData.employeeId &&
+        record.date === selectedDate
+      )
+
+      if (existingRecord) {
+        await attendanceServices.updateAttendance(existingRecord.id, attendanceData)
+      } else {
+        await attendanceServices.addAttendance(attendanceData)
+      }
+
+      showToast(`Contract workers saved: ${contractData.count} workers from ${contractData.contractorName}`)
+    } catch (error) {
+      console.error('Error saving contract worker attendance:', error)
+      showToast('Error saving contract worker attendance', 'error')
+    }
+  }
+
+  // Load existing contract worker attendance for the selected date
+  const loadContractWorkerAttendance = () => {
+    const contractRecords = attendance.filter(record => 
+      record.isContractWorker && record.date === selectedDate
+    )
+    
+    const loadedCounts = {}
+    contractRecords.forEach(record => {
+      if (record.siteId) {
+        loadedCounts[record.siteId] = {
+          contractorName: record.contractorName,
+          count: record.contractWorkerCount
+        }
+      }
+    })
+    
+    setContractWorkerCounts(loadedCounts)
+  }
+
+  // Load existing daily worker attendance for the selected date
+  const loadDailyWorkerAttendance = () => {
+    const dailyRecords = attendance.filter(record => 
+      record.isDailyWorker && record.date === selectedDate
+    )
+    
+    const loadedCounts = {}
+    dailyRecords.forEach(record => {
+      const key = record.siteId === 'unassigned' ? 'unassigned' : record.siteId
+      loadedCounts[key] = {
+        count: record.dailyWorkerCount,
+        buildingId: record.buildingId || null
+      }
+    })
+    
+    // Only update if we have records, otherwise keep localStorage data
+    if (Object.keys(loadedCounts).length > 0) {
+      setDailyWorkerCounts(loadedCounts)
+    }
+  }
+
+  // Load daily worker attendance when date changes
+  useEffect(() => {
+    loadDailyWorkerAttendance()
+  }, [selectedDate, attendance])
+
+  // Load contract worker attendance when date changes
+  useEffect(() => {
+    loadContractWorkerAttendance()
+  }, [selectedDate, attendance])
+  const handleQuickDailyWorkerAdd = async () => {
+    if (quickDailyWorkerCount <= 0) {
+      showToast('Please enter worker count', 'error')
+      return
+    }
+    
+    // Calculate new count
+    const currentUnassigned = dailyWorkerCounts['unassigned'] || 0
+    const newUnassigned = currentUnassigned + quickDailyWorkerCount
+    
+    console.log('Adding daily workers:', { currentUnassigned, quickDailyWorkerCount, newUnassigned })
+    
+    try {
+      // Find existing record
+      const existingRecord = attendance.find(record =>
+        record.employeeId === `daily-unassigned-${selectedDate}` &&
+        record.date === selectedDate
+      )
+
+      if (existingRecord) {
+        console.log('Updating existing record:', existingRecord.id, existingRecord.dailyWorkerCount, '->', newUnassigned)
+        // Update existing record
+        await attendanceServices.updateAttendance(existingRecord.id, {
+          dailyWorkerCount: newUnassigned,
+          updatedAt: new Date().toISOString()
+        })
+      } else {
+        console.log('Creating new record with count:', newUnassigned)
+        // Create new record
+        const attendanceData = {
+          employeeId: `daily-unassigned-${selectedDate}`,
+          siteId: 'unassigned',
+          buildingId: null,
+          supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
+          date: selectedDate,
+          status: 'present',
+          isDailyWorker: true,
+          dailyWorkerCount: newUnassigned,
+          checkIn: new Date().toTimeString().slice(0, 5),
+          checkOut: '17:30',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+        await attendanceServices.addAttendance(attendanceData)
+      }
+      
+      // Update local state immediately
+      setDailyWorkerCounts(prev => ({
+        ...prev,
+        'unassigned': newUnassigned
+      }))
+      setQuickDailyWorkerCount(0)
+      
+      showToast(`${quickDailyWorkerCount} daily workers added! Total: ${newUnassigned}`)
+    } catch (error) {
+      console.error('Error saving daily workers:', error)
+      showToast('Error saving daily workers', 'error')
+    }
+  }
   const handleAddStaff = async () => {
     try {
+      // Handle daily worker count addition (if count is provided)
+      if (newStaff.employmentType === 'daily' && newStaff.dailyWorkerCount > 0) {
+        // For daily workers, add to daily worker counts without requiring site
+        const targetSiteId = newStaff.siteId || 'unassigned'
+        setDailyWorkerCounts(prev => ({
+          ...prev,
+          [targetSiteId]: (prev[targetSiteId] || 0) + newStaff.dailyWorkerCount
+        }))
+        setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
+        setShowAddStaffModal(false)
+        showToast(`${newStaff.dailyWorkerCount} daily workers added!`)
+        return
+      }
+
+      // Handle individual daily staff member (with name)
+      if (newStaff.employmentType === 'daily' && newStaff.name) {
+        const staffData = {
+          ...newStaff,
+          employeeCode: Date.now().toString(),
+          joinDate: new Date().toISOString().split('T')[0],
+          dailyWage: newStaff.dailyWage ? parseFloat(newStaff.dailyWage) : 0,
+          createdAt: new Date().toISOString(),
+          createdBy: userRole,
+          status: 'active',
+          siteId: newStaff.siteId || 'unassigned',
+          role: 'Daily Worker'
+        }
+
+        await labourServices.addLabour(staffData)
+        setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
+        setShowAddStaffModal(false)
+        showToast('Daily staff added successfully!')
+        return
+      }
+
+      // Handle regular staff (permanent/contract)
+      if (!newStaff.name) {
+        showToast('Please enter staff name', 'error')
+        return
+      }
+
       // Generate unique number ID for the staff member
       const uniqueNumber = Date.now() + Math.floor(Math.random() * 1000)
 
@@ -327,11 +756,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         dailyWage: newStaff.dailyWage ? parseFloat(newStaff.dailyWage) : 0,
         createdAt: new Date().toISOString(),
         createdBy: userRole,
-        status: 'active'
+        status: 'active',
+        siteId: newStaff.siteId || 'unassigned'
       }
 
       await labourServices.addLabour(staffData)
-      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' })
+      setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
       setShowAddStaffModal(false)
       showToast('Staff added successfully!')
     } catch (error) {
@@ -470,9 +900,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     // Filter by assigned sites for supervisors, or selected site for admin
     let matchesSite = true;
     if (userRole === 'supervisor') {
-      matchesSite = employee.siteId && assignedSites.some(site => site.id === employee.siteId);
+      // Show all employees assigned to supervisor's sites OR unassigned employees
+      matchesSite = !employee.siteId || employee.siteId === 'unassigned' || assignedSites.some(site => site.id === employee.siteId);
     } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
-      matchesSite = employee.siteId === selectedSiteFilter;
+      // Show employees matching the site filter OR unassigned employees
+      matchesSite = !employee.siteId || employee.siteId === 'unassigned' || employee.siteId === selectedSiteFilter;
     }
 
     return matchesSearch && matchesFilter && matchesSite && matchesWorkerType
@@ -489,7 +921,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       employmentType: displayEmploymentType
     };
   }).sort((a, b) => {
-    // Sort: permanent → contract → daily, then by name
+    // Sort by attendance status: unmarked → daily workers → present/absent → leave
+    const aAttendance = attendance.find(record => record.employeeId === a.id && record.date === selectedDate)
+    const bAttendance = attendance.find(record => record.employeeId === b.id && record.date === selectedDate)
+    const aStatus = aAttendance?.status || (a.onLeave ? 'leave' : 'not-marked')
+    const bStatus = bAttendance?.status || (b.onLeave ? 'leave' : 'not-marked')
+    
+    // Check if employee is a daily worker
+    const aIsDaily = a.isDailyWorker || a.temporary
+    const bIsDaily = b.isDailyWorker || b.temporary
+    
+    // Define priority: not-marked = 0, daily workers = 1, present/absent = 2, leave = 3
+    const getPriority = (status, isDaily) => {
+      if (isDaily) return 1
+      if (status === 'not-marked') return 0
+      if (status === 'leave') return 3
+      return 2 // present or absent
+    }
+    
+    const aPriority = getPriority(aStatus, aIsDaily)
+    const bPriority = getPriority(bStatus, bIsDaily)
+    
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority
+    }
+    
+    // Then sort by employment type: permanent → contract → daily
     const order = { permanent: 0, contract: 1, daily: 2 };
     const aOrder = order[a.employmentType] || 0;
     const bOrder = order[b.employmentType] || 0;
@@ -581,66 +1038,96 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       </div>
 
       {/* Stats Cards - compact single row */}
-      <div className="grid grid-cols-5 gap-2 mb-4">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
-          <p className="text-[10px] text-gray-500 leading-tight">Total</p>
-          <p className="text-lg font-bold text-gray-900">{stats.total}</p>
-          <Users className="w-4 h-4 text-blue-500 mt-0.5" />
+      <div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-4">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Total</p>
+          <p className="text-xs sm:text-lg font-bold text-gray-900">{stats.total}</p>
+          <Users className="w-2 h-2 sm:w-4 sm:h-4 text-gray-400 mt-0.5" />
         </motion.div>
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
-          <p className="text-[10px] text-gray-500 leading-tight">Present</p>
-          <p className="text-lg font-bold text-green-600">{stats.present}</p>
-          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Present</p>
+          <p className="text-xs sm:text-lg font-bold text-green-600">{stats.present}</p>
+          <CheckCircle className="w-2 h-2 sm:w-4 sm:h-4 text-green-500 mt-0.5" />
         </motion.div>
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
-          <p className="text-[10px] text-gray-500 leading-tight">Absent</p>
-          <p className="text-lg font-bold text-red-600">{stats.absent}</p>
-          <XCircle className="w-4 h-4 text-red-500 mt-0.5" />
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Absent</p>
+          <p className="text-xs sm:text-lg font-bold text-red-600">{stats.absent}</p>
+          <XCircle className="w-2 h-2 sm:w-4 sm:h-4 text-red-500 mt-0.5" />
         </motion.div>
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
-          <p className="text-[10px] text-gray-500 leading-tight">Leave</p>
-          <p className="text-lg font-bold text-yellow-600">{stats.leave}</p>
-          <Clock className="w-4 h-4 text-yellow-500 mt-0.5" />
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.4 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Leave</p>
+          <p className="text-xs sm:text-lg font-bold text-yellow-600">{stats.leave}</p>
+          <Clock className="w-2 h-2 sm:w-4 sm:h-4 text-yellow-500 mt-0.5" />
         </motion.div>
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 }} className="bg-white rounded-lg shadow-sm p-2 border border-gray-200">
-          <p className="text-[10px] text-gray-500 leading-tight">Rate</p>
-          <p className="text-lg font-bold text-blue-600">{stats.percentage}%</p>
-          <TrendingUp className="w-4 h-4 text-blue-500 mt-0.5" />
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Daily Staff</p>
+          <p className="text-xs sm:text-lg font-bold text-blue-600">{Object.values(dailyWorkerCounts).reduce((a,b)=>a+(b?.count||0),0)}</p>
+          <Users className="w-2 h-2 sm:w-4 sm:h-4 text-blue-500 mt-0.5" />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Contract Staff</p>
+          <p className="text-xs sm:text-lg font-bold text-orange-600">{Object.values(contractWorkerCounts).reduce((a,b)=>a+(b?.count||0),0)}</p>
+          <Users className="w-2 h-2 sm:w-4 sm:h-4 text-orange-500 mt-0.5" />
         </motion.div>
       </div>
 
       {/* Quick Actions */}
       {(userRole === 'admin' || userRole === 'supervisor') && (
-        <div className="flex flex-wrap gap-3 mb-6">
+        <div className="flex flex-wrap gap-2 sm:gap-3 mb-6">
           {userRole === 'admin' && (
             <>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => setShowAddStaffModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
+                onClick={() => {
+                  setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
+                  setShowAddStaffModal(true)
+                }}
+                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-xs sm:text-sm"
               >
-                <UserPlus className="w-4 h-4" />
-                Add Staff
+                <UserPlus className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Add Staff</span>
+                <span className="sm:hidden">Staff</span>
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={markAllPresent}
-                className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
+                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium text-xs sm:text-sm"
               >
-                <Check className="w-4 h-4" />
-                Mark All Present
+                <Check className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Mark All Present</span>
+                <span className="sm:hidden">Present</span>
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={markAllAbsent}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-medium"
+                onClick={() => setShowContractWorkerModal(true)}
+                className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium text-xs sm:text-sm"
               >
-                <X className="w-4 h-4" />
-                Mark All Absent
+                <UserPlus className="w-3 h-3 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Add Contract Workers</span>
+                <span className="sm:hidden">Contract</span>
               </motion.button>
+              {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    setShowContractWorkerModal(true)
+                    // Scroll to assignment section
+                    setTimeout(() => {
+                      const assignmentSection = document.querySelector('[data-contract-assignment]')
+                      if (assignmentSection) assignmentSection.scrollIntoView({ behavior: 'smooth' })
+                    }, 100)
+                  }}
+                  className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium text-xs sm:text-sm"
+                >
+                  <Users className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">Assign Contract Workers</span>
+                  <span className="sm:hidden">Assign</span>
+                </motion.button>
+              )}
             </>
           )}
           {userRole === 'supervisor' && !submittedToday && (
@@ -718,8 +1205,151 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
+      {/* Daily Worker Section - Combined Row */}
+      {(userRole === 'admin' || userRole === 'supervisor') && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+          {/* Quick Daily Worker Addition */}
+          <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
+            <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 mb-1 sm:mb-2 flex items-center gap-1">
+              <Users className="w-2 h-2 sm:w-3 sm:h-3" />
+              Quick Add Daily Workers
+            </h3>
+            <div className="flex gap-2 sm:gap-3">
+              <input
+                type="number"
+                placeholder="Worker Count"
+                value={quickDailyWorkerCount || ''}
+                onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
+                className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                min="1"
+              />
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={handleQuickDailyWorkerAdd}
+                className="px-3 py-1.5 bg-purple-500 text-white text-[10px] sm:text-xs font-medium rounded-lg hover:bg-purple-600"
+              >
+                Add
+              </motion.button>
+            </div>
+          </div>
+
+          {/* Daily Worker Count Management - Compact */}
+          {Object.values(dailyWorkerCounts).some(data => data?.count > 0) && (
+            <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
+              <div className="flex items-center justify-between mb-1 sm:mb-2">
+                <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 flex items-center gap-1">
+                  <Users className="w-2 h-2 sm:w-3 sm:h-3" />
+                  Daily Workers (Count-based)
+                </h3>
+                <span className="px-1.5 py-0.5 bg-purple-500 text-white text-[8px] sm:text-[10px] font-bold rounded-full">
+                  Daily Staff
+                </span>
+              </div>
+              
+              {/* Unassigned Summary */}
+              <div className="bg-white rounded-lg p-1.5 sm:p-2 border border-purple-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] sm:text-[10px] font-medium text-gray-700">Unassigned Workers</span>
+                  <span className="text-xs sm:text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned']?.count || 0}</span>
+                </div>
+                <button
+                  onClick={() => setShowDailyWorkerModal(true)}
+                  className="mt-1.5 w-full px-2 py-1 bg-purple-500 text-white text-[8px] sm:text-[10px] font-medium rounded-lg hover:bg-purple-600"
+                >
+                  Assign to Sites
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Attendance List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Daily Workers Section */}
+        {Object.keys(dailyWorkerCounts).some(siteId => siteId !== 'unassigned' && dailyWorkerCounts[siteId]?.count > 0) && (
+          <div className="bg-purple-50 border-b-2 border-purple-200">
+            <div className="p-2 bg-purple-100 border-b border-purple-200">
+              <h3 className="text-xs font-bold text-purple-800 flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                Daily Workers
+              </h3>
+            </div>
+            <div className="p-2 space-y-2">
+              {Object.entries(dailyWorkerCounts).map(([siteId, dailyData]) => {
+                if (siteId === 'unassigned' || !dailyData?.count) return null
+                const site = sites.find(s => s.id === siteId)
+                const siteName = site?.name || 'Unknown Site'
+                const building = dailyData.buildingId ? buildings.find(b => b.id === dailyData.buildingId) : null
+                const buildingName = building?.name || ''
+                const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
+                
+                return (
+                  <div key={siteId} className="bg-white rounded-lg p-2 border border-purple-200">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                          D
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-900">Daily Workers</p>
+                          <p className="text-[10px] text-gray-500">{locationText}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-bold text-purple-700">{dailyData.count} workers</span>
+                        <span className="px-1.5 py-0.5 bg-green-500 text-white text-[8px] font-bold rounded-full">P</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Contract Workers Section */}
+        {Object.keys(contractWorkerCounts).some(siteId => siteId !== 'unassigned' && contractWorkerCounts[siteId]?.count > 0) && (
+          <div className="bg-orange-50 border-b-2 border-orange-200">
+            <div className="p-2 bg-orange-100 border-b border-orange-200">
+              <h3 className="text-xs font-bold text-orange-800 flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                Contract Workers
+              </h3>
+            </div>
+            <div className="p-2 space-y-2">
+              {Object.entries(contractWorkerCounts).map(([siteId, contractData]) => {
+                if (siteId === 'unassigned' || !contractData?.count) return null
+                const site = sites.find(s => s.id === siteId)
+                const siteName = site?.name || 'Unknown Site'
+                const building = contractData.buildingId ? buildings.find(b => b.id === contractData.buildingId) : null
+                const buildingName = building?.name || ''
+                const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
+                
+                return (
+                  <div key={siteId} className="bg-white rounded-lg p-2 border border-orange-200">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold">
+                          C
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-900">{contractData.contractorName}</p>
+                          <p className="text-[10px] text-gray-500">{locationText}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-bold text-orange-700">{contractData.count} workers</span>
+                        <span className="px-1.5 py-0.5 bg-green-500 text-white text-[8px] font-bold rounded-full">P</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
@@ -865,6 +1495,266 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
+      {/* Contract Worker Modal */}
+      {showContractWorkerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-sm font-semibold mb-3">Add Contract Workers</h3>
+            
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Contractor Name</label>
+                <input
+                  type="text"
+                  placeholder="Enter contractor name"
+                  value={newContractWorker.contractorName}
+                  onChange={(e) => setNewContractWorker({ ...newContractWorker, contractorName: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Worker Count</label>
+                <input
+                  type="number"
+                  placeholder="Enter number of workers"
+                  value={newContractWorker.workerCount || ''}
+                  onChange={(e) => setNewContractWorker({ ...newContractWorker, workerCount: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                  min="1"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Select Site (Optional)</label>
+                <select
+                  value={newContractWorker.siteId}
+                  onChange={(e) => setNewContractWorker({ ...newContractWorker, siteId: e.target.value, buildingId: '' })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                >
+                  <option value="">No Site (Unassigned)</option>
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(site => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
+                </select>
+              </div>
+              {newContractWorker.siteId && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Building (Optional)</label>
+                  <select
+                    value={newContractWorker.buildingId}
+                    onChange={(e) => setNewContractWorker({ ...newContractWorker, buildingId: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                  >
+                    <option value="">No Building</option>
+                    {buildings.filter(building => building.siteId === newContractWorker.siteId)
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map(building => (
+                      <option key={building.id} value={building.id}>{building.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={handleAddContractWorker}
+                className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
+              >
+                Add Workers
+              </button>
+              <button
+                onClick={() => {
+                  setShowContractWorkerModal(false)
+                  setNewContractWorker({ contractorName: '', workerCount: 0 })
+                }}
+                className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Contract Worker Assignment Section */}
+            {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
+              <div className="mt-4 pt-4 border-t border-gray-200" data-contract-assignment>
+                <h4 className="text-xs font-semibold mb-2 text-orange-700">Assign to Sites</h4>
+                
+                {contractWorkerCounts['unassigned']?.count > 0 && (
+                  <div className="bg-orange-50 rounded-lg p-2 mb-3 border border-orange-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-700">Unassigned: {contractWorkerCounts['unassigned']?.contractorName}</span>
+                      <span className="text-sm font-bold text-orange-700">{contractWorkerCounts['unassigned']?.count || 0}</span>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="space-y-2 mb-3">
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(site => {
+                    const contractData = contractWorkerCounts[site.id] || { contractorName: '', count: 0 }
+                    const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
+                    const canManage = userRole === 'admin' || isSupervisorSite
+
+                    if (!canManage) return null
+
+                    return (
+                      <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                          <div className="flex items-center gap-2">
+                            {contractData.contractorName && (
+                              <span className="text-[10px] text-gray-500">{contractData.contractorName}</span>
+                            )}
+                            <span className="text-xs font-bold text-orange-700">{contractData.count}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleContractWorkerAssignment(site.id, -1)}
+                            className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
+                          >
+                            -
+                          </button>
+                          <button
+                            onClick={() => handleContractWorkerAssignment(site.id, 1)}
+                            className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      Object.keys(contractWorkerCounts).forEach(siteId => {
+                        if (siteId !== 'unassigned' && contractWorkerCounts[siteId]?.count > 0) {
+                          saveContractWorkerAttendance(siteId)
+                        }
+                      })
+                      setShowContractWorkerModal(false)
+                    }}
+                    className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
+                  >
+                    Save Assignments
+                  </button>
+                  <button
+                    onClick={() => setShowContractWorkerModal(false)}
+                    className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-xs"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Daily Worker Assignment Modal */}
+      {showDailyWorkerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-sm font-semibold mb-3">Assign Daily Workers to Sites</h3>
+            
+            <div className="bg-purple-50 rounded-lg p-2 mb-3 border border-purple-200">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-700">Unassigned Workers</span>
+                <span className="text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned'] || 0}</span>
+              </div>
+            </div>
+            
+            <div className="space-y-2 mb-3">
+              {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(site => {
+                const count = dailyWorkerCounts[site.id]?.count || 0
+                const buildingId = dailyWorkerCounts[site.id]?.buildingId || null
+                const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
+                const canManage = userRole === 'admin' || isSupervisorSite
+
+                if (!canManage) return null
+
+                return (
+                  <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                      <span className="text-xs font-bold text-purple-700">{count}</span>
+                    </div>
+                    {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
+                      <div className="mb-2">
+                        <select
+                          value={buildingId || ''}
+                          onChange={(e) => {
+                            setDailyWorkerCounts(prev => ({
+                              ...prev,
+                              [site.id]: {
+                                ...prev[site.id],
+                                count: prev[site.id]?.count || 0,
+                                buildingId: e.target.value || null
+                              }
+                            }))
+                          }}
+                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-[10px]"
+                        >
+                          <option value="">No Building</option>
+                          {buildings.filter(b => b.siteId === site.id)
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map(building => (
+                            <option key={building.id} value={building.id}>{building.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleDailyWorkerCountChange(site.id, -1)}
+                        className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
+                      >
+                        -
+                      </button>
+                      <button
+                        onClick={() => handleDailyWorkerCountChange(site.id, 1)}
+                        className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  Object.keys(dailyWorkerCounts).forEach(siteId => {
+                    if (siteId !== 'unassigned' && dailyWorkerCounts[siteId]?.count > 0) {
+                      saveDailyWorkerAttendance(siteId)
+                    }
+                  })
+                  setShowDailyWorkerModal(false)
+                }}
+                className="flex-1 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 font-medium text-xs"
+              >
+                Save Assignments
+              </button>
+              <button
+                onClick={() => setShowDailyWorkerModal(false)}
+                className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Staff Modal */}
       {showAddStaffModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -878,13 +1768,15 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <input
-                type="text"
-                placeholder="Role"
-                value={newStaff.role}
-                onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              {newStaff.employmentType !== 'daily' && (
+                <input
+                  type="text"
+                  placeholder="Role"
+                  value={newStaff.role}
+                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              )}
               <input
                 type="number"
                 placeholder="Salary"
@@ -899,44 +1791,42 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <select
-                value={newStaff.employmentType}
-                onChange={(e) => setNewStaff({ ...newStaff, employmentType: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="permanent">Permanent Staff</option>
-                <option value="contract">Contract Worker</option>
-              </select>
             </div>
+            
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
               <select
                 value={newStaff.siteId}
                 onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Select Site</option>
-                {sites.map(site => (
+                <option value="">No Site (Unassigned)</option>
+                {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(site => (
                   <option key={site.id} value={site.id}>{site.name}</option>
                 ))}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Building</label>
-              <select
-                value={newStaff.buildingId}
-                onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })}
-                disabled={!newStaff.siteId}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                <option value="">Select Building</option>
-                {buildings
-                  .filter(b => b.siteId === newStaff.siteId)
-                  .map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-              </select>
-            </div>
+            
+            {newStaff.employmentType !== 'daily' && newStaff.siteId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Building</label>
+                <select
+                  value={newStaff.buildingId}
+                  onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })}
+                  disabled={!newStaff.siteId}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  <option value="">Select Building</option>
+                  {buildings
+                    .filter(b => b.siteId === newStaff.siteId)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                </select>
+              </div>
+            )}
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleAddStaff}
@@ -945,7 +1835,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 Add Staff
               </button>
               <button
-                onClick={() => setShowAddStaffModal(false)}
+                onClick={() => {
+                  setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
+                  setShowAddStaffModal(false)
+                }}
                 className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
               >
                 Cancel
@@ -990,8 +1883,24 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <option value="permanent">Permanent Staff</option>
                 <option value="contract">Contract Worker</option>
               </select>
-
             </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
+              <select
+                value={editStaff.siteId}
+                onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">No Site (Unassigned)</option>
+                {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(site => (
+                  <option key={site.id} value={site.id}>{site.name}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleEditStaff}
