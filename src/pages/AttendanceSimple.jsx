@@ -462,7 +462,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   // Save unassigned count to database
   const saveUnassignedDailyWorkers = async () => {
-    const count = dailyWorkerCounts['unassigned'] || 0
+    const count = dailyWorkerCounts['unassigned']?.count || 0
     
     try {
       const attendanceData = {
@@ -1665,7 +1665,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             <div className="bg-purple-50 rounded-lg p-2 mb-3 border border-purple-200">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-700">Unassigned Workers</span>
-                <span className="text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned'] || 0}</span>
+                <span className="text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned']?.count || 0}</span>
               </div>
             </div>
             
