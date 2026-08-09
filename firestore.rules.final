@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == "admin";
+    }
+
+    function isSupervisor() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role == "supervisor";
+    }
+
+    function canAccessSite(siteId) {
+      return isAdmin() || 
+             (isSupervisor() && 
+              exists(/databases/$(database)/documents/sites/$(siteId)) &&
+              request.auth.uid in get(/databases/$(database)/documents/sites/$(siteId)).data.assignedSupervisors);
+    }
+
+    // Sites collection
+    match /sites/{siteId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Buildings collection - requires siteId
+    match /buildings/{buildingId} {
+      allow read: if canAccessSite(resource.data.siteId);
+      allow write: if canAccessSite(resource.data.siteId);
+      allow create: if canAccessSite(request.resource.data.siteId) &&
+                     request.resource.data.siteId is string &&
+                     request.resource.data.name is string;
+    }
+
+    // Labour collection - requires siteId
+    match /labour/{labourId} {
+      allow read: if canAccessSite(resource.data.siteId);
+      allow write: if canAccessSite(resource.data.siteId);
+      allow create: if canAccessSite(request.resource.data.siteId) &&
+                     request.resource.data.siteId is string &&
+                     request.resource.data.name is string;
+    }
+
+    // Attendance collection - requires siteId
+    match /attendance/{attendanceId} {
+      allow read: if canAccessSite(resource.data.siteId);
+      allow create, update: if isSupervisor() || isAdmin();
+    }
+
+    // Purchase Orders collection - requires siteId
+    match /purchaseOrders/{poId} {
+      allow read: if canAccessSite(resource.data.siteId);
+      allow create: if isSupervisor();
+      allow update: if isAdmin();
+    }
+
+    // Materials collection - admin only for master list
+    match /materials/{materialId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Supervisors collection - admin and self access
+    match /supervisors/{supervisorId} {
+      allow read: if isAdmin() || request.auth.uid == supervisorId;
+      allow write: if isAdmin();
+    }
+
+    // Users collection - own profile only (supports email as document ID)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (isAdmin() || 
+                   request.auth.uid == userId || 
+                   request.auth.token.email == userId);
+      allow write: if isAuthenticated() && (isAdmin() || 
+                   request.auth.uid == userId || 
+                   request.auth.token.email == userId);
+    }
+
+    // Legacy collections - restrict access
+    match /siteAssignments/{docId} {
+      allow read, write: if false; // Deprecated, use site.assignedSupervisors
+    }
+  }
+}

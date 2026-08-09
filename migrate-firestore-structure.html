@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firestore Structure Migration</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        button { padding: 10px 20px; margin: 5px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background: #45a049; }
+        .log { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 4px; font-family: monospace; white-space: pre-wrap; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Firestore Structure Migration</h1>
+        
+        <div class="section">
+            <h2>📋 Migration Tasks</h2>
+            <p>This script will migrate your Firestore data to the new structure:</p>
+            <ul>
+                <li>✅ Update Labour: currentSite → siteId</li>
+                <li>✅ Update Attendance: add siteId & buildingId</li>
+                <li>✅ Update Sites: add assignedSupervisors array</li>
+                <li>✅ Update Purchase Orders: add siteId</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>🚀 Run Migration</h2>
+            <button onclick="migrateLabour()">1. Migrate Labour Collection</button>
+            <button onclick="migrateAttendance()">2. Migrate Attendance Collection</button>
+            <button onclick="migrateSites()">3. Migrate Sites Collection</button>
+            <button onclick="migratePurchaseOrders()">4. Migrate Purchase Orders</button>
+            <button onclick="runAllMigrations()">🔥 RUN ALL MIGRATIONS</button>
+        </div>
+
+        <div class="section">
+            <h2>📊 Migration Log</h2>
+            <div id="log" class="log">Ready to start migration...</div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Firebase with your actual config
+        const firebaseConfig = {
+            apiKey: "AIzaSyAzEeofBjsiV-EglmTQexG9VVZ5uR5Rzi4",
+            authDomain: "siteflow-c93e8.firebaseapp.com",
+            projectId: "siteflow-c93e8",
+            storageBucket: "siteflow-c93e8.firebasestorage.app",
+            messagingSenderId: "619615369937",
+            appId: "1:619615369937:web:620f0bb66ad610955fe3f0",
+            measurementId: "G-PQYNR1BNXL"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+            logDiv.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function migrateLabour() {
+            log('🔄 Starting Labour migration...', 'info');
+            try {
+                const labourSnapshot = await db.collection('labour').get();
+                const siteNameToIdMap = new Map();
+                
+                // Build site name to ID map
+                const sitesSnapshot = await db.collection('sites').get();
+                sitesSnapshot.forEach(doc => {
+                    siteNameToIdMap.set(doc.data().name, doc.id);
+                });
+
+                let updatedCount = 0;
+                const batch = db.batch();
+                
+                for (const doc of labourSnapshot.docs) {
+                    const data = doc.data();
+                    if (data.currentSite && !data.siteId) {
+                        const siteId = siteNameToIdMap.get(data.currentSite);
+                        if (siteId) {
+                            batch.update(doc.ref, {
+                                siteId: siteId,
+                                buildingId: data.buildingId || null,
+                                joinDate: data.joinDate || new Date().toISOString().split('T')[0],
+                                dailyWage: data.dailyWage || 0
+                            });
+                            updatedCount++;
+                            log(`✅ Updating labour: ${data.name} → siteId: ${siteId}`);
+                        } else {
+                            log(`⚠️ Site not found for labour: ${data.name} (currentSite: ${data.currentSite})`, 'error');
+                        }
+                    }
+                }
+
+                if (updatedCount > 0) {
+                    await batch.commit();
+                    log(`✅ Labour migration completed: ${updatedCount} documents updated`, 'success');
+                } else {
+                    log('ℹ️ No labour documents needed migration', 'info');
+                }
+            } catch (error) {
+                log(`❌ Labour migration failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function migrateAttendance() {
+            log('🔄 Starting Attendance migration...', 'info');
+            try {
+                const attendanceSnapshot = await db.collection('attendance').get();
+                const labourIdToSiteMap = new Map();
+                
+                // Build labour ID to site ID map
+                const labourSnapshot = await db.collection('labour').get();
+                labourSnapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.siteId) {
+                        labourIdToSiteMap.set(doc.id, data.siteId);
+                    }
+                });
+
+                let updatedCount = 0;
+                const batch = db.batch();
+                
+                for (const doc of attendanceSnapshot.docs) {
+                    const data = doc.data();
+                    const siteId = labourIdToSiteMap.get(data.labourId);
+                    
+                    if (siteId && !data.siteId) {
+                        batch.update(doc.ref, {
+                            siteId: siteId,
+                            buildingId: data.buildingId || null,
+                            supervisorId: data.supervisorId || null
+                        });
+                        updatedCount++;
+                        log(`✅ Updating attendance for labour: ${data.labourId} → siteId: ${siteId}`);
+                    }
+                }
+
+                if (updatedCount > 0) {
+                    await batch.commit();
+                    log(`✅ Attendance migration completed: ${updatedCount} documents updated`, 'success');
+                } else {
+                    log('ℹ️ No attendance documents needed migration', 'info');
+                }
+            } catch (error) {
+                log(`❌ Attendance migration failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function migrateSites() {
+            log('🔄 Starting Sites migration...', 'info');
+            try {
+                const sitesSnapshot = await db.collection('sites').get();
+                let updatedCount = 0;
+                const batch = db.batch();
+                
+                for (const doc of sitesSnapshot.docs) {
+                    const data = doc.data();
+                    if (!data.assignedSupervisors) {
+                        batch.update(doc.ref, {
+                            assignedSupervisors: data.assignedSupervisors || [],
+                            createdBy: data.createdBy || 'admin'
+                        });
+                        updatedCount++;
+                        log(`✅ Updating site: ${data.name} → added assignedSupervisors array`);
+                    }
+                }
+
+                if (updatedCount > 0) {
+                    await batch.commit();
+                    log(`✅ Sites migration completed: ${updatedCount} documents updated`, 'success');
+                } else {
+                    log('ℹ️ No site documents needed migration', 'info');
+                }
+            } catch (error) {
+                log(`❌ Sites migration failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function migratePurchaseOrders() {
+            log('🔄 Starting Purchase Orders migration...', 'info');
+            try {
+                const purchaseOrdersSnapshot = await db.collection('purchaseOrders').get();
+                let updatedCount = 0;
+                const batch = db.batch();
+                
+                for (const doc of purchaseOrdersSnapshot.docs) {
+                    const data = doc.data();
+                    if (!data.siteId) {
+                        batch.update(doc.ref, {
+                            siteId: data.siteId || null
+                        });
+                        updatedCount++;
+                        log(`✅ Updating purchase order: ${data.materialName} → added siteId field`);
+                    }
+                }
+
+                if (updatedCount > 0) {
+                    await batch.commit();
+                    log(`✅ Purchase Orders migration completed: ${updatedCount} documents updated`, 'success');
+                } else {
+                    log('ℹ️ No purchase order documents needed migration', 'info');
+                }
+            } catch (error) {
+                log(`❌ Purchase Orders migration failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function runAllMigrations() {
+            log('🚀 Starting complete migration...', 'info');
+            await migrateLabour();
+            await migrateAttendance();
+            await migrateSites();
+            await migratePurchaseOrders();
+            log('🎉 Complete migration finished!', 'success');
+        }
+    </script>
+</body>
+</html>
