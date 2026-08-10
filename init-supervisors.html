@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Initialize Supervisors</title>
+</head>
+<body>
+    <h1>Initializing Supervisors...</h1>
+    <div id="output"></div>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-app.js";
+        import { getFirestore, collection, getDocs, addDoc, doc, updateDoc, query, where } from "https://www.gstatic.com/firebasejs/9.15.0/firebase-firestore.js";
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyAzEeofBjsiV-EglmTQexG9VVZ5uR5Rzi4",
+            authDomain: "siteflow-c93e8.firebaseapp.com",
+            projectId: "siteflow-c93e8",
+            storageBucket: "siteflow-c93e8.firebasestorage.app",
+            messagingSenderId: "619615369937",
+            appId: "1:619615369937:web:620f0bb66ad610955fe3f0"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        
+        async function initializeSupervisors() {
+            const output = document.getElementById('output');
+            
+            try {
+                // Get all sites
+                const sitesSnapshot = await getDocs(collection(db, 'sites'));
+                const allSites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                output.innerHTML += `<p>Found ${allSites.length} sites in database</p>`;
+                
+                // Create supervisors
+                const supervisorsToCreate = [
+                    {
+                        email: 'aodedra259@rku.ac.in',
+                        name: 'Ashish Sakariya',
+                        phone: '+1234567890',
+                        assignedSites: allSites.slice(0, 2).map(s => s.id)
+                    },
+                    {
+                        email: 'odedraarjun0007@gmail.com', 
+                        name: 'Arjun Odedra',
+                        phone: '+0987654321',
+                        assignedSites: allSites.slice(2, 4).map(s => s.id)
+                    }
+                ];
+                
+                for (const supervisorConfig of supervisorsToCreate) {
+                    output.innerHTML += `<p>Processing supervisor: ${supervisorConfig.email}</p>`;
+                    
+                    // Check if supervisor exists
+                    const supervisorSnapshot = await getDocs(
+                        query(collection(db, 'supervisors'), where('email', '==', supervisorConfig.email))
+                    );
+                    
+                    if (supervisorSnapshot.docs.length > 0) {
+                        output.innerHTML += `<p>✅ Supervisor ${supervisorConfig.email} already exists</p>`;
+                    } else {
+                        // Create new supervisor
+                        await addDoc(collection(db, 'supervisors'), {
+                            name: supervisorConfig.name,
+                            email: supervisorConfig.email,
+                            phone: supervisorConfig.phone,
+                            assignedSites: supervisorConfig.assignedSites,
+                            status: 'active',
+                            createdAt: new Date().toISOString()
+                        });
+                        output.innerHTML += `<p>✅ Created supervisor ${supervisorConfig.email}</p>`;
+                    }
+                }
+                
+                // Update sites with assignedSupervisors (THIS IS THE KEY FIX)
+                
+                try {
+                    // First, get all existing sites
+                    const sitesSnapshot = await getDocs(collection(db, 'sites'));
+                    const allSites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    
+                    if (allSites.length === 0) {
+                        output.innerHTML += `<p style="color: orange;">⚠️ No sites found in database. Please create sites first from admin panel.</p>`;
+                        return;
+                    }
+                    
+                    output.innerHTML += `<p>Found ${allSites.length} sites in database</p>`;
+                    
+                    // Update first 2 sites with supervisor assignments
+                    for (let i = 0; i < Math.min(2, allSites.length); i++) {
+                        const site = allSites[i];
+                        const siteRef = doc(db, 'sites', site.id);
+                        
+                        if (i === 0) {
+                            // Assign first site to aodedra259@rku.ac.in
+                            await updateDoc(siteRef, {
+                                assignedSupervisors: ['aodedra259@rku.ac.in']
+                            });
+                            output.innerHTML += `<p>✅ Updated site "${site.name || site.id}" with supervisor aodedra259@rku.ac.in</p>`;
+                        } else if (i === 1) {
+                            // Assign second site to odedraarjun0007@gmail.com
+                            await updateDoc(siteRef, {
+                                assignedSupervisors: ['odedraarjun0007@gmail.com']
+                            });
+                            output.innerHTML += `<p>✅ Updated site "${site.name || site.id}" with supervisor odedraarjun0007@gmail.com</p>`;
+                        }
+                    }
+                    
+                } catch (error) {
+                    output.innerHTML += `<p style="color: red;">❌ Error updating sites: ${error.message}</p>`;
+                }
+                
+                output.innerHTML += `<p><strong>✅ Site assignment complete!</strong></p>`;
+                output.innerHTML += `<p>Now refresh your app and check the supervisor dashboard.</p>`;
+                
+            } catch (error) {
+                output.innerHTML += `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run initialization
+        initializeSupervisors();
+    </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "resourceName": "s32aa191b3",
+  "policyUUID": "2aa191b3",
+  "bucketName": "sitemanagerf1cd868329a04d3794f21eda9fcdc737",
+  "storageAccess": "auth",
+  "guestAccess": [],
+  "authAccess": [
+    "CREATE_AND_UPDATE",
+    "READ",
+    "DELETE"
+  ],
+  "triggerFunction": "S3Triggerfd991313",
+  "groupAccess": {}
+}
