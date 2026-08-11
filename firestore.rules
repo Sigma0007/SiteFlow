@@ -77,7 +77,15 @@ service cloud.firestore {
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{email} {
       allow read:  if isAuthenticated() && (request.auth.token.email == email || isAdmin());
-      allow write: if isAuthenticated() && isAdmin();
+      allow write: if isAuthenticated() && (isAdmin() || (request.auth.token.email == email && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'tokenUpdatedAt'])));
+      allow create: if isAuthenticated() && (isAdmin() || (request.auth.token.email == email && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'tokenUpdatedAt', 'email', 'createdAt'])));
+    }
+
+    // ── Notifications ───────────────────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      allow read:  if isAuthenticated() && (request.auth.token.email == resource.data.recipientEmail || isAdmin());
+      allow create: if isAuthenticated() && (request.auth.token.email == request.resource.data.recipientEmail || isAdmin() || isSupervisor());
+      allow update: if isAuthenticated() && (request.auth.token.email == resource.data.recipientEmail || isAdmin());
     }
 
     // ── Supervisors ───────────────────────────────────────────────────────────

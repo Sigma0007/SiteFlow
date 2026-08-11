@@ -450,6 +450,7 @@ const Dashboard = ({ userRole }) => {
               onClick={() => setShowDPRFlow(true)}
               className="bg-gradient-to-br from-emerald-500 to-teal-600 p-5 rounded-[1.5rem] shadow-2xl flex items-center justify-between cursor-pointer text-white relative overflow-hidden group"
             >
+              <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:bg-white/20 transition-colors" />
               <div className="flex items-center gap-3 relative z-10">
                 <div className="bg-white/20 p-3 rounded-2xl backdrop-blur-xl border border-white/30 shadow-inner">
                   <Building2 className="w-7 h-7 text-white" />
@@ -477,10 +478,7 @@ const Dashboard = ({ userRole }) => {
               { icon: Package, label: 'Inventory', path: '/materials', color: 'bg-orange-500', desc: 'MATERIALS' }
             ] : []),
             { icon: DollarSign, label: 'PO Requests', path: '/po-requests', color: 'bg-amber-500', desc: 'PURCHASES' },
-            // ...(userRole === 'admin' ? [
-            //   { icon: TrendingUp, label: 'Reports', path: '/reports', color: 'bg-indigo-500', desc: 'ANALYTICS' },
-            //   { icon: UserPlus, label: 'Supervisors', path: '/supervisor-management', color: 'bg-purple-500', desc: 'TEAM' }
-            // ] : []),
+            { icon: TrendingUp, label: 'Monthly Report', path: '/reports', color: 'bg-purple-500', desc: 'ANALYSIS' },
             {
               icon: LogOut,
               label: 'Logout',

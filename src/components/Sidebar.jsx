@@ -12,7 +12,8 @@ import {
   Menu,
   X,
   HardDrive,
-  User
+  User,
+  Download
 } from 'lucide-react'
 import { useAuth } from './Auth'
 import { supervisorServices, convertDocsToArray } from '../services/firebaseServices'
@@ -49,30 +50,29 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
   //   fetchSupervisorData()
   // }, [userRole, user?.email])
 
-  // Role-based menu items (Commented out per User Request)
+  // Role-based menu items
   const getSupervisorMenuItems = () => [
-    /*
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/dpr', icon: FileText, label: 'Daily Progress' },
+    { path: '/dpr', icon: FileText, label: 'Daily Progress Report' },
+    { path: '/dpr-report', icon: Download, label: 'DPR Report' },
+    { path: '/reports', icon: Download, label: 'Monthly Report' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'My Sites' },
-    // { path: '/po-requests', icon: FileText, label: 'PO Requests' },
-    // { path: '/processes', icon: ListChecks, label: 'Processes' }
-    */
+    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
+    { path: '/daily-process', icon: ListChecks, label: 'Daily Process' }
   ];
 
   const getAdminMenuItems = () => [
-    /*
     { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/dpr', icon: FileText, label: 'Daily Progress' },
+    { path: '/dpr', icon: FileText, label: 'Daily Progress Report' },
+    { path: '/dpr-report', icon: Download, label: 'DPR Report' },
     { path: '/attendance', icon: Users, label: 'Attendance' },
     { path: '/sites', icon: Building2, label: 'Site Management' },
     { path: '/materials', icon: Package, label: 'Materials' },
-    // { path: '/po-requests', icon: FileText, label: 'PO Requests' },
-    // { path: '/processes', icon: ListChecks, label: 'Processes' },
-    // { path: '/reports', icon: FileText, label: 'Reports' },
+    { path: '/po-requests', icon: FileText, label: 'PO Requests' },
+    { path: '/daily-process', icon: ListChecks, label: 'Daily Process' },
+    { path: '/reports', icon: Download, label: 'Monthly Report' },
     { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
-    */
   ];
 
   const menuItems = userRole === 'supervisor' ? getSupervisorMenuItems() : getAdminMenuItems();

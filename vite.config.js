@@ -90,7 +90,7 @@ export default defineConfig(({ command }) => ({
   },
   server: {
     headers: {
-      'Content-Security-Policy': "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com;"
+      'Content-Security-Policy': "default-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://cdn.onesignal.com https://*.onesignal.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://cdn.onesignal.com https://*.onesignal.com; connect-src 'self' https://*.firebase.com https://*.googleapis.com https://onesignal.com https://*.onesignal.com https://site-manager-notifications.siteflow.workers.dev; img-src 'self' data: https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://*.onesignal.com; style-src 'self' 'unsafe-inline' https://*.googleapis.com; font-src 'self' https://*.gstatic.com https://*.googleapis.com;"
     }
   }
 }))

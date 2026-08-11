@@ -225,8 +225,8 @@ const DPRHistory = () => {
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">No Reports Found</h3>
               <p className="text-gray-500 max-w-sm mx-auto">
-                {searchTerm 
-                  ? "We couldn't find any reports matching that date." 
+                {searchTerm
+                  ? "We couldn't find any reports matching that date."
                   : "No daily progress reports have been submitted for this site yet."}
               </p>
               {!searchTerm && (
@@ -239,60 +239,124 @@ const DPRHistory = () => {
               )}
             </div>
           ) : (
-            <div className="space-y-4">
-              <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest pl-1 mb-4">
-                Total Reports: {filteredReports.length}
-              </h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <AnimatePresence>
-                  {filteredReports.map((report, index) => (
-                    <motion.div
-                      key={report.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      whileHover={{ y: -4, scale: 1.01 }}
-                      onClick={() => navigate(`/dpr/${siteId}/report/${report.date}`)}
-                      className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:border-blue-100 transition-all flex items-center justify-between group"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                          <Calendar className="w-6 h-6" />
-                        </div>
-                        <div>
-                          <p className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                            {new Date(report.date).toLocaleDateString('en-GB', { 
-                              day: '2-digit', 
-                              month: 'long', 
-                              year: 'numeric' 
-                            })}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-xs font-bold text-gray-400 flex items-center gap-1">
-                              <Clock className="w-3 h-3" /> {report.date}
+            <div className="space-y-8">
+              {/* Last 5 Days Quick Access */}
+              {!searchTerm && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                    <h2 className="text-lg font-bold text-gray-900">Basic DPR History (Last 5 Days)</h2>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">Quick access to recently submitted DPR records</p>
+                  
+                  {filteredReports.slice(0, 5).length > 0 ? (
+                    <div className="space-y-2">
+                      {filteredReports.slice(0, 5).map((report) => (
+                        <button
+                          key={report.id}
+                          onClick={() => {
+                            if (report.status === 'draft' || !report.status) {
+                              const url = report.buildingId
+                                ? `/dpr/${siteId}/${report.buildingId}`
+                                : `/dpr/${siteId}`;
+                              navigate(url);
+                            } else {
+                              navigate(`/dpr/${siteId}/report/${report.date}`);
+                            }
+                          }}
+                          className="w-full flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Calendar className="w-4 h-4 text-gray-500" />
+                            <span className="font-medium text-gray-900">{report.date}</span>
+                            {report.buildingName && (
+                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                {report.buildingName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                              report.status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {report.status || 'draft'}
                             </span>
-                            <span className="text-[10px] font-black uppercase tracking-wider bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                              Completed
-                            </span>
+                            <ChevronRight className="w-4 h-4 text-gray-400" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 italic">No recent DPR records found</p>
+                  )}
+                </div>
+              )}
+
+              {/* All Reports */}
+              <div className="space-y-4">
+                <h2 className="text-sm font-black text-gray-400 uppercase tracking-widest pl-1 mb-4">
+                  All Reports: {filteredReports.length}
+                </h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AnimatePresence>
+                    {filteredReports.map((report, index) => (
+                      <motion.div
+                        key={report.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        whileHover={{ y: -4, scale: 1.01 }}
+                        onClick={() => {
+                          if (report.status === 'draft' || !report.status) {
+                            const url = report.buildingId
+                              ? `/dpr/${siteId}/${report.buildingId}`
+                              : `/dpr/${siteId}`;
+                            navigate(url);
+                          } else {
+                            navigate(`/dpr/${siteId}/report/${report.date}`);
+                          }
+                        }}
+                        className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:border-blue-100 transition-all flex items-center justify-between group"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            <Calendar className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                              {new Date(report.date).toLocaleDateString('en-GB', {
+                                day: '2-digit',
+                                month: 'long',
+                                year: 'numeric'
+                              })}
+                            </p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-xs font-bold text-gray-400 flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> {report.date}
+                              </span>
+                              <span className="text-[10px] font-black uppercase tracking-wider bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                Completed
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={(e) => handleDeleteReport(e, report.id)}
-                          className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all z-10"
-                          title="Delete Report"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                        <div className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all">
-                          <ChevronRight className="w-5 h-5" />
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => handleDeleteReport(e, report.id)}
+                            className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 hover:bg-red-50 hover:text-red-600 hover:border-red-100 transition-all z-10"
+                            title="Delete Report"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                          <div className="w-10 h-10 rounded-full border border-gray-100 flex items-center justify-center text-gray-400 group-hover:bg-blue-50 group-hover:text-blue-600 group-hover:border-blue-100 transition-all">
+                            <ChevronRight className="w-5 h-5" />
+                          </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                </div>
               </div>
             </div>
           )}

@@ -147,11 +147,44 @@ const DPRReportView = () => {
             </div>
           </div>
 
-          {/* Section 1: Process Highlights */}
+          {/* Section 1: Process Entries */}
+          {(dpr?.processEntries && dpr.processEntries.length > 0) && (
           <div className="mb-10 page-break-inside-avoid">
             <div className="flex items-center gap-2 mb-4">
               <CheckSquare className="w-5 h-5 text-gray-700" />
-              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Work Progress</h2>
+              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Today's Process Work</h2>
+            </div>
+            
+            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Work Description</th>
+                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Quantity</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unit</th>
+                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Remark</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {dpr.processEntries.map((entry, idx) => (
+                    <tr key={idx}>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{entry.work}</td>
+                      <td className="px-6 py-3 text-sm text-gray-900 font-bold text-right">{entry.quantity}</td>
+                      <td className="px-6 py-3 text-sm text-gray-600">{entry.unit}</td>
+                      <td className="px-6 py-3 text-sm text-gray-600">{entry.remark || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          )}
+
+          {/* Section 2: Work Progress Summary */}
+          {/* <div className="mb-10 page-break-inside-avoid">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckSquare className="w-5 h-5 text-gray-700" />
+              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Work Progress Summary</h2>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 bg-gray-50 p-6 rounded-lg border border-gray-200">
@@ -178,7 +211,7 @@ const DPRReportView = () => {
                 <div className="bg-gray-900 h-2.5 rounded-full print:bg-gray-600" style={{ width: `${overridePercent}%` }}></div>
               </div>
             </div>
-          </div>
+          </div> */}
 
           {/* Section 2: Attendance */}
           <div className="mb-10 page-break-inside-avoid">

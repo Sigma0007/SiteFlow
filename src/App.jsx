@@ -28,8 +28,9 @@ import {
 
 } from 'lucide-react'
 
-import { initializeSampleSupervisor, initializeUserDocuments, migrateEmailToUidBasedUsers, fixSupervisorSiteAssignments } from './services/firebaseServices'
+import { initializeSampleSupervisor, initializeUserDocuments, migrateEmailToUidBasedUsers, fixSupervisorSiteAssignments, notificationServices } from './services/firebaseServices'
 import { setupClientAccounts } from './setupAccounts'
+import oneSignalService from './services/oneSignalService'
 
 
 import Dashboard from './pages/Dashboard'
@@ -46,6 +47,14 @@ import Reports from './pages/Reports'
 
 import PORequests from './pages/PORequests'
 
+import DailyProcessEntry from './pages/DailyProcessEntry'
+
+import ReportsPage from './pages/ReportsPage'
+
+import MonthlyReportsSelector from './pages/MonthlyReportsSelector'
+
+import DPRReport from './pages/DPRReport'
+
 import StorageMonitor from './pages/StorageMonitor'
 
 import FirebaseDebugger from './components/FirebaseDebugger'
@@ -53,6 +62,7 @@ import FirebaseDebugger from './components/FirebaseDebugger'
 import SupervisorManagement from './components/SupervisorManagement'
 import Sidebar from './components/Sidebar'
 import PWAInstallPrompt from './components/PWAInstallPrompt'
+import NotificationBell from './components/NotificationBell'
 import { AuthProvider, useAuth, LoginForm, UserMenu } from './components/Auth'
 import { SupervisorProvider } from './contexts/SupervisorContext.jsx'
 import DPRSites from './pages/DPRSites'
@@ -119,6 +129,16 @@ const AppContent = () => {
     }
 
   }, [user, userRole])
+
+  // Setup OneSignal push notifications
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const appId = import.meta.env.VITE_ONESIGNAL_APP_ID;
+    if (appId) {
+      oneSignalService.initialize(appId, user.email);
+    }
+  }, [user?.email]);
 
 
 
@@ -396,7 +416,12 @@ const AppContent = () => {
       {/* Sidebar and Navbar fully hidden per user request */}
 
       {/* Main Content Area - Full Width */}
-      <div className="flex-1 overflow-auto w-full">
+      <div className="flex-1 overflow-auto w-full relative">
+        
+        {/* Fixed Notification Bell in top right */}
+        <div className="fixed top-4 right-4 z-50">
+          <NotificationBell />
+        </div>
 
         <AnimatePresence mode="wait">
 
@@ -432,6 +457,7 @@ const AppContent = () => {
               />
               <Route path="/dpr" element={<DPRSites userRole={userRole} />} />
               <Route path="/dpr/:siteId" element={<DPRSiteDetails userRole={userRole} />} />
+              <Route path="/dpr/:siteId/:buildingId" element={<DPRSiteDetails userRole={userRole} />} />
               <Route path="/dpr/:siteId/history" element={<DPRHistory userRole={userRole} />} />
               <Route path="/dpr/:siteId/report/:date" element={<DPRReportView />} />
               <Route
@@ -452,23 +478,13 @@ const AppContent = () => {
 
               <Route path="/po-requests" element={<PORequests userRole={userRole} />} />
 
+              <Route path="/daily-process" element={<DailyProcessEntry />} />
+
               <Route path="/processes" element={<ProcessManagement userRole={userRole} />} />
 
-              <Route
+              <Route path="/reports" element={<MonthlyReportsSelector />} />
 
-                path="/reports"
-
-                element={
-
-                  <ProtectedRoute userRole={userRole} allowedRoles={['admin']}>
-
-                    <Reports userRole={userRole} />
-
-                  </ProtectedRoute>
-
-                }
-
-              />
+              <Route path="/dpr-report" element={<DPRReport />} />
 
               <Route
 

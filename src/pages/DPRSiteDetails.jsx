@@ -15,11 +15,14 @@ import InputModal from '../components/InputModal';
 import { PlusCircle, MinusCircle } from 'lucide-react';
 
 const DPRSiteDetails = ({ userRole }) => {
-  const { siteId } = useParams();
+  const { siteId, buildingId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
 
   const [site, setSite] = useState(null);
+  const [building, setBuilding] = useState(null);
+  const [siteBuildings, setSiteBuildings] = useState([]); // all buildings for this site
+  const [buildingsLoading, setBuildingsLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1); // 1=Process 2=Attendance 3=Materials
   const [loading, setLoading] = useState(true);
 
@@ -29,29 +32,14 @@ const DPRSiteDetails = ({ userRole }) => {
   const [todayAttendance, setTodayAttendance] = useState([]);
   const [todayDpr, setTodayDpr] = useState(null);
 
-  // Process tracking
-  const [expandedProcess, setExpandedProcess] = useState(null);
-  const [processInputs, setProcessInputs] = useState({});
+  // Process entries state (dynamic)
+  const [processEntries, setProcessEntries] = useState([
+    { id: Date.now(), work: '', quantity: '', unit: 'sq', remark: '' }
+  ]);
+  const [savingProcess, setSavingProcess] = useState(false);
 
-  // 8 Waterproofing Processes
-  const PROCESSES = [
-    {
-      key: 'cleaning', name: 'Cleaning (Structure Preparation)', subProcesses: [
-        { key: 'chipping', name: 'Chipping' },
-        { key: 'grinding', name: 'Grinding' },
-        { key: 'washing', name: 'Washing (Pressure Jet)' }
-      ]
-    },
-    { key: 'primer_coat', name: 'Primer Coat', subProcesses: [] },
-    { key: 'crack_filling', name: 'Crack Filling', subProcesses: [] },
-    { key: 'pipe_sealing', name: 'Pipe Sealing', subProcesses: [] },
-    { key: 'net_coat', name: 'Net Coat (Base Coat)', subProcesses: [] },
-    { key: 'final_coat', name: 'Final Coat', subProcesses: [] },
-    { key: 'testing', name: 'Testing', subProcesses: [] },
-    { key: 'repairing', name: 'Repairing', subProcesses: [] }
-  ];
-
-  const todayDate = new Date().toISOString().split('T')[0];
+  // Daily worker count management
+  const [dailyWorkerCounts, setDailyWorkerCounts] = useState({});
 
   // Status Modal State
   const [statusModal, setStatusModal] = useState({
@@ -97,9 +85,27 @@ const DPRSiteDetails = ({ userRole }) => {
     });
   };
 
+  const todayDate = new Date().toISOString().split('T')[0];
+
   const loadData = () => {
     // Kept for manual reloads if absolutely necessary, but onSnapshot handles it automatically
   };
+
+  // Fetch buildings for this site (needed for building picker)
+  useEffect(() => {
+    if (!siteId) return;
+    setBuildingsLoading(true);
+    const unsubBldg = onSnapshot(
+      query(collection(db, 'buildings'), where('siteId', '==', siteId)),
+      (snap) => {
+        const bldgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setSiteBuildings(bldgs);
+        setBuildingsLoading(false);
+      },
+      (err) => { console.error('Buildings fetch error:', err); setBuildingsLoading(false); }
+    );
+    return () => unsubBldg();
+  }, [siteId]);
 
   useEffect(() => {
     if (!siteId) return;
@@ -117,42 +123,61 @@ const DPRSiteDetails = ({ userRole }) => {
       }, (err) => console.error('Site Error:', err))
     );
 
-    // 2. Fetch Materials
+    // 2. Fetch Building if buildingId is provided
+    if (buildingId) {
+      unsubscribers.push(
+        onSnapshot(doc(db, 'buildings', buildingId), (buildingDoc) => {
+          if (buildingDoc.exists()) {
+            setBuilding({ id: buildingDoc.id, ...buildingDoc.data() });
+          }
+        }, (err) => console.error('Building Error:', err))
+      );
+    }
+
+    // 3. Fetch Materials
     unsubscribers.push(
       onSnapshot(collection(db, 'materials'), (snap) => {
         setAllMaterials(convertDocsToArray(snap));
       }, (err) => console.error('Material Error:', err))
     );
 
-    // 3. Fetch Labour
+    // 4. Fetch Labour
     unsubscribers.push(
       onSnapshot(collection(db, 'labour'), (snap) => {
         setAllLabour(convertDocsToArray(snap));
       }, (err) => console.error('Labour Error:', err))
     );
 
-    // 4. Fetch today's Attendance
+    // 5. Fetch today's Attendance
     unsubscribers.push(
       onSnapshot(query(collection(db, 'attendance'), where('date', '==', todayDate)), (snap) => {
         setTodayAttendance(convertDocsToArray(snap));
       }, (err) => console.error('Attendance Error:', err))
     );
 
-    // 5. Fetch DPR
+    // 6. Fetch DPR and load process entries (filter by buildingId if provided)
+    const dprQuery = buildingId
+      ? query(collection(db, 'dpr'), where('siteId', '==', siteId), where('buildingId', '==', buildingId))
+      : query(collection(db, 'dpr'), where('siteId', '==', siteId));
+
     unsubscribers.push(
-      onSnapshot(query(collection(db, 'dpr'), where('siteId', '==', siteId)), (snap) => {
+      onSnapshot(dprQuery, (snap) => {
         const allDprs = convertDocsToArray(snap);
         const todays = allDprs.find(d => d.date === todayDate && !d.is_deleted);
         setTodayDpr(todays || null);
+        // Load saved process entries
+        if (todays?.processEntries?.length > 0) {
+          setProcessEntries(todays.processEntries);
+        }
       }, (err) => console.error('DPR Error:', err))
     );
 
-    // 6. Expenses removed from DPR flow
+    // 7. Expenses removed from DPR flow
 
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [siteId, todayDate]);
+  }, [siteId, buildingId, todayDate]);
 
   // --- TAB: MATERIALS ---
   const [matSearch, setMatSearch] = useState('');
@@ -222,7 +247,9 @@ const DPRSiteDetails = ({ userRole }) => {
         const newDpr = {
           date: todayDate,
           siteId,
+          buildingId: buildingId || null,
           siteName: site.name,
+          buildingName: building?.name || null,
           materialUsage: [],
           status: 'submitted',
           createdAt: new Date().toISOString()
@@ -301,6 +328,145 @@ const DPRSiteDetails = ({ userRole }) => {
     }
   };
 
+  const getDailyWorkerCount = () => {
+    return dailyWorkerCounts[siteId] || 0
+  }
+
+  const saveDailyWorkersToDPR = async (count) => {
+    try {
+      // Create attendance record for daily workers
+      const attendanceData = {
+        employeeId: `daily-${siteId}-${todayDate}`,
+        siteId: siteId,
+        buildingId: null,
+        supervisorId: user?.uid || null,
+        date: todayDate,
+        status: 'present',
+        isDailyWorker: true,
+        dailyWorkerCount: count,
+        checkIn: new Date().toTimeString().slice(0, 5),
+        checkOut: '17:30',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+
+      // Check if record already exists
+      const existingRecord = todayAttendance.find(record =>
+        record.employeeId === attendanceData.employeeId &&
+        record.date === todayDate
+      )
+
+      if (existingRecord) {
+        await attendanceServices.updateAttendance(existingRecord.id, {
+          ...attendanceData,
+          dailyWorkerCount: count
+        })
+      } else {
+        await attendanceServices.addAttendance(attendanceData)
+      }
+
+      // Also update DPR to include daily worker count
+      if (todayDpr) {
+        await dprServices.updateDPR(todayDpr.id, {
+          dailyWorkerCount: count,
+          updatedAt: new Date().toISOString()
+        })
+        setTodayDpr(prev => ({ ...prev, dailyWorkerCount: count }))
+      }
+
+      // Reload data to sync (silent, no alert)
+      loadData()
+    } catch (err) {
+      console.error('Error saving daily workers:', err)
+      showAlert('Error', 'Failed to save daily workers', 'error')
+    }
+  }
+
+  // Daily Worker Count Management with +/- buttons
+  const handleDailyWorkerCountChange = (change) => {
+    setDailyWorkerCounts(prev => {
+      const currentCount = prev[siteId] || 0
+      const newCount = Math.max(0, currentCount + change)
+      const actualChange = newCount - currentCount
+      
+      // Calculate total daily workers from attendance page (global pool = all today's daily records)
+      const totalPool = todayAttendance
+        .filter(a => a.isDailyWorker && a.date === todayDate)
+        .reduce((sum, a) => sum + (a.dailyWorkerCount || 0), 0)
+      
+      // Calculate total assigned to real sites (excluding unassigned pool)
+      const totalAssigned = Object.entries(prev).reduce((sum, [key, count]) => {
+        if (key === 'unassigned') return sum  // skip pool bucket
+        if (key !== siteId) return sum + count
+        return sum + newCount  // Use newCount for current site
+      }, 0)
+      
+      // Check if we have enough workers in global pool
+      if (actualChange > 0 && totalAssigned > totalPool) {
+        showAlert('Error', `Only ${totalPool - (totalAssigned - actualChange)} workers available from total pool`, 'error')
+        return prev
+      }
+      
+      return { ...prev, [siteId]: newCount }
+    })
+  }
+
+  // Get total daily workers added today from AttendanceSimple (unassigned pool only)
+  const getTotalDailyWorkersPool = () => {
+    return todayAttendance
+      .filter(a => a.isDailyWorker && a.date === todayDate && a.siteId === 'unassigned')
+      .reduce((sum, a) => sum + (a.dailyWorkerCount || 0), 0)
+  }
+
+  // Get total assigned to real sites (excluding the unassigned pool bucket)
+  const getTotalAssignedDailyWorkers = () => {
+    return Object.entries(dailyWorkerCounts)
+      .filter(([key]) => key !== 'unassigned')
+      .reduce((sum, [, count]) => sum + count, 0)
+  }
+
+  // Get current site assigned daily workers
+  const getAssignedDailyWorkers = () => {
+    return dailyWorkerCounts[siteId] || 0
+  }
+
+  // Get remaining workers to assign from global pool
+  const getRemainingDailyWorkers = () => {
+    const totalPool = getTotalDailyWorkersPool()
+    const totalAssigned = getTotalAssignedDailyWorkers()
+    return totalPool - totalAssigned
+  }
+
+  // Load existing daily worker count from attendance
+  useEffect(() => {
+    // Get all daily worker records for today
+    const dailyRecords = todayAttendance.filter(record => 
+      record.isDailyWorker && 
+      record.date === todayDate
+    )
+    
+    // Calculate counts for all sites using latest record per site
+    const counts = {}
+    const latestRecords = {}
+    dailyRecords.forEach(record => {
+      if (record.siteId) {
+        const key = record.siteId
+        if (!latestRecords[key] || new Date(record.updatedAt) > new Date(latestRecords[key].updatedAt)) {
+          latestRecords[key] = record
+        }
+      }
+    })
+    
+    // Use latest record count for each site
+    Object.values(latestRecords).forEach(record => {
+      if (record.dailyWorkerCount) {
+        counts[record.siteId] = record.dailyWorkerCount
+      }
+    })
+    
+    setDailyWorkerCounts(counts)
+  }, [todayAttendance, todayDate, siteId])
+
   // --- TAB: ATTENDANCE ---
   // The rule: If an employee is marked PRESENT at ANOTHER site today, do NOT show them here.
   // Also hide employees who are currently on leave.
@@ -310,6 +476,9 @@ const DPRSiteDetails = ({ userRole }) => {
     const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
     return !markedPresentElsewhere && !isOnLeave;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  // Filter to show daily staff (individual daily workers)
+  const dailyStaffEmployees = visibleEmployees.filter(emp => emp.employmentType === 'daily')
 
   const handleMarkAttendance = async (employeeId, status) => {
     try {
@@ -357,93 +526,187 @@ const DPRSiteDetails = ({ userRole }) => {
     }
   };
 
-  // --- TAB: PROCESS (Per-Process SQ FT % Tracking) ---
-  const getProcessDone = (processKey) => {
-    return (site?.processProgress?.[processKey]?.doneSq) || 0;
-  };
-
-  const getSubProcessDone = (processKey, subKey) => {
-    return (site?.processProgress?.[processKey]?.subProcesses?.[subKey]) || 0;
-  };
-
-  const getTodayProcessDone = (processKey) => {
-    return (todayDpr?.processProgress?.[processKey]?.doneSq) || 0;
-  };
-
-  const handleProcessSqUpdate = async (processKey, subKey = null) => {
-    const inputKey = subKey ? `${processKey}_${subKey}` : processKey;
-    const sqVal = parseFloat(processInputs[inputKey]);
-    if (!sqVal || sqVal <= 0) {
-      showAlert('Invalid', 'Please enter a valid sq ft value.', 'warning');
+  // --- NEW PROCESS: Save dynamic process entries to DPR ---
+  const saveProcessEntries = async () => {
+    const valid = processEntries.filter(e => e.work.trim() && e.quantity && e.unit);
+    if (valid.length === 0) {
+      showAlert('Validation', 'Please fill at least one process with Work, Quantity and Unit.', 'warning');
       return;
     }
-    ``
+
+    // Check 48-hour edit restriction
+    if (todayDpr && todayDpr.createdAt) {
+      const createdAt = new Date(todayDpr.createdAt);
+      const now = new Date();
+      const hoursSinceCreation = (now - createdAt) / (1000 * 60 * 60);
+      
+      if (hoursSinceCreation > 48) {
+        showAlert(
+          'Edit Restricted',
+          'DPR can only be edited within 48 hours of creation. This DPR was created more than 48 hours ago.',
+          'error'
+        );
+        return;
+      }
+    }
+
+    setSavingProcess(true);
     try {
-      // 1. Update today's DPR processProgress
       let dprRef = todayDpr;
       if (!dprRef) {
         const newDpr = {
           date: todayDate,
           siteId,
+          buildingId: buildingId || null,
           siteName: site.name,
-          doneSq: 0,
-          processProgress: {},
-          status: 'submitted',
-          createdAt: new Date().toISOString()
+          buildingName: building?.name || null,
+          processEntries: valid,
+          status: 'draft',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         };
         const newDoc = await dprServices.addDPR(newDpr);
         dprRef = { id: newDoc.id, ...newDpr };
         setTodayDpr(dprRef);
-      }
-
-      const dprProgress = { ...(dprRef.processProgress || {}) };
-      if (!dprProgress[processKey]) dprProgress[processKey] = { doneSq: 0, subProcesses: {} };
-
-      if (subKey) {
-        if (!dprProgress[processKey].subProcesses) dprProgress[processKey].subProcesses = {};
-        dprProgress[processKey].subProcesses[subKey] = (dprProgress[processKey].subProcesses[subKey] || 0) + sqVal;
-        // Also add to parent process total
-        dprProgress[processKey].doneSq = (dprProgress[processKey].doneSq || 0) + sqVal;
       } else {
-        dprProgress[processKey].doneSq = (dprProgress[processKey].doneSq || 0) + sqVal;
+        await dprServices.updateDPR(dprRef.id, {
+          processEntries: valid,
+          updatedAt: new Date().toISOString()
+        });
+        setTodayDpr(prev => ({ ...prev, processEntries: valid }));
       }
-
-      // Update overall doneSq on DPR
-      const newOverallDoneSq = (dprRef.doneSq || 0) + sqVal;
-      await dprServices.updateDPR(dprRef.id, { processProgress: dprProgress, doneSq: newOverallDoneSq });
-      setTodayDpr(prev => ({ ...prev, processProgress: dprProgress, doneSq: newOverallDoneSq }));
-
-      // 2. Update site's cumulative processProgress
-      const siteProgress = { ...(site.processProgress || {}) };
-      if (!siteProgress[processKey]) siteProgress[processKey] = { doneSq: 0, subProcesses: {} };
-
-      if (subKey) {
-        if (!siteProgress[processKey].subProcesses) siteProgress[processKey].subProcesses = {};
-        siteProgress[processKey].subProcesses[subKey] = (siteProgress[processKey].subProcesses[subKey] || 0) + sqVal;
-        siteProgress[processKey].doneSq = (siteProgress[processKey].doneSq || 0) + sqVal;
-      } else {
-        siteProgress[processKey].doneSq = (siteProgress[processKey].doneSq || 0) + sqVal;
-      }
-
-      const newSiteDoneSq = (site.doneSq || 0) + sqVal;
-      await siteServices.updateSite(siteId, { processProgress: siteProgress, doneSq: newSiteDoneSq });
-      setSite(prev => ({ ...prev, processProgress: siteProgress, doneSq: newSiteDoneSq }));
-
-      // Clear input
-      setProcessInputs(prev => ({ ...prev, [inputKey]: '' }));
-      showAlert('Success', `Added ${sqVal} sq ft to ${subKey || processKey}!`);
+      showAlert('Saved', 'Process entries saved successfully!');
     } catch (err) {
       console.error(err);
-      showAlert('Error', 'Failed to update process progress.', 'error');
+      showAlert('Error', 'Failed to save process entries.', 'error');
+    } finally {
+      setSavingProcess(false);
     }
   };
 
-  if (loading) {
-    return <div className="p-8 text-center bg-gray-50 min-h-screen">Loading...</div>;
+  const addProcessEntry = () => {
+    setProcessEntries(prev => [...prev, { id: Date.now(), work: '', quantity: '', unit: 'sq', remark: '' }]);
+  };
+
+  const removeProcessEntry = (id) => {
+    setProcessEntries(prev => prev.filter(e => e.id !== id));
+  };
+
+  const updateProcessEntry = (id, field, value) => {
+    setProcessEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e));
+  };
+
+  if (loading || buildingsLoading) {
+    return (
+      <div className="p-8 text-center bg-gray-50 min-h-screen flex flex-col items-center justify-center gap-4">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+        <p className="text-gray-500 text-sm">Loading site data...</p>
+      </div>
+    );
   }
 
   if (!site) {
     return <div className="p-8 text-center text-red-600 bg-gray-50 min-h-screen">Site not found!</div>;
+  }
+
+  // --- BUILDING PICKER: Show when site has 2+ buildings and no buildingId in URL ---
+  if (!buildingId && siteBuildings.length > 1) {
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 py-5 flex items-center gap-4">
+            <button
+              onClick={() => navigate('/dpr')}
+              className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-gray-600"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <Building2 className="w-6 h-6 text-blue-600" />
+                {site.name}
+              </h1>
+              <p className="text-gray-500 text-sm mt-0.5">Select a building to start today's DPR</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Building Cards */}
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {siteBuildings.map((bldg, idx) => (
+              <motion.div
+                key={bldg.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.06 }}
+                whileHover={{ scale: 1.03, y: -2 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => navigate(`/dpr/${siteId}/${bldg.id}`)}
+                className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 cursor-pointer hover:shadow-lg hover:border-blue-300 transition-all group"
+              >
+                {/* Building image or placeholder */}
+                {/* <div className="w-full h-28 rounded-xl mb-4 overflow-hidden bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+                  {bldg.image ? (
+                    <img src={bldg.image} alt={bldg.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 className="w-12 h-12 text-blue-300" />
+                  )}
+                </div> */}
+
+                <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                  {bldg.name}
+                </h3>
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {bldg.buildingType && (
+                    <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full font-medium">
+                      {bldg.buildingType}
+                    </span>
+                  )}
+                  {bldg.buildingFloors && (
+                    <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
+                      {bldg.buildingFloors} floor{bldg.buildingFloors > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  {bldg.status && (
+                    <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${
+                      bldg.status === 'Active' ? 'bg-green-50 text-green-700' :
+                      bldg.status === 'Completed' ? 'bg-purple-50 text-purple-700' :
+                      'bg-yellow-50 text-yellow-700'
+                    }`}>
+                      {bldg.status}
+                    </span>
+                  )}
+                </div>
+
+                {/* Progress bar */}
+                {typeof bldg.buildingProgress === 'number' && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500">Progress</span>
+                      <span className="text-xs font-semibold text-blue-600">{bldg.buildingProgress}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className="bg-blue-500 h-1.5 rounded-full transition-all"
+                        style={{ width: `${Math.min(100, bldg.buildingProgress)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Tap to open DPR</span>
+                  <ChevronRight className="w-5 h-5 text-blue-400 group-hover:translate-x-1 transition-transform" />
+                </div> */}
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const siteMaterials = site.assignedMaterials || [];
@@ -464,10 +727,11 @@ const DPRSiteDetails = ({ userRole }) => {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
                   <Building2 className="w-6 h-6 text-blue-600" />
-                  {site.name} DPR
+                  {building ? `${building.name} DPR` : `${site.name} DPR`}
                 </h1>
                 <p className="text-gray-500 text-sm mt-1 flex items-center gap-1">
                   <Activity className="w-4 h-4" /> Today's Date: {todayDate}
+                  {building && <span> • {site.name}</span>}
                 </p>
               </div>
             </div>
@@ -527,140 +791,137 @@ const DPRSiteDetails = ({ userRole }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        {/* STEP 1: PROCESS SECTION */}
+        {/* STEP 1: PROCESS SECTION - Dynamic entries */}
         {currentStep === 1 && (
           <div className="space-y-4">
-            {/* Site Progress Overview */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Activity className="w-5 h-5 text-blue-600" /> Process Progress
-              </h3>
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider">Total Target</p>
-                  <p className="text-2xl font-bold text-gray-900">{siteTotalSq} <span className="text-sm font-normal text-gray-500">sq ft</span></p>
-                </div>
-                <div className="bg-blue-50 rounded-lg p-3">
-                  <p className="text-xs text-blue-500 uppercase tracking-wider">Total Done</p>
-                  <p className="text-2xl font-bold text-blue-600">{siteDoneSq} <span className="text-sm font-normal text-gray-500">sq ft</span></p>
-                </div>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-blue-50/40 flex items-center justify-between">
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-blue-600" /> Today's Work Log
+                </h3>
+                <span className="text-xs text-gray-400">{processEntries.filter(e=>e.work.trim()).length} entr{processEntries.filter(e=>e.work.trim()).length===1?'y':'ies'}</span>
               </div>
-              {/* Overall progress bar */}
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, processPercent)}%` }}></div>
+
+              <div className="p-4 space-y-3">
+                {/* Column headers */}
+                <div className="hidden sm:grid sm:grid-cols-[2fr_1fr_1fr_2fr_auto] gap-2 px-1">
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Work <span className="text-red-400">*</span></span>
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Quantity <span className="text-red-400">*</span></span>
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Unit <span className="text-red-400">*</span></span>
+                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Remark</span>
+                  <span className="w-8" />
+                </div>
+
+                <AnimatePresence>
+                  {processEntries.map((entry, idx) => (
+                    <motion.div
+                      key={entry.id}
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_2fr_auto] gap-2 p-3 bg-gray-50 rounded-xl border border-gray-200"
+                    >
+                      {/* Work */}
+                      <div>
+                        <label className="sm:hidden text-[10px] font-semibold text-gray-400 uppercase mb-1 block">Work *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Waterproofing"
+                          value={entry.work}
+                          onChange={e => updateProcessEntry(entry.id, 'work', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                      {/* Quantity */}
+                      <div>
+                        <label className="sm:hidden text-[10px] font-semibold text-gray-400 uppercase mb-1 block">Quantity *</label>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={entry.quantity}
+                          onChange={e => updateProcessEntry(entry.id, 'quantity', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                      {/* Unit */}
+                      <div>
+                        <label className="sm:hidden text-[10px] font-semibold text-gray-400 uppercase mb-1 block">Unit *</label>
+                        <select
+                          value={entry.unit}
+                          onChange={e => updateProcessEntry(entry.id, 'unit', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        >
+                          <option value="sq">Sq Ft</option>
+                          <option value="pieces">Pieces</option>
+                          <option value="rmt">RMT</option>
+                          <option value="kg">KG</option>
+                          <option value="ltr">Ltr</option>
+                          <option value="nos">Nos</option>
+                        </select>
+                      </div>
+                      {/* Remark */}
+                      <div>
+                        <label className="sm:hidden text-[10px] font-semibold text-gray-400 uppercase mb-1 block">Remark</label>
+                        <input
+                          type="text"
+                          placeholder="Optional note"
+                          value={entry.remark}
+                          onChange={e => updateProcessEntry(entry.id, 'remark', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                        />
+                      </div>
+                      {/* Delete */}
+                      <div className="flex items-end sm:items-center justify-end sm:justify-center">
+                        {processEntries.length > 1 && (
+                          <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => removeProcessEntry(entry.id)}
+                            className="w-8 h-8 rounded-lg bg-red-100 text-red-500 hover:bg-red-200 flex items-center justify-center transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </motion.button>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+
+                {/* Add Row button */}
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={addProcessEntry}
+                  className="w-full py-2.5 border-2 border-dashed border-blue-300 text-blue-500 rounded-xl text-sm font-medium hover:border-blue-400 hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Process
+                </motion.button>
               </div>
-              <p className="text-right text-sm font-bold text-blue-600 mt-1">{processPercent.toFixed(1)}%</p>
+
+              {/* Save button */}
+              <div className="px-4 pb-4">
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
+                  onClick={saveProcessEntries}
+                  disabled={savingProcess}
+                  className="w-full py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {savingProcess ? (
+                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving...</>
+                  ) : (
+                    <><CheckCircle className="w-4 h-4" /> Save Process Log</>
+                  )}
+                </motion.button>
+              </div>
             </div>
 
-            {/* Process Cards */}
-            {PROCESSES.map((proc, idx) => {
-              const doneSq = getProcessDone(proc.key);
-              const pct = siteTotalSq > 0 ? Math.min(100, (doneSq / siteTotalSq) * 100) : 0;
-              const todayDone = getTodayProcessDone(proc.key);
-              const isExpanded = expandedProcess === proc.key;
-              const hasSubProcesses = proc.subProcesses.length > 0;
-
-              return (
-                <motion.div
-                  key={proc.key}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-                >
-                  {/* Process Header */}
-                  <div
-                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition"
-                    onClick={() => setExpandedProcess(isExpanded ? null : proc.key)}
-                  >
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">{idx + 1}</div>
-                      <div className="flex-1">
-                        <p className="font-semibold text-gray-900">{proc.name}</p>
-                        <div className="flex items-center gap-3 mt-1">
-                          <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-[200px]">
-                            <div className={`h-2 rounded-full transition-all duration-500 ${pct >= 100 ? 'bg-green-500' : pct > 50 ? 'bg-blue-500' : pct > 0 ? 'bg-yellow-500' : 'bg-gray-300'}`} style={{ width: `${Math.min(100, pct)}%` }}></div>
-                          </div>
-                          <span className={`text-xs font-bold ${pct >= 100 ? 'text-green-600' : 'text-gray-600'}`}>{pct.toFixed(1)}%</span>
-                          <span className="text-xs text-gray-400">{doneSq}/{siteTotalSq} sq</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {todayDone > 0 && (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">+{todayDone} today</span>
-                      )}
-                      {isExpanded ? <ChevronDown className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
-                    </div>
-                  </div>
-
-                  {/* Expanded: Input + Sub-processes */}
-                  {isExpanded && (
-                    <div className="border-t border-gray-100 p-4 bg-gray-50 space-y-4">
-                      {/* Main process input (if no sub-processes) */}
-                      {!hasSubProcesses && (
-                        <div className="flex gap-3 items-end">
-                          <div className="flex-1">
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Add Sq Ft Done Today</label>
-                            <input
-                              type="number"
-                              value={processInputs[proc.key] || ''}
-                              onChange={e => setProcessInputs(prev => ({ ...prev, [proc.key]: e.target.value }))}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              placeholder="e.g. 200"
-                            />
-                          </div>
-                          <button
-                            onClick={() => handleProcessSqUpdate(proc.key)}
-                            className="px-5 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-sm"
-                          >
-                            + Add
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Sub-processes */}
-                      {hasSubProcesses && (
-                        <div className="space-y-3">
-                          {proc.subProcesses.map(sub => {
-                            const subDone = getSubProcessDone(proc.key, sub.key);
-                            const subPct = siteTotalSq > 0 ? Math.min(100, (subDone / siteTotalSq) * 100) : 0;
-                            const inputKey = `${proc.key}_${sub.key}`;
-
-                            return (
-                              <div key={sub.key} className="bg-white rounded-lg border border-gray-200 p-3">
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className="text-sm font-medium text-gray-800">{sub.name}</p>
-                                  <span className="text-xs font-bold text-gray-500">{subDone} sq ({subPct.toFixed(1)}%)</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-1.5 mb-3">
-                                  <div className={`h-1.5 rounded-full transition-all ${subPct >= 100 ? 'bg-green-500' : 'bg-blue-400'}`} style={{ width: `${Math.min(100, subPct)}%` }}></div>
-                                </div>
-                                <div className="flex gap-2 items-end">
-                                  <input
-                                    type="number"
-                                    value={processInputs[inputKey] || ''}
-                                    onChange={e => setProcessInputs(prev => ({ ...prev, [inputKey]: e.target.value }))}
-                                    className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Sq ft"
-                                  />
-                                  <button
-                                    onClick={() => handleProcessSqUpdate(proc.key, sub.key)}
-                                    className="px-4 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 text-sm"
-                                  >
-                                    + Add
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })}
+            {/* Next step shortcut */}
+            {/* <div className="flex justify-end">
+              <button
+                onClick={() => setCurrentStep(2)}
+                className="px-5 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors"
+              >
+                Next: Attendance →
+              </button>
+            </div> */}
           </div>
         )}
 
@@ -678,7 +939,67 @@ const DPRSiteDetails = ({ userRole }) => {
 
             {/* Attendance Count Cards */}
             <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
-              <div className="grid grid-cols-3 gap-4">
+              {/* Daily Worker Display - Clean 2-part layout */}
+              {(userRole === 'admin' || userRole === 'supervisor') && (
+                <div className="bg-purple-50 rounded-xl border border-purple-200 p-3 mb-4 flex items-center justify-between gap-3">
+                  {/* Left: Today's total daily staff (read-only) */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Users className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-purple-600 font-medium uppercase tracking-wide">Today's Daily Staff</p>
+                      <p className="text-2xl font-bold text-purple-800 leading-none">{getTotalDailyWorkersPool()}</p>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="w-px h-12 bg-purple-200 hidden sm:block" />
+
+                  {/* Right: Assign to this site */}
+                  <div className="flex flex-col items-center gap-1">
+                    <p className="text-[10px] text-purple-600 font-medium uppercase tracking-wide">At This Site</p>
+                    <div className="flex items-center gap-2">
+                      <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          const newCount = Math.max(0, getAssignedDailyWorkers() - 1)
+                          handleDailyWorkerCountChange(newCount - getAssignedDailyWorkers())
+                          saveDailyWorkersToDPR(newCount)
+                        }}
+                        className="w-8 h-8 rounded-lg bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-lg"
+                      >
+                        -
+                      </motion.button>
+                      <span className="text-2xl font-bold text-gray-800 w-10 text-center">{getAssignedDailyWorkers()}</span>
+                      <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          const remaining = getRemainingDailyWorkers()
+                          if (remaining <= 0) return
+                          const newCount = getAssignedDailyWorkers() + 1
+                          handleDailyWorkerCountChange(1)
+                          saveDailyWorkersToDPR(newCount)
+                        }}
+                        disabled={getRemainingDailyWorkers() <= 0}
+                        className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-lg transition-colors ${
+                          getRemainingDailyWorkers() <= 0
+                            ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                            : 'bg-green-100 text-green-600 hover:bg-green-200'
+                        }`}
+                      >
+                        +
+                      </motion.button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      {getRemainingDailyWorkers()} remaining
+                    </p>
+                  </div>
+                </div>
+              )}
+
+
+              <div className="grid grid-cols-4 gap-4 mb-4">
                 <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
                   <div className="text-2xl font-bold text-gray-800">{todayAttendance.filter(a => (a.status === 'present' || a.status === 'absent') && a.siteId === siteId).length}</div>
                   <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Marked</div>
@@ -691,7 +1012,13 @@ const DPRSiteDetails = ({ userRole }) => {
                   <div className="text-2xl font-bold text-red-600">{todayAttendance.filter(a => a.status === 'absent' && a.siteId === siteId).length}</div>
                   <div className="text-xs font-medium text-red-500 uppercase tracking-wider">Absent</div>
                 </div>
+                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200 text-center">
+                  <div className="text-2xl font-bold text-purple-600">{todayAttendance.filter(a => a.isDailyWorker && a.siteId === siteId).reduce((sum, a) => sum + (a.dailyWorkerCount || 0), 0)}</div>
+                  <div className="text-xs font-medium text-purple-500 uppercase tracking-wider">Daily Workers</div>
+                </div>
               </div>
+
+
             </div>
 
             <div className="overflow-x-auto p-0">

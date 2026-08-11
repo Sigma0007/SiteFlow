@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import {
   Plus,
   MapPin,
@@ -9,18 +10,22 @@ import {
   CheckCircle,
   AlertCircle,
   TrendingUp,
-  FileText
+  FileText,
+  ChevronRight
 } from 'lucide-react'
 import { siteServices, buildingServices, processServices, convertDocsToArray } from '../services/firebaseServices'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { storage, auth } from '../firebase'
 
 const DPR = ({ userRole = 'admin' }) => {
+  const navigate = useNavigate()
   const [showCreateFlow, setShowCreateFlow] = useState(false)
   const [sites, setSites] = useState([])
+  const [buildings, setBuildings] = useState([])
   const [staff, setStaff] = useState([])
   const [materials, setMaterials] = useState([])
   const [loading, setLoading] = useState(true)
+  const [expandedSiteId, setExpandedSiteId] = useState(null)
   const [formData, setFormData] = useState({
     siteName: '',
     siteArea: '',
@@ -78,23 +83,27 @@ const DPR = ({ userRole = 'admin' }) => {
     }
   }
 
-  // Load sites from Firebase on component mount
+  // Load sites and buildings from Firebase on component mount
   useEffect(() => {
-    const loadSites = async () => {
+    const loadData = async () => {
       try {
         setLoading(true)
         const sitesSnapshot = userRole === 'supervisor' ? await siteServices.getSitesForSupervisor(auth.currentUser?.uid) : await siteServices.getAllSites()
         const sitesData = convertDocsToArray(sitesSnapshot)
         setSites(sitesData)
+
+        const buildingsSnapshot = await buildingServices.getAllBuildings()
+        const buildingsData = convertDocsToArray(buildingsSnapshot)
+        setBuildings(buildingsData)
       } catch (error) {
-        console.error('Error loading sites:', error)
+        console.error('Error loading data:', error)
       } finally {
         setLoading(false)
       }
     }
 
-    loadSites()
-  }, [])
+    loadData()
+  }, [userRole])
 
   // Set up real-time listener for sites
   useEffect(() => {
@@ -105,6 +114,19 @@ const DPR = ({ userRole = 'admin' }) => {
 
     return unsubscribe
   }, [userRole])
+
+  // Set up real-time listener for buildings
+  useEffect(() => {
+    const unsubscribe = buildingServices.onBuildingsChange((snapshot) => {
+      setBuildings(convertDocsToArray(snapshot))
+    })
+
+    return unsubscribe
+  }, [])
+
+  const getBuildingsForSite = (siteId) => {
+    return buildings.filter(building => building.siteId === siteId)
+  }
 
   const handleStaffToggle = (staffId) => {
     setFormData(prev => ({
@@ -337,63 +359,112 @@ const DPR = ({ userRole = 'admin' }) => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {sites.map((site, index) => (
-              <motion.div
-                key={site.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-white rounded-xl shadow-sm p-6 border border-gray-200"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">{site.name}</h3>
-                    <p className="text-gray-600 flex items-center gap-1">
-                      <MapPin className="w-4 h-4" />
-                      {site.location || 'No location set'}
-                    </p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(site.status)}`}>
-                    {site.status}
-                  </span>
-                </div>
+            {sites.map((site, index) => {
+              const siteBuildings = getBuildingsForSite(site.id)
+              const hasMultipleBuildings = siteBuildings.length > 1
 
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Progress</p>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${site.progress}%` }}
-                      />
+              return (
+                <motion.div
+                  key={site.id}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.1 }}
+                  className="bg-white rounded-xl shadow-sm p-6 border border-gray-200"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-gray-900">{site.name}</h3>
+                      <p className="text-gray-600 flex items-center gap-1">
+                        <MapPin className="w-4 h-4" />
+                        {site.location || 'No location set'}
+                      </p>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">{site.progress}% complete</p>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(site.status)}`}>
+                      {site.status}
+                    </span>
                   </div>
 
-                  <div>
-                    <p className="text-sm text-gray-600 mb-2">Assigned Staff</p>
-                    <div className="flex flex-wrap gap-2">
-                      {site.staff.map((staffName, idx) => (
-                        <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">
-                          {staffName}
-                        </span>
-                      ))}
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Progress</p>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-500 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${site.progress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{site.progress}% complete</p>
                     </div>
-                  </div>
 
-                  <div>
-                    <p className="text-sm text-gray-600 mb-2">Materials</p>
-                    <div className="space-y-1">
-                      {site.materials.map((material, idx) => (
-                        <p key={idx} className="text-xs text-gray-700 bg-gray-50 px-2 py-1 rounded">
-                          {material}
-                        </p>
-                      ))}
+                    {/* Buildings Section */}
+                    {hasMultipleBuildings ? (
+                      <div>
+                        <button
+                          onClick={() => setExpandedSiteId(expandedSiteId === site.id ? null : site.id)}
+                          className="flex items-center justify-between w-full text-sm text-gray-600 mb-2 hover:text-blue-600 transition-colors"
+                        >
+                          <span>Buildings ({siteBuildings.length})</span>
+                          <ChevronRight
+                            className={`w-4 h-4 transition-transform ${expandedSiteId === site.id ? 'rotate-90' : ''}`}
+                          />
+                        </button>
+                        {expandedSiteId === site.id && (
+                          <div className="space-y-2 mt-2">
+                            {siteBuildings.map((building) => (
+                              <button
+                                key={building.id}
+                                onClick={() => navigate(`/dpr/${site.id}/${building.id}`)}
+                                className="w-full text-left bg-gray-50 p-3 rounded-lg border border-gray-100 hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium text-gray-800">{building.name}</span>
+                                  <span className="text-xs text-gray-500">{building.progress}%</span>
+                                </div>
+                                <div className="text-xs text-gray-600 mt-1">
+                                  {building.type} • {building.floors} floors • {building.area} sq ft
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      // Single building - click directly on site card
+                      <button
+                        onClick={() => navigate(`/dpr/${site.id}`)}
+                        className="w-full text-left"
+                      >
+                        <div className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                          Open DPR →
+                        </div>
+                      </button>
+                    )}
+
+                    <div>
+                      <p className="text-sm text-gray-600 mb-2">Assigned Staff</p>
+                      <div className="flex flex-wrap gap-2">
+                        {site.staff.map((staffName, idx) => (
+                          <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">
+                            {staffName}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-600 mb-2">Materials</p>
+                      <div className="space-y-1">
+                        {site.materials.map((material, idx) => (
+                          <p key={idx} className="text-xs text-gray-700 bg-gray-50 px-2 py-1 rounded">
+                            {material}
+                          </p>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              )
+            })}
           </div>
         )}
 

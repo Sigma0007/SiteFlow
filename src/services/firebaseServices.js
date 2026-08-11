@@ -34,6 +34,7 @@ export const supervisorsCollection = collection(db, 'supervisors');
 export const organizationsCollection = collection(db, 'organizations');
 export const siteInventoryCollection = collection(db, 'siteInventory');
 export const siteMaterialLogsCollection = collection(db, 'siteMaterialLogs');
+export const notificationsCollection = collection(db, 'notifications');
 
 // Site Management Services
 export const siteServices = {
@@ -888,7 +889,7 @@ export const initializeSampleSupervisor = async () => {
 
         const validSiteIds = new Set(allSites.map(s => s.id));
         const currentSites = supervisor.assignedSites || [];
-        const validSites = currentSites.filter(sid => validSiteIds.has(sid));
+        let validSites = currentSites.filter(sid => validSiteIds.has(sid));
         const staleSites = currentSites.filter(sid => !validSiteIds.has(sid));
 
         if (staleSites.length > 0) {
@@ -901,9 +902,15 @@ export const initializeSampleSupervisor = async () => {
           console.log(`🔄 ${supervisorConfig.email} cleaned. Valid sites remaining:`, validSites);
         }
 
-        if (validSites.length === 0) {
-          console.warn(`⚠️ ${supervisorConfig.email} has NO valid site assignments!`);
-          console.warn(`   → Go to Site Management, edit a site, and add this supervisor.`);
+        if (validSites.length === 0 && allSites.length > 0) {
+          const fallbackSite = supervisorConfig.assignedSites?.[0] || allSites[0].id;
+          validSites = [fallbackSite];
+          await supervisorServices.updateSupervisor(supDoc.id, {
+            ...supervisor,
+            assignedSites: validSites,
+            updatedAt: new Date().toISOString()
+          });
+          console.log(`📍 Auto-assigned fallback site ${fallbackSite} to ${supervisorConfig.email}`);
         } else {
           console.log(`📍 Current assigned sites:`, validSites);
         }
@@ -979,6 +986,8 @@ export const supervisorServices = {
 
   // PO Request functions
   getPORequests: () => getDocs(purchaseOrdersCollection),
+
+  onPORequestsChange: (callback) => onSnapshot(purchaseOrdersCollection, callback),
 
   createPORequest: (poData) => addDoc(purchaseOrdersCollection, poData),
 
@@ -1064,6 +1073,212 @@ export const supervisorServices = {
     }
   }
 };
+
+// Notification Management Services
+export const notificationServices = {
+  // Get all notifications for a user
+  getNotificationsForUser: (recipientEmail) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientEmail', '==', recipientEmail),
+      orderBy('createdAt', 'desc')
+    );
+    return getDocs(q);
+  },
+
+  // Get unread notifications for a user
+  getUnreadNotifications: (recipientEmail) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientEmail', '==', recipientEmail),
+      where('read', '==', false),
+      orderBy('createdAt', 'desc')
+    );
+    return getDocs(q);
+  },
+
+  // Add new notification
+  addNotification: (notificationData) => {
+    const notificationWithTimestamp = {
+      ...notificationData,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    return addDoc(notificationsCollection, notificationWithTimestamp);
+  },
+
+  // Mark notification as read
+  markAsRead: (notificationId) => {
+    return updateDoc(doc(db, 'notifications', notificationId), {
+      read: true,
+      readAt: new Date().toISOString()
+    });
+  },
+
+  // Mark all notifications as read for a user
+  markAllAsRead: async (recipientEmail) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientEmail', '==', recipientEmail),
+      where('read', '==', false)
+    );
+    const snapshot = await getDocs(q);
+    const updatePromises = snapshot.docs.map(doc => 
+      updateDoc(doc.ref, { read: true, readAt: new Date().toISOString() })
+    );
+    return Promise.all(updatePromises);
+  },
+
+  // Delete notification
+  deleteNotification: (notificationId) => {
+    return deleteDoc(doc(db, 'notifications', notificationId));
+  },
+
+  // Real-time listener for notifications
+  onNotificationsChange: (recipientEmail, callback) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientEmail', '==', recipientEmail),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(q, callback);
+  },
+
+  // Save FCM token for user
+  saveFCMToken: async (userEmail, token) => {
+    try {
+      const usersCollection = collection(db, 'users');
+      const userDocRef = doc(usersCollection, userEmail);
+      
+      // Check if user document exists first
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        await updateDoc(userDocRef, {
+          fcmToken: token,
+          tokenUpdatedAt: new Date().toISOString()
+        });
+        console.log('FCM token saved for user:', userEmail);
+      } else {
+        // Create user document if it doesn't exist
+        await setDoc(userDocRef, {
+          email: userEmail,
+          fcmToken: token,
+          tokenUpdatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString()
+        });
+        console.log('User document created with FCM token for:', userEmail);
+      }
+    } catch (error) {
+      console.error('Error saving FCM token:', error);
+      // Don't throw - allow app to continue even if token save fails
+    }
+  },
+
+  // Get FCM token for user
+  getFCMToken: async (userEmail) => {
+    const usersCollection = collection(db, 'users');
+    const userDocRef = doc(usersCollection, userEmail);
+    const userDoc = await getDoc(userDocRef);
+    if (userDoc.exists()) {
+      return userDoc.data().fcmToken || null;
+    }
+    return null;
+  },
+
+  // Send push notification via Cloudflare Worker (solves CORS issue)
+  sendPushNotification: async (notificationData) => {
+    try {
+      const workerUrl = import.meta.env.VITE_CLOUDFLARE_WORKER_URL;
+      
+      if (!workerUrl || workerUrl.includes('YOUR_SUBDOMAIN')) {
+        console.log('Cloudflare Worker not configured. In-app notifications (bell icon) will work.');
+        console.log('To enable push notifications, deploy Cloudflare Worker and update VITE_CLOUDFLARE_WORKER_URL in .env');
+        return null;
+      }
+
+      // Send notification via Cloudflare Worker (proxies to OneSignal)
+      const response = await fetch(workerUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          recipientEmail: notificationData.recipientEmail,
+          message: notificationData.message,
+          type: notificationData.type,
+          poId: notificationData.poId || '',
+          materialName: notificationData.materialName || '',
+          quantity: notificationData.quantity || '',
+          siteId: notificationData.siteId || '',
+          siteName: notificationData.siteName || '',
+          requestedBy: notificationData.requestedBy || ''
+        })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        console.log('✅ Push notification sent via Cloudflare Worker:', result);
+        return result;
+      } else {
+        console.error('❌ Cloudflare Worker error:', result);
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ Error sending push notification via Cloudflare Worker:', error);
+      return null;
+    }
+  },
+
+  // Add notification with optional push (handles permission errors)
+  addNotificationWithPush: async (notificationData) => {
+    try {
+      // Always save to Firestore
+      await notificationServices.addNotification(notificationData);
+      
+      // Try to send push notification (optional)
+      try {
+        await notificationServices.sendPushNotification(notificationData);
+      } catch (pushError) {
+        console.log('Push notification failed, but Firestore notification saved:', pushError.message);
+      }
+      
+      // Show native browser notification banner if permission is granted
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          const title = getNotificationTitle(notificationData.type);
+          new Notification(title, {
+            body: notificationData.message,
+            icon: '/Sites Flow.png',
+            badge: '/Sites Flow.png',
+            tag: notificationData.poId || Date.now().toString()
+          });
+        } catch (e) {
+          console.warn('Native notification notice:', e);
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error adding notification:', error);
+      throw error;
+    }
+  }
+};
+
+// Helper function to get notification title based on type
+function getNotificationTitle(type) {
+  switch (type) {
+    case 'po_generated':
+      return 'New PO Request';
+    case 'po_approved':
+      return 'PO Approved';
+    case 'po_arrived':
+      return 'PO Arrived';
+    default:
+      return 'Site Manager Notification';
+  }
+}
 
 // Organization Management Services (Super Admin)
 export const organizationServices = {

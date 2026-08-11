@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft, ChevronRight } from 'lucide-react'
+import { Plus, Edit2, Trash2, MapPin, DollarSign, TrendingUp, Search, Filter, Users, CheckCircle, XCircle, Clock, X, ArrowLeft, ChevronRight, FileText } from 'lucide-react'
 import { siteServices, labourServices, attendanceServices, buildingServices, processServices, supervisorServices, convertDocsToArray, syncSiteToSupervisors, syncStaffToSite, syncSingleStaffToSite, onSnapshot, supervisorsCollection } from '../services/firebaseServices'
 import { format } from 'date-fns'
 import Footer from '../components/Footer'
@@ -10,7 +10,6 @@ import { useAuth } from '../components/Auth'
 import { useNavigate } from 'react-router-dom'
 import PropTypes from 'prop-types'
 import StatusModal from '../components/StatusModal'
-import MonthlySiteAnalysisModal from '../components/MonthlySiteAnalysisModal'
 
 const SiteManagement = ({ userRole }) => {
   const navigate = useNavigate();
@@ -107,7 +106,6 @@ const SiteManagement = ({ userRole }) => {
   const [availableSupervisors, setAvailableSupervisors] = useState([])
   const [availableStaff, setAvailableStaff] = useState([])
   const [expandedSiteId, setExpandedSiteId] = useState(null)
-  const [analysisModalSite, setAnalysisModalSite] = useState(null)
   const [formData, setFormData] = useState({
     name: '',
     location: '',
@@ -1036,20 +1034,12 @@ const SiteManagement = ({ userRole }) => {
                             ${((site.budget || 0) - (site.expenses || 0)).toLocaleString()}
                           </span>
                         </div>
-                        <div className="mt-3">
-                          <button
-                            onClick={() => setAnalysisModalSite(site)}
-                            className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
-                          >
-                            <TrendingUp className="w-4 h-4" /> View Monthly Analysis
-                          </button>
-                        </div>
                       </>
                     )
                   })()}
                 </div>
 
-                <div className="mb-4">
+                {/* <div className="mb-4">
                   <div className="flex items-center justify-between text-sm mb-2">
                     <span className="text-gray-600 flex items-center gap-1">
                       <TrendingUp className="w-4 h-4" />
@@ -1065,121 +1055,113 @@ const SiteManagement = ({ userRole }) => {
                       className={`h-2 rounded-full ${getProgressColor(site.progress)}`}
                     />
                   </div>
-                </div>
+                </div> */}
 
 
 
                 <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                  <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={() => setShowBuildingsForSite(showBuildingsForSite === site.id ? null : site.id)}
+                    className="flex items-center justify-between w-full mb-3"
+                  >
                     <div className="flex items-center gap-2">
                       <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                      <span className="text-sm font-semibold text-gray-700">Buildings</span>
+                      <span className="text-sm font-semibold text-gray-700">Buildings ({getBuildingsForSite(site.id).length})</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                        {getBuildingsForSite(site.id).length}
-                      </span>
-                      {getBuildingsForSite(site.id).length > 0 && (
-                        <button
-                          onClick={() => setShowBuildingsForSite(showBuildingsForSite === site.id ? null : site.id)}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          {showBuildingsForSite === site.id ? 'Hide' : 'Show All'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                    <ChevronRight
+                      className={`w-4 h-4 text-gray-600 transition-transform ${showBuildingsForSite === site.id ? 'rotate-90' : ''}`}
+                    />
+                  </button>
 
-                  {getBuildingsForSite(site.id).length > 0 ? (
-                    <div className="space-y-2">
-                      {getBuildingsForSite(site.id).slice(0, showBuildingsForSite === site.id ? undefined : 2).map((building) => {
-                        const stats = getBuildingAttendanceStats(building.id, building.name)
-                        return (
-                          <div
-                            key={building.id}
-                            className="bg-white p-2 rounded border border-blue-100"
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                {building.image && (
-                                  <img
-                                    src={building.image}
-                                    alt={building.name}
-                                    className="h-8 w-8 object-cover rounded"
-                                  />
-                                )}
-                                <span className="text-xs font-medium text-gray-800">{building.name}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className={`text-xs badge border ${getStatusColor(building.status)}`}>
-                                  {building.progress}%
-                                </span>
-                                {(userRole === 'admin' || userRole === 'supervisor') && (
-                                  <div className="flex gap-1">
-                                    <button
-                                      onClick={() => handleEditBuilding(building)}
-                                      className="text-xs text-blue-600 hover:text-blue-800"
-                                    >
-                                      <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    {(userRole === 'admin') && (
-                                      <button
-                                        onClick={() => handleDeleteBuilding(building.id)}
-                                        className="text-xs text-red-600 hover:text-red-800"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
+                  {showBuildingsForSite === site.id && (
+                    <>
+                      {getBuildingsForSite(site.id).length > 0 ? (
+                        <div className="space-y-2">
+                          {getBuildingsForSite(site.id).map((building) => {
+                            const stats = getBuildingAttendanceStats(building.id, building.name)
+                            return (
+                              <div
+                                key={building.id}
+                                className="bg-white p-2 rounded border border-blue-100"
+                              >
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="flex items-center gap-2">
+                                    {building.image && (
+                                      <img
+                                        src={building.image}
+                                        alt={building.name}
+                                        className="h-8 w-8 object-cover rounded"
+                                      />
+                                    )}
+                                    <span className="text-xs font-medium text-gray-800">{building.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    <span className={`text-xs badge border ${getStatusColor(building.status)}`}>
+                                      {building.progress}%
+                                    </span>
+                                    {(userRole === 'admin' || userRole === 'supervisor') && (
+                                      <div className="flex gap-1">
+                                        <button
+                                          onClick={() => handleEditBuilding(building)}
+                                          className="text-xs text-blue-600 hover:text-blue-800"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                        </button>
+                                        {(userRole === 'admin') && (
+                                          <button
+                                            onClick={() => handleDeleteBuilding(building.id)}
+                                            className="text-xs text-red-600 hover:text-red-800"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1 text-xs text-gray-600 mb-1">
+                                  <span>Type: {building.type}</span>
+                                  <span>Floors: {building.floors}</span>
+                                  <span>Units: {building.units}</span>
+                                  <span>Area: {building.area?.toLocaleString()} sq ft</span>
+                                  {userRole === 'admin' && <span>Budget: ${building.budget ? building.budget.toLocaleString() : '0'}</span>}
+                                  <span>Status: {building.status}</span>
+                                </div>
+                                {userRole === 'admin' && (
+                                  <div className="border-t border-gray-100 pt-1 mt-1">
+                                    <div className="grid grid-cols-4 gap-1 text-xs">
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <CheckCircle className="w-3 h-3 text-green-600" />
+                                        <span className="font-semibold text-green-600">{stats.present}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <XCircle className="w-3 h-3 text-red-600" />
+                                        <span className="font-semibold text-red-600">{stats.absent}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <Clock className="w-3 h-3 text-yellow-600" />
+                                        <span className="font-semibold text-yellow-600">{stats.leave}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <Users className="w-3 h-3 text-gray-600" />
+                                        <span className="font-semibold text-gray-700">{stats.total}</span>
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-1 text-xs text-gray-600 mb-1">
-                              <span>Type: {building.type}</span>
-                              <span>Floors: {building.floors}</span>
-                              <span>Units: {building.units}</span>
-                              <span>Area: {building.area?.toLocaleString()} sq ft</span>
-                              {userRole === 'admin' && <span>Budget: ${building.budget ? building.budget.toLocaleString() : '0'}</span>}
-                              <span>Status: {building.status}</span>
-                            </div>
-                            {userRole === 'admin' && (
-                              <div className="border-t border-gray-100 pt-1 mt-1">
-                                <div className="grid grid-cols-4 gap-1 text-xs">
-                                  <div className="flex items-center gap-1 justify-center">
-                                    <CheckCircle className="w-3 h-3 text-green-600" />
-                                    <span className="font-semibold text-green-600">{stats.present}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 justify-center">
-                                    <XCircle className="w-3 h-3 text-red-600" />
-                                    <span className="font-semibold text-red-600">{stats.absent}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 justify-center">
-                                    <Clock className="w-3 h-3 text-yellow-600" />
-                                    <span className="font-semibold text-yellow-600">{stats.leave}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1 justify-center">
-                                    <Users className="w-3 h-3 text-gray-600" />
-                                    <span className="font-semibold text-gray-700">{stats.total}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {showBuildingsForSite !== site.id && getBuildingsForSite(site.id).length > 2 && (
-                        <div className="text-xs text-gray-500 text-center">
-                          +{getBuildingsForSite(site.id).length - 2} more buildings
+                            )
+                          })}
                         </div>
+                      ) : (
+                        <div className="text-xs text-gray-500 text-center">No buildings added yet</div>
                       )}
-                    </div>
-                  ) : (
-                    <div className="text-xs text-gray-500 text-center">No buildings added yet</div>
+                    </>
                   )}
                 </div>
 
                 {/* Assigned Staff Preview for Admin */}
-                {userRole === 'admin' && (
+                {/* {userRole === 'admin' && (
                   <div className="mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Users className="w-4 h-4 text-blue-600" />
@@ -1223,7 +1205,7 @@ const SiteManagement = ({ userRole }) => {
                       <div className="text-xs text-gray-500 italic bg-gray-50 p-2 rounded-lg border border-dashed border-gray-200 text-center">No workers assigned</div>
                     )}
                   </div>
-                )}
+                )} */}
 
                 {(userRole === 'admin' || userRole === 'manager') && (
                   <div className="space-y-2">
@@ -1773,11 +1755,10 @@ const SiteManagement = ({ userRole }) => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Area (sq ft) *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Area (sq ft)</label>
                     <input
                       type="number"
-                      required
-                      min="1"
+                      min="0"
                       value={buildingForm.area}
                       onChange={(e) => setBuildingForm({ ...buildingForm, area: e.target.value })}
                       className="input-field"
@@ -1785,10 +1766,9 @@ const SiteManagement = ({ userRole }) => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Budget ($) *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Budget ($)</label>
                     <input
                       type="number"
-                      required
                       min="0"
                       value={buildingForm.budget}
                       onChange={(e) => setBuildingForm({ ...buildingForm, budget: e.target.value })}
@@ -1824,7 +1804,7 @@ const SiteManagement = ({ userRole }) => {
                   </select>
                 </div>
 
-                <div>
+                {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Building Image</label>
                   <div className="flex items-center gap-4">
                     <input
@@ -1858,7 +1838,7 @@ const SiteManagement = ({ userRole }) => {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">Max size: 5MB. Formats: JPG, PNG, GIF</p>
-                </div>
+                </div> */}
 
                 <div className="flex gap-3 pt-4">
                   <motion.button
@@ -2011,15 +1991,6 @@ const SiteManagement = ({ userRole }) => {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {analysisModalSite && (
-          <MonthlySiteAnalysisModal
-            site={analysisModalSite}
-            labour={labour}
-            onClose={() => setAnalysisModalSite(null)}
-          />
-        )}
-      </AnimatePresence>
 
       <StatusModal
         {...statusModal}

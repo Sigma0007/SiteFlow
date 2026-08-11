@@ -1,9 +1,10 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps } from "firebase/app";
 // import { getAnalytics } from "firebase/analytics"; // Disabled for development
-import { getFirestore, connectFirestoreEmulator, enableIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -19,20 +20,47 @@ const firebaseConfig = {
 // Initialize Firebase (primary app)
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase services with error handling
-export const db = getFirestore(app);
-
-// Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code == 'failed-precondition') {
-    console.warn('Multiple tabs open, persistence can only be enabled in one tab at a a time.');
-  } else if (err.code == 'unimplemented') {
-    console.warn('The current browser does not support all of the features required to enable persistence');
-  }
+// Initialize Firebase Firestore with modern persistent local cache
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
 });
 
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+// Initialize Firebase Cloud Messaging
+export const messaging = getMessaging(app);
+
+// Get FCM token for push notifications
+export const getFCMToken = async () => {
+  try {
+    // Register service worker
+    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    console.log('Service Worker registered:', registration);
+
+    // Get FCM token (without VAPID key for now - will work with default Firebase settings)
+    const token = await getToken(messaging, {
+      serviceWorkerRegistration: registration
+    });
+    
+    if (token) {
+      console.log('FCM Token obtained:', token);
+      return token;
+    } else {
+      throw new Error('No registration token available');
+    }
+  } catch (error) {
+    console.error('Error getting FCM token:', error);
+    return null;
+  }
+};
+
+// Listen for foreground messages
+export const onForegroundMessage = (callback) => {
+  return onMessage(messaging, callback);
+};
 
 // ─── Secondary Firebase App (for creating supervisor accounts) ────────────────
 const secondaryApp = getApps().find(a => a.name === 'secondary')

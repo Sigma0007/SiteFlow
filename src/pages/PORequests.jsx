@@ -16,7 +16,7 @@ import {
   ArrowLeft
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supervisorServices, siteServices, materialServices, convertDocsToArray } from '../services/firebaseServices'
+import { supervisorServices, siteServices, materialServices, notificationServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import StatusModal from '../components/StatusModal'
@@ -35,12 +35,12 @@ const PORequests = ({ userRole = 'admin' }) => {
   const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     siteId: '',
-    materialName: '',
-    quantity: '',
-    unit: '',
     urgency: 'normal',
     reason: '',
-    expectedDate: ''
+    expectedDate: '',
+    items: [
+      { id: Date.now(), materialName: '', quantity: '', unit: '' }
+    ]
   })
 
   // Status Modal State
@@ -92,7 +92,30 @@ const PORequests = ({ userRole = 'admin' }) => {
         setLoading(false)
       }
     }
+
     loadPORequests()
+
+    // Real-time listener for PO requests
+    const unsubscribe = supervisorServices.onPORequestsChange((snapshot) => {
+      const all = convertDocsToArray(snapshot)
+      console.log('📋 PO requests received:', all.length, 'total')
+      console.log('📋 User role:', userRole)
+      console.log('📋 Current supervisor email:', currentSupervisor?.email)
+      console.log('📋 User email:', user?.email)
+
+      if (userRole === 'supervisor') {
+        const filtered = all.filter(r =>
+          r.requestedBy === (currentSupervisor?.email || user?.email)
+        )
+        console.log('📋 Filtered POs for supervisor:', filtered.length)
+        setPORequests(filtered)
+      } else {
+        console.log('📋 Setting all POs for admin:', all.length)
+        setPORequests(all)
+      }
+    })
+
+    return () => unsubscribe()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole, currentSupervisor, assignedSites])
 
@@ -103,16 +126,28 @@ const PORequests = ({ userRole = 'admin' }) => {
         showAlert('Required', 'Please select a site for this request.', 'warning')
         return
       }
-      if (!formData.materialName) {
-        showAlert('Required', 'Please enter a material name.', 'warning')
+
+      // Validate items
+      const validItems = formData.items.filter(item => item.materialName && item.quantity)
+      if (validItems.length === 0) {
+        showAlert('Required', 'Please add at least one material item.', 'warning')
         return
       }
-      const selectedMaterial = materials.find(m => m.name === formData.materialName)
-      const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
-      const totalAmount = unitPrice * Number(formData.quantity || 1)
+
+      // Calculate total amount
+      let totalAmount = 0
+      validItems.forEach(item => {
+        const selectedMaterial = materials.find(m => m.name === item.materialName)
+        const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
+        totalAmount += unitPrice * Number(item.quantity || 1)
+      })
 
       const newRequest = {
-        ...formData,
+        siteId: formData.siteId,
+        items: validItems,
+        urgency: formData.urgency,
+        reason: formData.reason,
+        expectedDate: formData.expectedDate,
         totalAmount,
         requestedBy: currentSupervisor?.email || user?.email || '',
         requestDate: new Date().toISOString().split('T')[0],
@@ -120,10 +155,37 @@ const PORequests = ({ userRole = 'admin' }) => {
         approvedBy: '',
         adminNotes: ''
       }
-      await supervisorServices.createPORequest(newRequest)
+      const poDoc = await supervisorServices.createPORequest(newRequest)
+
+      const targetSite = sites.find(s => s.id === formData.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const requesterName = formatDisplayName(currentSupervisor?.email || user?.email)
+
+      // Create material list string for notification
+      const materialList = validItems.map(item => `${item.materialName} (${item.quantity} ${item.unit})`).join(', ')
+
+      // Notify admin about new PO request (non-blocking)
+      notificationServices.addNotificationWithPush({
+        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        type: 'po_generated',
+        poId: poDoc.id,
+        message: `Materials: ${materialList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
+        materialName: materialList,
+        quantity: validItems.length,
+        siteId: formData.siteId,
+        siteName: siteName,
+        requestedBy: requesterName
+      }).catch(err => console.log('Notification failed (non-critical):', err))
+
       await reloadRequests()
       setShowCreateModal(false)
-      setFormData({ siteId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
+      setFormData({
+        siteId: '',
+        urgency: 'normal',
+        reason: '',
+        expectedDate: '',
+        items: [{ id: Date.now(), materialName: '', quantity: '', unit: '' }]
+      })
       showAlert('Success', 'PO request created successfully!')
     } catch (error) {
       console.error('Error creating PO request:', error)
@@ -131,14 +193,63 @@ const PORequests = ({ userRole = 'admin' }) => {
     }
   }
 
+  // Helper functions for managing items
+  const addItem = () => {
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, { id: Date.now(), materialName: '', quantity: '', unit: '' }]
+    }))
+  }
+
+  const removeItem = (itemId) => {
+    if (formData.items.length === 1) {
+      showAlert('Warning', 'At least one item is required.', 'warning')
+      return
+    }
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.filter(item => item.id !== itemId)
+    }))
+  }
+
+  const updateItem = (itemId, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.map(item =>
+        item.id === itemId ? { ...item, [field]: value } : item
+      )
+    }))
+  }
+
   const handleApprove = async (requestId) => {
     try {
+      const request = poRequests.find(r => r.id === requestId)
       const updateData = {
         status: 'approved',
         approvedBy: user?.email || 'admin',
         approvedDate: new Date().toISOString().split('T')[0]
       }
       await supervisorServices.updatePORequest(requestId, updateData)
+      
+      const targetSite = sites.find(s => s.id === request?.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const approverName = formatDisplayName(user?.email || 'admin')
+
+      // Notify the generator (supervisor) that PO is approved (non-blocking)
+      if (request?.requestedBy) {
+        notificationServices.addNotificationWithPush({
+          recipientEmail: request.requestedBy,
+          type: 'po_approved',
+          poId: requestId,
+          message: `PO Approved: ${request.materialName} (${request.quantity} ${request.unit})\nSite: ${siteName}\nApproved by: ${approverName}`,
+          materialName: request.materialName,
+          quantity: request.quantity,
+          siteId: request.siteId,
+          siteName: siteName,
+          requestedBy: request.requestedBy
+        }).catch(err => console.log('Notification failed (non-critical):', err))
+      }
+      
       await reloadRequests()
       showAlert('Approved', 'PO request has been approved successfully!')
     } catch (error) {
@@ -156,28 +267,57 @@ const PORequests = ({ userRole = 'admin' }) => {
       }
       await supervisorServices.updatePORequest(request.id, updateData)
 
-      // 2. Add material directly to site
+      // 2. Add materials directly to site (handle multiple items)
       const siteDoc = await siteServices.getSiteById(request.siteId)
       if (siteDoc.exists()) {
         const siteData = siteDoc.data()
         let assignedMaterials = siteData.assignedMaterials || []
-        
-        const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === request.materialName.toLowerCase())
-        const quantityNum = parseFloat(request.quantity) || 1
-        
-        if (existingMatIndex >= 0) {
-          assignedMaterials[existingMatIndex].quantity += quantityNum
-        } else {
-          assignedMaterials.push({
-            materialId: `direct_po_${Date.now()}`,
-            name: request.materialName,
-            category: 'PO Directed',
-            quantity: quantityNum
-          })
-        }
-        
+
+        // Handle both old single item format and new items array format
+        const itemsToAdd = request.items || [{
+          materialName: request.materialName,
+          quantity: request.quantity,
+          unit: request.unit
+        }]
+
+        itemsToAdd.forEach(item => {
+          const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === item.materialName.toLowerCase())
+          const quantityNum = parseFloat(item.quantity) || 1
+
+          if (existingMatIndex >= 0) {
+            assignedMaterials[existingMatIndex].quantity += quantityNum
+          } else {
+            assignedMaterials.push({
+              materialId: `direct_po_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: item.materialName,
+              category: 'PO Directed',
+              quantity: quantityNum,
+              unit: item.unit || ''
+            })
+          }
+        })
+
         await siteServices.updateSite(request.siteId, { assignedMaterials })
       }
+
+      const targetSite = sites.find(s => s.id === request?.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const requesterName = formatDisplayName(request.requestedBy)
+
+      // 3. Notify admin that PO has arrived (non-blocking)
+      const itemsList = request.items ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ') : `${request.materialName} (${request.quantity} ${request.unit})`
+      
+      notificationServices.addNotificationWithPush({
+        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        type: 'po_arrived',
+        poId: request.id,
+        message: `Material Arrived: ${itemsList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
+        materialName: itemsList,
+        quantity: request.items ? request.items.length : request.quantity,
+        siteId: request.siteId,
+        siteName: siteName,
+        requestedBy: request.requestedBy
+      }).catch(err => console.log('Notification failed (non-critical):', err))
 
       await reloadRequests()
       showAlert('Arrived & Allocated', 'PO material has arrived and stock was allocated to the site!')
@@ -188,6 +328,7 @@ const PORequests = ({ userRole = 'admin' }) => {
   }
 
   const handleReject = async (requestId, notes) => {
+    const request = poRequests.find(r => r.id === requestId)
     setInputModal({
       visible: true,
       title: 'Rejection Reason',
@@ -202,6 +343,24 @@ const PORequests = ({ userRole = 'admin' }) => {
             rejectedDate: new Date().toISOString().split('T')[0],
             adminNotes: rejectNotes
           })
+
+          if (request?.requestedBy) {
+            const targetSite = sites.find(s => s.id === request?.siteId)
+            const siteName = targetSite ? targetSite.name : 'Site'
+            const rejecterName = formatDisplayName(user?.email || 'admin')
+            notificationServices.addNotificationWithPush({
+              recipientEmail: request.requestedBy,
+              type: 'po_rejected',
+              poId: requestId,
+              message: `PO Rejected: ${request.materialName}\nSite: ${siteName}\nRejected by: ${rejecterName}\nReason: ${rejectNotes || 'No reason provided'}`,
+              materialName: request.materialName,
+              quantity: request.quantity,
+              siteId: request.siteId,
+              siteName: siteName,
+              requestedBy: request.requestedBy
+            }).catch(err => console.log('Notification failed (non-critical):', err))
+          }
+
           await reloadRequests()
           showAlert('Rejected', 'PO request has been rejected.')
         } catch (error) {
@@ -258,12 +417,51 @@ const PORequests = ({ userRole = 'admin' }) => {
     }
   }
 
-  const filteredRequests = poRequests.filter(request => {
-    const matchesSearch = request.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.reason.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesFilter = filterStatus === 'all' || request.status === filterStatus
-    return matchesSearch && matchesFilter
-  })
+  const formatDisplayName = (emailOrName) => {
+    if (!emailOrName) return 'User';
+    if (currentSupervisor?.email === emailOrName && currentSupervisor?.name) {
+      return currentSupervisor.name;
+    }
+    const knownNames = {
+      'odedraarjun928@gmail.com': 'Arjun Odedra (Admin)',
+      'aodedra259@rku.ac.in': 'Arjun Odedra (Supervisor)',
+      'odedraarjun0007@gmail.com': 'Arjun Odedra (Supervisor 2)'
+    };
+    if (knownNames[emailOrName]) {
+      return knownNames[emailOrName];
+    }
+    if (!emailOrName.includes('@')) {
+      return emailOrName;
+    }
+    const username = emailOrName.split('@')[0];
+    const cleanName = username.replace(/[0-9]+$/g, '');
+    return cleanName
+      .replace(/[._-]/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  };
+
+  const statusOrder = { pending: 1, approved: 2, arrived: 3, rejected: 4 };
+
+  const filteredRequests = poRequests
+    .filter(request => {
+      const materialName = request.materialName || ''
+      const reason = request.reason || ''
+      const matchesSearch = materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        reason.toLowerCase().includes(searchTerm.toLowerCase())
+      const matchesFilter = filterStatus === 'all' || request.status === filterStatus
+      return matchesSearch && matchesFilter
+    })
+    .sort((a, b) => {
+      const orderA = statusOrder[a.status] || 99;
+      const orderB = statusOrder[b.status] || 99;
+      if (orderA !== orderB) return orderA - orderB;
+      const dateA = new Date(a.createdAt || a.requestDate || 0).getTime();
+      const dateB = new Date(b.createdAt || b.requestDate || 0).getTime();
+      return dateB - dateA;
+    });
 
   const stats = {
     total: poRequests.length,
@@ -468,7 +666,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                 </div>
                 <div className="col-span-2 sm:col-span-1">
                   <p className="text-xs text-gray-500 mb-0.5">Requested By</p>
-                  <p className="font-semibold text-gray-900 text-sm truncate max-w-[180px] sm:max-w-none">{request.requestedBy}</p>
+                  <p className="font-semibold text-gray-900 text-sm truncate max-w-[180px] sm:max-w-none">{formatDisplayName(request.requestedBy)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Request Date</p>
@@ -582,93 +780,100 @@ const PORequests = ({ userRole = 'admin' }) => {
             </div>
 
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name (Material/Tool) *</label>
-                  <select
-                    required
-                    value={formData.materialName}
-                    onChange={(e) => {
-                      const selectedMat = materials.find(m => m.name === e.target.value);
-                      setFormData({ 
-                        ...formData, 
-                        materialName: e.target.value,
-                        unit: selectedMat ? selectedMat.unit : formData.unit
-                      });
-                    }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select an item</option>
-                    {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
-                      <option key={m.id} value={m.name}>
-                        {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Quantity</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., 100"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
-                  <input
-                    type="text"
-                    value={formData.unit}
-                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., bags, tons, pieces"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
-                  <select
-                    required
-                    value={formData.siteId}
-                    onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select site</option>
-                    {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
-                      <option key={site.id} value={site.id}>{site.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Expected Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.expectedDate}
-                    onChange={(e) => setFormData({...formData, expectedDate: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div> */}
-              </div>
-
-              {/* <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Urgency *</label>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
                 <select
                   required
-                  value={formData.urgency}
-                  onChange={(e) => setFormData({...formData, urgency: e.target.value})}
+                  value={formData.siteId}
+                  onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="low">Low</option>
-                  <option value="normal">Normal</option>
-                  <option value="high">High</option>
+                  <option value="">Select site</option>
+                  {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
                 </select>
-              </div> */}
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Material Items *</label>
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Item
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {formData.items.map((item, index) => (
+                    <div key={item.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">Item {index + 1}</span>
+                        {formData.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Material Name *</label>
+                          <select
+                            required
+                            value={item.materialName}
+                            onChange={(e) => {
+                              const selectedMat = materials.find(m => m.name === e.target.value);
+                              updateItem(item.id, 'materialName', e.target.value);
+                              if (selectedMat) {
+                                updateItem(item.id, 'unit', selectedMat.unit || '');
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          >
+                            <option value="">Select item</option>
+                            {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
+                              <option key={m.id} value={m.name}>
+                                {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Quantity *</label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="e.g., 100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                          <input
+                            type="text"
+                            value={item.unit}
+                            onChange={(e) => updateItem(item.id, 'unit', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="e.g., bags"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Reason</label>
