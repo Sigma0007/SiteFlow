@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.role;
+    }
+
+    function isAdmin() {
+      return getUserRole() == "admin";
+    }
+
+    function isSupervisor() {
+      return getUserRole() == "supervisor";
+    }
+
+    // ── Sites ──────────────────────────────────────────────────────────────────
+    match /sites/{siteId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Buildings ──────────────────────────────────────────────────────────────
+    // Supervisors may read (client filters to assigned sites).
+    // Writes require admin only.
+    match /buildings/{buildingId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Labour ────────────────────────────────────────────────────────────────
+    match /labour/{labourId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Attendance ────────────────────────────────────────────────────────────
+    match /attendance/{attendanceId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Materials ─────────────────────────────────────────────────────────────
+    match /materials/{materialId} {
+      allow read:  if isAuthenticated();
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Purchase Orders ───────────────────────────────────────────────────────
+    match /purchaseOrders/{poId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Processes ─────────────────────────────────────────────────────────────
+    match /processes/{processId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── DPR ───────────────────────────────────────────────────────────────────
+    match /dpr/{dprId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Expenses ──────────────────────────────────────────────────────────────
+    match /expenses/{expenseId} {
+      allow read:  if isAuthenticated() && (isAdmin() || isSupervisor());
+      allow write: if isAuthenticated() && (isAdmin() || isSupervisor());
+    }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+    match /users/{email} {
+      allow read:  if isAuthenticated() && (request.auth.token.email == email || isAdmin());
+      allow write: if isAuthenticated() && (isAdmin() || (request.auth.token.email == email && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'tokenUpdatedAt'])));
+      allow create: if isAuthenticated() && (isAdmin() || (request.auth.token.email == email && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'tokenUpdatedAt', 'email', 'createdAt'])));
+    }
+
+    // ── Notifications ───────────────────────────────────────────────────────────
+    match /notifications/{notificationId} {
+      allow read:  if isAuthenticated() && (request.auth.token.email == resource.data.recipientEmail || isAdmin());
+      allow create: if isAuthenticated() && (request.auth.token.email == request.resource.data.recipientEmail || isAdmin() || isSupervisor());
+      allow update: if isAuthenticated() && (request.auth.token.email == resource.data.recipientEmail || isAdmin());
+    }
+
+    // ── Supervisors ───────────────────────────────────────────────────────────
+    match /supervisors/{supId} {
+      allow read:  if isAuthenticated() && (isAdmin() || request.auth.uid == supId || request.auth.token.email == resource.data.email);
+      allow write: if isAuthenticated() && isAdmin();
+    }
+
+    // ── Deny everything else ──────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

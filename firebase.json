@@ -1,0 +1,97 @@
+{
+  "hosting": {
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://cdn.onesignal.com https://*.onesignal.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://apis.google.com https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://cdn.onesignal.com https://*.onesignal.com; connect-src 'self' https://*.firebase.com https://*.googleapis.com https://onesignal.com https://*.onesignal.com https://site-manager-notifications.siteflow.workers.dev; img-src 'self' data: https://*.firebase.com https://*.gstatic.com https://*.googleapis.com https://*.onesignal.com; style-src 'self' 'unsafe-inline' https://*.googleapis.com; font-src 'self' https://*.gstatic.com https://*.googleapis.com;"
+          }
+        ]
+      },
+      {
+        "source": "**/*.@(js|css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=31536000"
+          }
+        ]
+      },
+      {
+        "source": "**/*.js",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/javascript; charset=utf-8"
+          }
+        ]
+      },
+      {
+        "source": "**/*.css",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "text/css; charset=utf-8"
+          }
+        ]
+      },
+      {
+        "source": "/manifest.webmanifest",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/manifest+json"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/assets/**",
+        "destination": "/assets/**"
+      },
+      {
+        "source": "/sw.js",
+        "destination": "/sw.js"
+      },
+      {
+        "source": "/firebase-messaging-sw.js",
+        "destination": "/firebase-messaging-sw.js"
+      },
+      {
+        "source": "/registerSW.js", 
+        "destination": "/registerSW.js"
+      },
+      {
+        "source": "/manifest.webmanifest",
+        "destination": "/manifest.webmanifest"
+      },
+      {
+        "source": "/workbox-*.js",
+        "destination": "/workbox-*.js"
+      },
+      {
+        "source": "**/!(@|assets/**|sw.js|firebase-messaging-sw.js|registerSW.js|manifest.webmanifest|workbox-*.js)",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "functions": {
+    "source": "firebase-functions"
+  }
+}

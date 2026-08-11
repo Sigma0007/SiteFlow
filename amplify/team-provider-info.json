@@ -1,0 +1,20 @@
+{
+  "dev": {
+    "awscloudformation": {
+      "AuthRoleName": "amplify-sitemanager-dev-dc590-authRole",
+      "UnauthRoleArn": "arn:aws:iam::381491939286:role/amplify-sitemanager-dev-dc590-unauthRole",
+      "AuthRoleArn": "arn:aws:iam::381491939286:role/amplify-sitemanager-dev-dc590-authRole",
+      "Region": "us-east-1",
+      "DeploymentBucketName": "amplify-sitemanager-dev-dc590-deployment",
+      "UnauthRoleName": "amplify-sitemanager-dev-dc590-unauthRole",
+      "StackName": "amplify-sitemanager-dev-dc590",
+      "StackId": "arn:aws:cloudformation:us-east-1:381491939286:stack/amplify-sitemanager-dev-dc590/e1df9150-16d0-11f1-8bd8-0affd66229a3",
+      "AmplifyAppId": "d1abua4pdcz4l7"
+    },
+    "categories": {
+      "auth": {
+        "sitemanager409fefea": {}
+      }
+    }
+  }
+}

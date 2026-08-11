@@ -1,0 +1,22 @@
+{
+  "name": "site-manager-notifications",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for OneSignal push notifications proxy",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "onesignal",
+    "notifications"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
