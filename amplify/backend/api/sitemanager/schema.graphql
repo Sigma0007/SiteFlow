@@ -1,0 +1,147 @@
+# User type for authentication and roles
+type User @model @auth(rules: [
+  { allow: owner, ownerField: "id", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  email: String!
+  role: String! # admin, supervisor
+  status: String! # active, inactive
+  name: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Site type for construction locations
+type Site @model @auth(rules: [
+  { allow: owner, ownerField: "supervisors", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  name: String!
+  location: String!
+  startDate: AWSDate
+  endDate: AWSDate
+  budget: Float
+  progress: Int
+  status: String! # active, completed, paused
+  supervisors: [String!]! # Array of supervisor emails
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Building type for site buildings
+type Building @model @auth(rules: [
+  { allow: owner, ownerField: "supervisors", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  name: String!
+  siteId: ID!
+  site: Site @connection(fields: ["siteId"])
+  type: String! # residential, commercial, industrial
+  floors: Int
+  units: Int
+  area: Float
+  budget: Float
+  progress: Int
+  status: String! # planning, construction, completed
+  supervisors: [String!]!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Labour/Staff type for workers
+type Labour @model @auth(rules: [
+  { allow: owner, ownerField: "supervisors", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  name: String!
+  email: String
+  phone: String
+  position: String! # supervisor, engineer, worker, etc.
+  currentSite: String!
+  currentSiteName: String!
+  supervisors: [String!]!
+  status: String! # active, inactive, on_leave
+  joinDate: AWSDate
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Attendance type for daily attendance records
+type Attendance @model @auth(rules: [
+  { allow: owner, ownerField: "supervisors", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  employeeId: String!
+  employeeName: String!
+  siteId: String!
+  siteName: String!
+  date: AWSDate!
+  status: String! # present, absent, leave, half_day
+  markedBy: String!
+  supervisors: [String!]!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Process type for construction processes
+type Process @model @auth(rules: [
+  { allow: owner, ownerField: "supervisors", operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  name: String!
+  description: String
+  siteId: ID!
+  site: Site @connection(fields: ["siteId"])
+  buildingId: String
+  status: String! # pending, in_progress, completed, delayed
+  progress: Int
+  imageUrl: String
+  supervisors: [String!]!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# PO Request type for purchase orders
+type PORequest @model @auth(rules: [
+  { allow: owner, ownerField: "requestedBy", operations: [read, create, update] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  materialName: String!
+  quantity: Float!
+  unit: String!
+  urgency: String! # low, medium, high, urgent
+  reason: String!
+  expectedDate: AWSDate!
+  requestedBy: String!
+  requestDate: AWSDate!
+  status: String! # pending, approved, rejected, ordered
+  adminNotes: String
+  supervisors: [String!]!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+# Material type for inventory management
+type Material @model @auth(rules: [
+  { allow: groups, groups: ["admin", "supervisor"], operations: [read] },
+  { allow: groups, groups: ["admin"], operations: [read, create, update, delete] }
+]) {
+  id: ID!
+  name: String!
+  description: String
+  quantity: Float!
+  unit: String!
+  currentStock: Float!
+  minStock: Float!
+  siteId: String!
+  siteName: String!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
