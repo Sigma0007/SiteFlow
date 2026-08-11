@@ -136,7 +136,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
 
     const labourQuery = userRole === 'supervisor' && siteIds.length > 0
-      ? query(labourCollection, where('siteId', 'in', siteIds))
+      ? query(labourCollection, where('siteId', 'in', [...siteIds, 'unassigned']))
       : labourCollection;
 
     const attendanceQuery = userRole === 'supervisor' && siteIds.length > 0
@@ -149,8 +149,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const unsubscribeLabour = onSnapshot(labourQuery, (snapshot) => {
       const allLabour = convertDocsToArray(snapshot);
-      // Filter out unassigned workers
-      setEmployees(allLabour.filter(emp => emp.siteId && emp.siteId !== 'unassigned' && emp.siteId !== ''));
+      // Keep unassigned workers so they can be assigned to sites later
+      setEmployees(allLabour);
     });
 
     const unsubscribeAttendance = onSnapshot(attendanceQuery, (snapshot) => {
@@ -174,10 +174,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     });
 
     // Admin site sync (reactive)
-    let unsubscribeSites = () => {};
+    let unsubscribeSites = () => { };
     if (userRole !== 'supervisor') {
-      unsubscribeSites = siteServices.onSitesChange((snapshot) => { 
-        setSites(convertDocsToArray(snapshot)); 
+      unsubscribeSites = siteServices.onSitesChange((snapshot) => {
+        setSites(convertDocsToArray(snapshot));
       });
     }
 
@@ -337,7 +337,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     let filteredEmployees = employees.filter(emp => {
       const employmentType = emp.employmentType || 'permanent'
       const isDailyWorker = emp.isDailyWorker || emp.temporary
-      
+
       // Apply worker type filter
       let matchesWorkerType = true;
       if (workerTypeFilter === 'permanent') {
@@ -354,7 +354,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
         matchesSite = emp.siteId === selectedSiteFilter;
       }
-      
+
       return matchesSite && matchesWorkerType;
     });
 
@@ -374,18 +374,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   // Daily Worker Count Management - Shared pool across sites
   const handleDailyWorkerCountChange = (siteId, change) => {
     setDailyWorkerCounts(prev => {
-      const currentCount = prev[siteId] || 0
-      const unassignedCount = prev['unassigned'] || 0
-      
+      const siteData = prev[siteId]
+      const currentCount = typeof siteData === 'object' ? (Number(siteData?.count) || 0) : (Number(siteData) || 0)
+
+      const unassignedData = prev['unassigned']
+      const unassignedCount = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
+
       // Calculate new count for this site (prevent negative)
       const newCount = Math.max(0, currentCount + change)
-      
+
       // Calculate actual change (could be 0 if trying to go below 0)
       const actualChange = newCount - currentCount
-      
+
       // If no actual change (e.g., trying to subtract from 0), do nothing
       if (actualChange === 0) return prev
-      
+
       // If adding, check if we have enough unassigned workers
       if (actualChange > 0) {
         if (unassignedCount < actualChange) {
@@ -395,32 +398,33 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         // Deduct from unassigned and add to target site
         return {
           ...prev,
-          'unassigned': unassignedCount - actualChange,
-          [siteId]: newCount
+          'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: unassignedCount - actualChange },
+          [siteId]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
         }
       }
-      
+
       // If removing, add back to unassigned
       if (actualChange < 0) {
         return {
           ...prev,
-          'unassigned': unassignedCount + Math.abs(actualChange),
-          [siteId]: newCount
+          'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: unassignedCount + Math.abs(actualChange) },
+          [siteId]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
         }
       }
-      
+
       return prev
     })
   }
 
   const getDailyWorkerCountForSite = (siteId) => {
-    return dailyWorkerCounts[siteId] || 0
+    const data = dailyWorkerCounts[siteId]
+    return typeof data === 'object' ? (Number(data?.count) || 0) : (Number(data) || 0)
   }
 
   const saveDailyWorkerAttendance = async (siteId) => {
     const dailyData = dailyWorkerCounts[siteId]
-    const count = dailyData?.count || 0
-    
+    const count = typeof dailyData === 'object' ? (Number(dailyData?.count) || 0) : (Number(dailyData) || 0)
+
     try {
       // Create attendance record for daily workers (count-based)
       const attendanceData = {
@@ -462,8 +466,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   // Save unassigned count to database
   const saveUnassignedDailyWorkers = async () => {
-    const count = dailyWorkerCounts['unassigned']?.count || 0
-    
+    const unassignedData = dailyWorkerCounts['unassigned']
+    const count = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
+
     try {
       const attendanceData = {
         employeeId: `daily-unassigned-${selectedDate}`,
@@ -525,7 +530,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     setContractWorkerCounts(prev => {
       const unassigned = prev['unassigned'] || { contractorName: '', count: 0 }
       const currentCount = (prev[siteId]?.count) || 0
-      
+
       if (change > 0) {
         if (unassigned.count < change) {
           showToast(`Only ${unassigned.count} unassigned contract workers available`, 'error')
@@ -599,10 +604,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   // Load existing contract worker attendance for the selected date
   const loadContractWorkerAttendance = () => {
-    const contractRecords = attendance.filter(record => 
+    const contractRecords = attendance.filter(record =>
       record.isContractWorker && record.date === selectedDate
     )
-    
+
     const loadedCounts = {}
     contractRecords.forEach(record => {
       if (record.siteId) {
@@ -613,16 +618,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         }
       }
     })
-    
+
     setContractWorkerCounts(loadedCounts)
   }
 
   // Load existing daily worker attendance for the selected date
   const loadDailyWorkerAttendance = () => {
-    const dailyRecords = attendance.filter(record => 
+    const dailyRecords = attendance.filter(record =>
       record.isDailyWorker && record.date === selectedDate
     )
-    
+
     const loadedCounts = {}
     dailyRecords.forEach(record => {
       const key = record.siteId === 'unassigned' ? 'unassigned' : record.siteId
@@ -631,7 +636,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         buildingId: record.buildingId || null
       }
     })
-    
+
     // Only update if we have records, otherwise keep localStorage data
     if (Object.keys(loadedCounts).length > 0) {
       setDailyWorkerCounts(loadedCounts)
@@ -652,13 +657,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       showToast('Please enter worker count', 'error')
       return
     }
-    
+
     // Calculate new count
-    const currentUnassigned = dailyWorkerCounts['unassigned'] || 0
+    const unassignedData = dailyWorkerCounts['unassigned']
+    const currentUnassigned = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
     const newUnassigned = currentUnassigned + quickDailyWorkerCount
-    
+
     console.log('Adding daily workers:', { currentUnassigned, quickDailyWorkerCount, newUnassigned })
-    
+
     try {
       // Find existing record
       const existingRecord = attendance.find(record =>
@@ -692,14 +698,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         }
         await attendanceServices.addAttendance(attendanceData)
       }
-      
+
       // Update local state immediately
-      setDailyWorkerCounts(prev => ({
-        ...prev,
-        'unassigned': newUnassigned
-      }))
+      setDailyWorkerCounts(prev => {
+        const unassignedData = prev['unassigned']
+        return {
+          ...prev,
+          'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: newUnassigned }
+        }
+      })
       setQuickDailyWorkerCount(0)
-      
+
       showToast(`${quickDailyWorkerCount} daily workers added! Total: ${newUnassigned}`)
     } catch (error) {
       console.error('Error saving daily workers:', error)
@@ -712,10 +721,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       if (newStaff.employmentType === 'daily' && newStaff.dailyWorkerCount > 0) {
         // For daily workers, add to daily worker counts without requiring site
         const targetSiteId = newStaff.siteId || 'unassigned'
-        setDailyWorkerCounts(prev => ({
-          ...prev,
-          [targetSiteId]: (prev[targetSiteId] || 0) + newStaff.dailyWorkerCount
-        }))
+        setDailyWorkerCounts(prev => {
+          const targetData = prev[targetSiteId]
+          const currentCount = typeof targetData === 'object' ? (Number(targetData?.count) || 0) : (Number(targetData) || 0)
+          return {
+            ...prev,
+            [targetSiteId]: { ...(typeof targetData === 'object' ? targetData : {}), count: currentCount + newStaff.dailyWorkerCount }
+          }
+        })
         setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
         setShowAddStaffModal(false)
         showToast(`${newStaff.dailyWorkerCount} daily workers added!`)
@@ -877,7 +890,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       record.employeeId === employee.id && record.date === selectedDate
     )
     const status = attendanceRecord?.status || (employee.onLeave ? 'leave' : 'not-marked')
-    
+
     // Check employee employment type
     const employmentType = employee.employmentType || 'permanent'
     const isDailyWorker = employee.isDailyWorker || employee.temporary
@@ -889,7 +902,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       siteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       employee.role.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || status === filterStatus
-    
+
     // Filter by worker type
     let matchesWorkerType = true;
     if (workerTypeFilter === 'permanent') {
@@ -917,7 +930,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     if (employee.isDailyWorker || employee.temporary) {
       displayEmploymentType = 'daily';
     }
-    
+
     return {
       ...employee,
       site: sites.find(site => site.id === employee.siteId)?.name || 'Unassigned',
@@ -929,11 +942,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const bAttendance = attendance.find(record => record.employeeId === b.id && record.date === selectedDate)
     const aStatus = aAttendance?.status || (a.onLeave ? 'leave' : 'not-marked')
     const bStatus = bAttendance?.status || (b.onLeave ? 'leave' : 'not-marked')
-    
+
     // Check if employee is a daily worker
     const aIsDaily = a.isDailyWorker || a.temporary
     const bIsDaily = b.isDailyWorker || b.temporary
-    
+
     // Define priority: not-marked = 0, daily workers = 1, present/absent = 2, leave = 3
     const getPriority = (status, isDaily) => {
       if (isDaily) return 1
@@ -941,19 +954,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       if (status === 'leave') return 3
       return 2 // present or absent
     }
-    
+
     const aPriority = getPriority(aStatus, aIsDaily)
     const bPriority = getPriority(bStatus, bIsDaily)
-    
+
     if (aPriority !== bPriority) {
       return aPriority - bPriority
     }
-    
+
     // Then sort by employment type: permanent → contract → daily
     const order = { permanent: 0, contract: 1, daily: 2 };
     const aOrder = order[a.employmentType] || 0;
     const bOrder = order[b.employmentType] || 0;
-    
+
     if (aOrder !== bOrder) {
       return aOrder - bOrder;
     }
@@ -1064,12 +1077,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </motion.div>
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
           <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Daily Staff</p>
-          <p className="text-xs sm:text-lg font-bold text-blue-600">{Object.values(dailyWorkerCounts).reduce((a,b)=>a+(b?.count||0),0)}</p>
+          <p className="text-xs sm:text-lg font-bold text-blue-600">{Object.values(dailyWorkerCounts).reduce((a, b) => a + (typeof b === 'object' ? (Number(b?.count) || 0) : (Number(b) || 0)), 0)}</p>
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-blue-500 mt-0.5" />
         </motion.div>
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
           <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Contract Staff</p>
-          <p className="text-xs sm:text-lg font-bold text-orange-600">{Object.values(contractWorkerCounts).reduce((a,b)=>a+(b?.count||0),0)}</p>
+          <p className="text-xs sm:text-lg font-bold text-orange-600">{Object.values(contractWorkerCounts).reduce((a, b) => a + (b?.count || 0), 0)}</p>
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-orange-500 mt-0.5" />
         </motion.div>
       </div>
@@ -1174,6 +1187,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 className="px-2 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm flex-1"
               >
                 <option value="all">All Sites</option>
+                <option value="unassigned">Unassigned</option>
                 {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
                   <option key={site.id} value={site.id}>{site.name}</option>
                 ))}
@@ -1192,16 +1206,15 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         </div>
         <div className="flex gap-1">
-          {['all','present','absent','leave'].map(s => (
+          {['all', 'present', 'absent', 'leave'].map(s => (
             <button key={s} onClick={() => setFilterStatus(s)}
-              className={`flex-1 py-1.5 rounded-lg font-medium text-xs transition-colors ${
-                filterStatus === s
-                  ? s === 'all' ? 'bg-blue-500 text-white'
-                    : s === 'present' ? 'bg-green-500 text-white'
+              className={`flex-1 py-1.5 rounded-lg font-medium text-xs transition-colors ${filterStatus === s
+                ? s === 'all' ? 'bg-blue-500 text-white'
+                  : s === 'present' ? 'bg-green-500 text-white'
                     : s === 'absent' ? 'bg-red-500 text-white'
-                    : 'bg-yellow-500 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}>
+                      : 'bg-yellow-500 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}>
               {s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
@@ -1248,12 +1261,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   Daily Staff
                 </span>
               </div>
-              
+
               {/* Unassigned Summary */}
               <div className="bg-white rounded-lg p-1.5 sm:p-2 border border-purple-200">
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] sm:text-[10px] font-medium text-gray-700">Unassigned Workers</span>
-                  <span className="text-xs sm:text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned']?.count || 0}</span>
+                  <span className="text-xs sm:text-sm font-bold text-purple-700">{typeof dailyWorkerCounts['unassigned'] === 'object' ? (Number(dailyWorkerCounts['unassigned']?.count) || 0) : (Number(dailyWorkerCounts['unassigned']) || 0)}</span>
                 </div>
                 <button
                   onClick={() => setShowDailyWorkerModal(true)}
@@ -1286,7 +1299,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 const building = dailyData.buildingId ? buildings.find(b => b.id === dailyData.buildingId) : null
                 const buildingName = building?.name || ''
                 const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
-                
+
                 return (
                   <div key={siteId} className="bg-white rounded-lg p-2 border border-purple-200">
                     <div className="flex items-center justify-between mb-1">
@@ -1328,7 +1341,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 const building = contractData.buildingId ? buildings.find(b => b.id === contractData.buildingId) : null
                 const buildingName = building?.name || ''
                 const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
-                
+
                 return (
                   <div key={siteId} className="bg-white rounded-lg p-2 border border-orange-200">
                     <div className="flex items-center justify-between mb-1">
@@ -1376,24 +1389,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className={`border-t hover:bg-gray-50 ${
-                      employee.employmentType === 'daily' 
-                        ? 'bg-purple-50 border-purple-200 hover:bg-purple-100' 
-                        : employee.employmentType === 'contract'
+                    className={`border-t hover:bg-gray-50 ${employee.employmentType === 'daily'
+                      ? 'bg-purple-50 border-purple-200 hover:bg-purple-100'
+                      : employee.employmentType === 'contract'
                         ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
                         : 'border-gray-200'
-                    }`}
+                      }`}
                   >
                     <td className="py-2 px-1 text-[10px] text-gray-400 w-5 text-center">{index + 1}</td>
-                    <td className={`py-2 px-1 ${
-                      employee.employmentType === 'daily' ? 'bg-purple-50' : 
+                    <td className={`py-2 px-1 ${employee.employmentType === 'daily' ? 'bg-purple-50' :
                       employee.employmentType === 'contract' ? 'bg-orange-50' : 'bg-white'
-                    }`}>
+                      }`}>
                       <div className="flex items-center gap-2">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0 ${
-                          employee.employmentType === 'daily' ? 'bg-purple-500' : 
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0 ${employee.employmentType === 'daily' ? 'bg-purple-500' :
                           employee.employmentType === 'contract' ? 'bg-orange-500' : 'bg-blue-500'
-                        }`}>
+                          }`}>
                           {employee.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
@@ -1405,13 +1415,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         <select
                           value={employee.siteId || ''}
                           onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                          className={`px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[130px] focus:outline-none focus:ring-1 ${
-                            employee.employmentType === 'daily'
-                              ? 'border-purple-200 bg-purple-50 text-purple-700'
-                              : employee.employmentType === 'contract'
+                          className={`px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[130px] focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
+                            ? 'border-purple-200 bg-purple-50 text-purple-700'
+                            : employee.employmentType === 'contract'
                               ? 'border-orange-200 bg-orange-50 text-orange-700'
                               : 'border-blue-200 bg-blue-50 text-blue-700'
-                          }`}
+                            }`}
                         >
                           <option value="">No Site</option>
                           {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
@@ -1420,20 +1429,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         </select>
                       </div>
                     </td>
-                    <td className={`py-2 px-2 hidden sm:table-cell ${
-                      employee.employmentType === 'daily' ? 'bg-purple-50' : 
+                    <td className={`py-2 px-2 hidden sm:table-cell ${employee.employmentType === 'daily' ? 'bg-purple-50' :
                       employee.employmentType === 'contract' ? 'bg-orange-50' : ''
-                    }`}>
+                      }`}>
                       <select
                         value={employee.siteId || ''}
                         onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                        className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${
-                          employee.employmentType === 'daily'
-                            ? 'border-purple-200 bg-purple-50 text-purple-700'
-                            : employee.employmentType === 'contract'
+                        className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
+                          ? 'border-purple-200 bg-purple-50 text-purple-700'
+                          : employee.employmentType === 'contract'
                             ? 'border-orange-200 bg-orange-50 text-orange-700'
                             : 'border-gray-200 bg-white text-gray-700'
-                        }`}
+                          }`}
                       >
                         <option value="">No Site</option>
                         {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
@@ -1503,7 +1510,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-sm font-semibold mb-3">Add Contract Workers</h3>
-            
+
             <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Contractor Name</label>
@@ -1537,8 +1544,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
+                      <option key={site.id} value={site.id}>{site.name}</option>
+                    ))}
                 </select>
               </div>
               {newContractWorker.siteId && (
@@ -1553,13 +1560,13 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     {buildings.filter(building => building.siteId === newContractWorker.siteId)
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map(building => (
-                      <option key={building.id} value={building.id}>{building.name}</option>
-                    ))}
+                        <option key={building.id} value={building.id}>{building.name}</option>
+                      ))}
                   </select>
                 </div>
               )}
             </div>
-            
+
             <div className="flex gap-2">
               <button
                 onClick={handleAddContractWorker}
@@ -1582,7 +1589,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
               <div className="mt-4 pt-4 border-t border-gray-200" data-contract-assignment>
                 <h4 className="text-xs font-semibold mb-2 text-orange-700">Assign to Sites</h4>
-                
+
                 {contractWorkerCounts['unassigned']?.count > 0 && (
                   <div className="bg-orange-50 rounded-lg p-2 mb-3 border border-orange-200">
                     <div className="flex items-center justify-between">
@@ -1591,74 +1598,74 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     </div>
                   </div>
                 )}
-                
+
                 <div className="space-y-2 mb-3">
                   {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(site => {
-                    const contractData = contractWorkerCounts[site.id] || { contractorName: '', count: 0 }
-                    const buildingId = contractData.buildingId || null
-                    const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
-                    const canManage = userRole === 'admin' || isSupervisorSite
+                      const contractData = contractWorkerCounts[site.id] || { contractorName: '', count: 0 }
+                      const buildingId = contractData.buildingId || null
+                      const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
+                      const canManage = userRole === 'admin' || isSupervisorSite
 
-                    if (!canManage) return null
+                      if (!canManage) return null
 
-                    return (
-                      <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                      return (
+                        <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                            <div className="flex items-center gap-2">
+                              {contractData.contractorName && (
+                                <span className="text-[10px] text-gray-500">{contractData.contractorName}</span>
+                              )}
+                              <span className="text-xs font-bold text-orange-700">{contractData.count}</span>
+                            </div>
+                          </div>
+                          {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
+                            <div className="mb-2">
+                              <select
+                                value={buildingId || ''}
+                                onChange={(e) => {
+                                  setContractWorkerCounts(prev => ({
+                                    ...prev,
+                                    [site.id]: {
+                                      ...prev[site.id],
+                                      count: prev[site.id]?.count || 0,
+                                      contractorName: prev[site.id]?.contractorName || '',
+                                      buildingId: e.target.value || null
+                                    }
+                                  }))
+                                }}
+                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 text-[10px]"
+                              >
+                                <option value="">No Building</option>
+                                {buildings.filter(b => b.siteId === site.id)
+                                  .sort((a, b) => a.name.localeCompare(b.name))
+                                  .map(building => (
+                                    <option key={building.id} value={building.id}>{building.name}</option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
                           <div className="flex items-center gap-2">
-                            {contractData.contractorName && (
-                              <span className="text-[10px] text-gray-500">{contractData.contractorName}</span>
-                            )}
-                            <span className="text-xs font-bold text-orange-700">{contractData.count}</span>
-                          </div>
-                        </div>
-                        {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
-                          <div className="mb-2">
-                            <select
-                              value={buildingId || ''}
-                              onChange={(e) => {
-                                setContractWorkerCounts(prev => ({
-                                  ...prev,
-                                  [site.id]: {
-                                    ...prev[site.id],
-                                    count: prev[site.id]?.count || 0,
-                                    contractorName: prev[site.id]?.contractorName || '',
-                                    buildingId: e.target.value || null
-                                  }
-                                }))
-                              }}
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 text-[10px]"
+                            <button
+                              onClick={() => handleContractWorkerAssignment(site.id, -1)}
+                              className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
                             >
-                              <option value="">No Building</option>
-                              {buildings.filter(b => b.siteId === site.id)
-                                .sort((a, b) => a.name.localeCompare(b.name))
-                                .map(building => (
-                                <option key={building.id} value={building.id}>{building.name}</option>
-                              ))}
-                            </select>
+                              -
+                            </button>
+                            <button
+                              onClick={() => handleContractWorkerAssignment(site.id, 1)}
+                              className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
+                            >
+                              +
+                            </button>
                           </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleContractWorkerAssignment(site.id, -1)}
-                            className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
-                          >
-                            -
-                          </button>
-                          <button
-                            onClick={() => handleContractWorkerAssignment(site.id, 1)}
-                            className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
-                          >
-                            +
-                          </button>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
                 </div>
-                
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
@@ -1691,75 +1698,76 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
             <h3 className="text-sm font-semibold mb-3">Assign Daily Workers to Sites</h3>
-            
+
             <div className="bg-purple-50 rounded-lg p-2 mb-3 border border-purple-200">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-700">Unassigned Workers</span>
-                <span className="text-sm font-bold text-purple-700">{dailyWorkerCounts['unassigned']?.count || 0}</span>
+                <span className="text-sm font-bold text-purple-700">{typeof dailyWorkerCounts['unassigned'] === 'object' ? (Number(dailyWorkerCounts['unassigned']?.count) || 0) : (Number(dailyWorkerCounts['unassigned']) || 0)}</span>
               </div>
             </div>
-            
+
             <div className="space-y-2 mb-3">
               {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map(site => {
-                const count = dailyWorkerCounts[site.id]?.count || 0
-                const buildingId = dailyWorkerCounts[site.id]?.buildingId || null
-                const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
-                const canManage = userRole === 'admin' || isSupervisorSite
+                  const siteData = dailyWorkerCounts[site.id]
+                  const count = typeof siteData === 'object' ? (Number(siteData?.count) || 0) : (Number(siteData) || 0)
+                  const buildingId = siteData?.buildingId || null
+                  const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
+                  const canManage = userRole === 'admin' || isSupervisorSite
 
-                if (!canManage) return null
+                  if (!canManage) return null
 
-                return (
-                  <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium text-gray-700">{site.name}</span>
-                      <span className="text-xs font-bold text-purple-700">{count}</span>
-                    </div>
-                    {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
-                      <div className="mb-2">
-                        <select
-                          value={buildingId || ''}
-                          onChange={(e) => {
-                            setDailyWorkerCounts(prev => ({
-                              ...prev,
-                              [site.id]: {
-                                ...prev[site.id],
-                                count: prev[site.id]?.count || 0,
-                                buildingId: e.target.value || null
-                              }
-                            }))
-                          }}
-                          className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-[10px]"
-                        >
-                          <option value="">No Building</option>
-                          {buildings.filter(b => b.siteId === site.id)
-                            .sort((a, b) => a.name.localeCompare(b.name))
-                            .map(building => (
-                            <option key={building.id} value={building.id}>{building.name}</option>
-                          ))}
-                        </select>
+                  return (
+                    <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                        <span className="text-xs font-bold text-purple-700">{count}</span>
                       </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleDailyWorkerCountChange(site.id, -1)}
-                        className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
-                      >
-                        -
-                      </button>
-                      <button
-                        onClick={() => handleDailyWorkerCountChange(site.id, 1)}
-                        className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
-                      >
-                        +
-                      </button>
+                      {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
+                        <div className="mb-2">
+                          <select
+                            value={buildingId || ''}
+                            onChange={(e) => {
+                              setDailyWorkerCounts(prev => ({
+                                ...prev,
+                                [site.id]: {
+                                  ...prev[site.id],
+                                  count: prev[site.id]?.count || 0,
+                                  buildingId: e.target.value || null
+                                }
+                              }))
+                            }}
+                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-[10px]"
+                          >
+                            <option value="">No Building</option>
+                            {buildings.filter(b => b.siteId === site.id)
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map(building => (
+                                <option key={building.id} value={building.id}>{building.name}</option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleDailyWorkerCountChange(site.id, -1)}
+                          className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
+                        >
+                          -
+                        </button>
+                        <button
+                          onClick={() => handleDailyWorkerCountChange(site.id, 1)}
+                          className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
+                        >
+                          +
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
             </div>
-            
+
             <div className="flex gap-2">
               <button
                 onClick={() => {
@@ -1822,7 +1830,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
               <select
@@ -1834,11 +1842,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(site => (
-                  <option key={site.id} value={site.id}>{site.name}</option>
-                ))}
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
               </select>
             </div>
-            
+
             {newStaff.employmentType !== 'daily' && newStaff.siteId && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Select Building</label>
@@ -1914,7 +1922,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <option value="contract">Contract Worker</option>
               </select>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
               <select
@@ -1926,8 +1934,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(site => (
-                  <option key={site.id} value={site.id}>{site.name}</option>
-                ))}
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
               </select>
             </div>
 

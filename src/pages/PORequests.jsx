@@ -16,7 +16,7 @@ import {
   ArrowLeft
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supervisorServices, siteServices, materialServices, convertDocsToArray } from '../services/firebaseServices'
+import { supervisorServices, siteServices, materialServices, buildingServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import StatusModal from '../components/StatusModal'
@@ -28,6 +28,7 @@ const PORequests = ({ userRole = 'admin' }) => {
   const { user } = useAuth()
   const [poRequests, setPORequests] = useState([])
   const [sites, setSites] = useState([])
+  const [buildings, setBuildings] = useState([])
   const [materials, setMaterials] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -35,6 +36,7 @@ const PORequests = ({ userRole = 'admin' }) => {
   const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     siteId: '',
+    buildingId: '',
     materialName: '',
     quantity: '',
     unit: '',
@@ -82,6 +84,8 @@ const PORequests = ({ userRole = 'admin' }) => {
         // Always load all sites for the dropdown so supervisors can create POs for any site
         const sitesSnapshot = await siteServices.getAllSites()
         setSites(convertDocsToArray(sitesSnapshot))
+        const buildingsSnapshot = await buildingServices.getAllBuildings()
+        setBuildings(convertDocsToArray(buildingsSnapshot))
         const materialsSnapshot = await materialServices.getAllMaterials()
         setMaterials(convertDocsToArray(materialsSnapshot))
         await reloadRequests()
@@ -112,7 +116,14 @@ const PORequests = ({ userRole = 'admin' }) => {
       const totalAmount = unitPrice * Number(formData.quantity || 1)
 
       const newRequest = {
-        ...formData,
+        siteId: formData.siteId,
+        buildingId: formData.buildingId || null,
+        materialName: formData.materialName,
+        quantity: formData.quantity,
+        unit: formData.unit,
+        urgency: formData.urgency,
+        reason: formData.reason,
+        expectedDate: formData.expectedDate,
         totalAmount,
         requestedBy: currentSupervisor?.email || user?.email || '',
         requestDate: new Date().toISOString().split('T')[0],
@@ -123,7 +134,7 @@ const PORequests = ({ userRole = 'admin' }) => {
       await supervisorServices.createPORequest(newRequest)
       await reloadRequests()
       setShowCreateModal(false)
-      setFormData({ siteId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
+      setFormData({ siteId: '', buildingId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
       showAlert('Success', 'PO request created successfully!')
     } catch (error) {
       console.error('Error creating PO request:', error)
@@ -464,6 +475,9 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <p className="text-xs text-gray-500 mb-0.5">Site</p>
                   <p className="font-semibold text-gray-900 text-sm">
                     {sites.find(s => s.id === request.siteId)?.name || '—'}
+                    {request.buildingId && buildings.find(b => b.id === request.buildingId) && (
+                      <span className="text-gray-500 text-xs ml-1">({buildings.find(b => b.id === request.buildingId)?.name})</span>
+                    )}
                   </p>
                 </div>
                 <div className="col-span-2 sm:col-span-1">
@@ -482,7 +496,9 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <div>
                     <p className="text-sm font-bold text-green-800">Material Arrived & Allocated</p>
                     <p className="text-xs text-green-600 mt-0.5">
-                      Delivered to: <span className="font-semibold">{sites.find(s => s.id === request.siteId)?.name || request.siteId}</span>
+                      Delivered to: <span className="font-semibold">{sites.find(s => s.id === request.siteId)?.name || request.siteId}
+                      {request.buildingId && buildings.find(b => b.id === request.buildingId) && ` (${buildings.find(b => b.id === request.buildingId)?.name})`}
+                      </span>
                       {request.arrivedDate && <span className="ml-2">on {request.arrivedDate}</span>}
                     </p>
                   </div>
@@ -644,6 +660,21 @@ const PORequests = ({ userRole = 'admin' }) => {
                     ))}
                   </select>
                 </div>
+                {formData.siteId && buildings.filter(b => b.siteId === formData.siteId).length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Building (Optional)</label>
+                    <select
+                      value={formData.buildingId}
+                      onChange={(e) => setFormData({ ...formData, buildingId: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select building</option>
+                      {buildings.filter(b => b.siteId === formData.siteId).map(building => (
+                        <option key={building.id} value={building.id}>{building.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {/* <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Expected Date *</label>
                   <input
