@@ -189,6 +189,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     };
   }, [selectedDate, userRole, assignedSites, currentSupervisor]);
 
+  // Enterprise Pattern: Derived state for unassigned workers
+  const unassignedDailyCount = React.useMemo(() => {
+    const data = dailyWorkerCounts['unassigned'];
+    return typeof data === 'object' ? (Number(data?.count) || 0) : (Number(data) || 0);
+  }, [dailyWorkerCounts]);
+
+  const hasUnassignedDailyWorkers = unassignedDailyCount > 0;
+
   const handleAttendanceChange = async (employeeId, newStatus) => {
     const employee = employees.find(emp => emp.id === employeeId)
     if (!employee) return
@@ -367,14 +375,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const leave = todayRecords.filter(record => record.status === 'leave').length + filteredEmployees.filter(emp => emp.onLeave && !todayRecords.some(r => r.employeeId === emp.id)).length
     const total = filteredEmployees.length;
 
-    const finalTotal = total;
+    const finalTotal = total + quickDailyWorkerCount + Object.values(contractWorkerCounts).reduce((sum, count) => sum + (Number(count) || 0), 0);
     return { present, absent, leave, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
   // Daily Worker Count Management - Shared pool across sites
-  const handleDailyWorkerCountChange = (siteId, change) => {
+  const handleDailyWorkerCountChange = (key, change) => {
     setDailyWorkerCounts(prev => {
-      const siteData = prev[siteId]
+      const siteData = prev[key]
       const currentCount = typeof siteData === 'object' ? (Number(siteData?.count) || 0) : (Number(siteData) || 0)
 
       const unassignedData = prev['unassigned']
@@ -399,7 +407,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return {
           ...prev,
           'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: unassignedCount - actualChange },
-          [siteId]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
+          [key]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
         }
       }
 
@@ -408,7 +416,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return {
           ...prev,
           'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: unassignedCount + Math.abs(actualChange) },
-          [siteId]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
+          [key]: { ...(typeof siteData === 'object' ? siteData : {}), count: newCount }
         }
       }
 
@@ -421,16 +429,20 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     return typeof data === 'object' ? (Number(data?.count) || 0) : (Number(data) || 0)
   }
 
-  const saveDailyWorkerAttendance = async (siteId) => {
-    const dailyData = dailyWorkerCounts[siteId]
+  const saveDailyWorkerAttendance = async (key) => {
+    const dailyData = dailyWorkerCounts[key]
     const count = typeof dailyData === 'object' ? (Number(dailyData?.count) || 0) : (Number(dailyData) || 0)
+
+    const parts = key.split('_')
+    const siteId = parts[0]
+    const buildingId = parts[1] || null
 
     try {
       // Create attendance record for daily workers (count-based)
       const attendanceData = {
-        employeeId: `daily-${siteId}-${selectedDate}`,
+        employeeId: buildingId ? `daily-${siteId}-${buildingId}-${selectedDate}` : `daily-${siteId}-${selectedDate}`,
         siteId: siteId,
-        buildingId: dailyData?.buildingId || null,
+        buildingId: buildingId,
         supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
         date: selectedDate,
         status: 'present',
@@ -444,7 +456,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
       // Check if record already exists
       const existingRecord = attendance.find(record =>
-        record.employeeId === attendanceData.employeeId &&
+        record.siteId === siteId &&
+        record.buildingId === buildingId &&
+        record.isDailyWorker &&
         record.date === selectedDate
       )
 
@@ -512,13 +526,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const targetSiteId = newContractWorker.siteId || 'unassigned'
     const targetBuildingId = newContractWorker.buildingId || ''
+    const key = targetSiteId !== 'unassigned' && targetBuildingId ? `${targetSiteId}_${targetBuildingId}` : targetSiteId
 
     setContractWorkerCounts(prev => ({
       ...prev,
-      [targetSiteId]: {
+      [key]: {
         contractorName: newContractWorker.contractorName,
-        count: (prev[targetSiteId]?.count || 0) + newContractWorker.workerCount,
-        buildingId: targetBuildingId
+        count: (prev[key]?.count || 0) + newContractWorker.workerCount,
+        buildingId: targetBuildingId || null
       }
     }))
 
@@ -526,10 +541,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     showToast(`${newContractWorker.workerCount} contract workers added for ${newContractWorker.contractorName}`)
   }
 
-  const handleContractWorkerAssignment = (siteId, change) => {
+  const handleContractWorkerAssignment = (key, change) => {
     setContractWorkerCounts(prev => {
       const unassigned = prev['unassigned'] || { contractorName: '', count: 0 }
-      const currentCount = (prev[siteId]?.count) || 0
+      const currentCount = (prev[key]?.count) || 0
 
       if (change > 0) {
         if (unassigned.count < change) {
@@ -539,8 +554,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return {
           ...prev,
           'unassigned': { ...unassigned, count: unassigned.count - change },
-          [siteId]: {
-            ...prev[siteId],
+          [key]: {
+            ...prev[key],
             contractorName: unassigned.contractorName,
             count: currentCount + change
           }
@@ -552,9 +567,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return {
           ...prev,
           'unassigned': { ...unassigned, count: unassigned.count + returnedCount },
-          [siteId]: {
-            ...prev[siteId],
-            contractorName: prev[siteId]?.contractorName || unassigned.contractorName,
+          [key]: {
+            ...prev[key],
+            contractorName: prev[key]?.contractorName || unassigned.contractorName,
             count: newCount
           }
         }
@@ -563,15 +578,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     })
   }
 
-  const saveContractWorkerAttendance = async (siteId) => {
-    const contractData = contractWorkerCounts[siteId]
+  const saveContractWorkerAttendance = async (key) => {
+    const contractData = contractWorkerCounts[key]
     if (!contractData || contractData.count <= 0) return
+
+    const parts = key.split('_')
+    const siteId = parts[0]
+    const buildingId = parts[1] || null
 
     try {
       const attendanceData = {
-        employeeId: `contract-${siteId}-${selectedDate}`,
+        employeeId: buildingId ? `contract-${siteId}-${buildingId}-${selectedDate}` : `contract-${siteId}-${selectedDate}`,
         siteId: siteId,
-        buildingId: contractData.buildingId || null,
+        buildingId: buildingId,
         supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
         date: selectedDate,
         status: 'present',
@@ -585,7 +604,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       }
 
       const existingRecord = attendance.find(record =>
-        record.employeeId === attendanceData.employeeId &&
+        record.siteId === siteId &&
+        record.buildingId === buildingId &&
+        record.isContractWorker &&
         record.date === selectedDate
       )
 
@@ -611,7 +632,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const loadedCounts = {}
     contractRecords.forEach(record => {
       if (record.siteId) {
-        loadedCounts[record.siteId] = {
+        const key = record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId
+        loadedCounts[key] = {
           contractorName: record.contractorName,
           count: record.contractWorkerCount,
           buildingId: record.buildingId || null
@@ -630,7 +652,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const loadedCounts = {}
     dailyRecords.forEach(record => {
-      const key = record.siteId === 'unassigned' ? 'unassigned' : record.siteId
+      const key = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
       loadedCounts[key] = {
         count: record.dailyWorkerCount,
         buildingId: record.buildingId || null
@@ -1248,31 +1270,34 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </motion.button>
             </div>
           </div>
-
-          {/* Daily Worker Count Management - Compact */}
-          {Object.values(dailyWorkerCounts).some(data => data?.count > 0) && (
-            <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
-              <div className="flex items-center justify-between mb-1 sm:mb-2">
+          {/* Daily Worker Count Management - Enterprise UI Pattern */}
+          {Object.values(dailyWorkerCounts).some(data => (typeof data === 'object' ? data?.count : data) > 0) && (
+            <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3 flex flex-col h-full">
+              <div className="flex items-center justify-between mb-2">
                 <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 flex items-center gap-1">
                   <Users className="w-2 h-2 sm:w-3 sm:h-3" />
-                  Daily Workers (Count-based)
+                  Daily Worker Mgmt
                 </h3>
-                <span className="px-1.5 py-0.5 bg-purple-500 text-white text-[8px] sm:text-[10px] font-bold rounded-full">
+                <span className="px-1.5 py-0.5 bg-purple-500 text-white text-[8px] sm:text-[10px] font-bold rounded-full shadow-sm">
                   Daily Staff
                 </span>
               </div>
-
-              {/* Unassigned Summary */}
-              <div className="bg-white rounded-lg p-1.5 sm:p-2 border border-purple-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] sm:text-[10px] font-medium text-gray-700">Unassigned Workers</span>
-                  <span className="text-xs sm:text-sm font-bold text-purple-700">{typeof dailyWorkerCounts['unassigned'] === 'object' ? (Number(dailyWorkerCounts['unassigned']?.count) || 0) : (Number(dailyWorkerCounts['unassigned']) || 0)}</span>
+              <div className="bg-white rounded-lg p-2 border border-purple-200 flex-1 flex flex-col justify-center shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-medium text-gray-600">Unassigned Pool</span>
+                  <span className={`text-sm font-bold ${hasUnassignedDailyWorkers ? 'text-purple-700' : 'text-gray-400'}`}>
+                    {unassignedDailyCount}
+                  </span>
                 </div>
+
                 <button
                   onClick={() => setShowDailyWorkerModal(true)}
-                  className="mt-1.5 w-full px-2 py-1 bg-purple-500 text-white text-[8px] sm:text-[10px] font-medium rounded-lg hover:bg-purple-600"
+                  className={`w-full px-2 py-1.5 text-white text-[10px] font-medium rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 ${hasUnassignedDailyWorkers
+                    ? 'bg-purple-500 hover:bg-purple-600 focus:ring-purple-500 shadow-sm'
+                    : 'bg-purple-500 hover:bg-purple-600 focus:ring-purple-600'
+                    }`}
                 >
-                  Assign to Sites
+                  {hasUnassignedDailyWorkers ? 'Assign to Sites' : 'Manage Assignments'}
                 </button>
               </div>
             </div>
@@ -1292,16 +1317,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </h3>
             </div>
             <div className="p-2 space-y-2">
-              {Object.entries(dailyWorkerCounts).map(([siteId, dailyData]) => {
-                if (siteId === 'unassigned' || !dailyData?.count) return null
-                const site = sites.find(s => s.id === siteId)
+              {Object.entries(dailyWorkerCounts).map(([key, dailyData]) => {
+                if (key === 'unassigned' || !dailyData?.count) return null
+                const actualSiteId = key.split('_')[0]
+
+                const site = sites.find(s => s.id === actualSiteId)
                 const siteName = site?.name || 'Unknown Site'
                 const building = dailyData.buildingId ? buildings.find(b => b.id === dailyData.buildingId) : null
                 const buildingName = building?.name || ''
                 const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
 
                 return (
-                  <div key={siteId} className="bg-white rounded-lg p-2 border border-purple-200">
+                  <div key={key} className="bg-white rounded-lg p-2 border border-purple-200">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-white text-xs font-bold">
@@ -1334,16 +1361,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </h3>
             </div>
             <div className="p-2 space-y-2">
-              {Object.entries(contractWorkerCounts).map(([siteId, contractData]) => {
-                if (siteId === 'unassigned' || !contractData?.count) return null
-                const site = sites.find(s => s.id === siteId)
+              {Object.entries(contractWorkerCounts).map(([key, contractData]) => {
+                if (key === 'unassigned' || !contractData?.count) return null
+                const actualSiteId = key.split('_')[0]
+
+                const site = sites.find(s => s.id === actualSiteId)
                 const siteName = site?.name || 'Unknown Site'
                 const building = contractData.buildingId ? buildings.find(b => b.id === contractData.buildingId) : null
                 const buildingName = building?.name || ''
                 const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
-
                 return (
-                  <div key={siteId} className="bg-white rounded-lg p-2 border border-orange-200">
+                  <div key={key} className="bg-white rounded-lg p-2 border border-orange-200">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold">
@@ -1603,64 +1631,47 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map(site => {
-                      const contractData = contractWorkerCounts[site.id] || { contractorName: '', count: 0 }
-                      const buildingId = contractData.buildingId || null
                       const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
                       const canManage = userRole === 'admin' || isSupervisorSite
 
                       if (!canManage) return null
 
+                      const siteBuildings = buildings.filter(b => b.siteId === site.id).sort((a, b) => a.name.localeCompare(b.name))
+
                       return (
                         <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-700">{site.name}</span>
+                          <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
+
+                          {/* Site Level Assignment (No Building) */}
+                          <div className="flex items-center justify-between mb-2 pl-2">
+                            <span className="text-[10px] font-medium text-gray-600">General (No Building)</span>
                             <div className="flex items-center gap-2">
-                              {contractData.contractorName && (
-                                <span className="text-[10px] text-gray-500">{contractData.contractorName}</span>
+                              {contractWorkerCounts[site.id]?.contractorName && (
+                                <span className="text-[9px] text-gray-500">{contractWorkerCounts[site.id].contractorName}</span>
                               )}
-                              <span className="text-xs font-bold text-orange-700">{contractData.count}</span>
+                              <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{contractWorkerCounts[site.id]?.count || 0}</span>
+                              <button onClick={() => handleContractWorkerAssignment(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                              <button onClick={() => handleContractWorkerAssignment(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
                             </div>
                           </div>
-                          {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
-                            <div className="mb-2">
-                              <select
-                                value={buildingId || ''}
-                                onChange={(e) => {
-                                  setContractWorkerCounts(prev => ({
-                                    ...prev,
-                                    [site.id]: {
-                                      ...prev[site.id],
-                                      count: prev[site.id]?.count || 0,
-                                      contractorName: prev[site.id]?.contractorName || '',
-                                      buildingId: e.target.value || null
-                                    }
-                                  }))
-                                }}
-                                className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-orange-500 text-[10px]"
-                              >
-                                <option value="">No Building</option>
-                                {buildings.filter(b => b.siteId === site.id)
-                                  .sort((a, b) => a.name.localeCompare(b.name))
-                                  .map(building => (
-                                    <option key={building.id} value={building.id}>{building.name}</option>
-                                  ))}
-                              </select>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleContractWorkerAssignment(site.id, -1)}
-                              className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
-                            >
-                              -
-                            </button>
-                            <button
-                              onClick={() => handleContractWorkerAssignment(site.id, 1)}
-                              className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
-                            >
-                              +
-                            </button>
-                          </div>
+
+                          {/* Building Level Assignments */}
+                          {siteBuildings.map(bldg => {
+                            const key = `${site.id}_${bldg.id}`
+                            return (
+                              <div key={key} className="flex items-center justify-between mb-1 pl-2 border-t border-gray-100 pt-1">
+                                <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
+                                <div className="flex items-center gap-2">
+                                  {contractWorkerCounts[key]?.contractorName && (
+                                    <span className="text-[9px] text-gray-500">{contractWorkerCounts[key].contractorName}</span>
+                                  )}
+                                  <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{contractWorkerCounts[key]?.count || 0}</span>
+                                  <button onClick={() => handleContractWorkerAssignment(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                  <button onClick={() => handleContractWorkerAssignment(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
                       )
                     })}
@@ -1669,9 +1680,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
-                      Object.keys(contractWorkerCounts).forEach(siteId => {
-                        if (siteId !== 'unassigned' && contractWorkerCounts[siteId]?.count > 0) {
-                          saveContractWorkerAttendance(siteId)
+                      Object.keys(contractWorkerCounts).forEach(key => {
+                        if (key !== 'unassigned' && contractWorkerCounts[key]?.count > 0) {
+                          saveContractWorkerAttendance(key)
                         }
                       })
                       setShowContractWorkerModal(false)
@@ -1710,59 +1721,42 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map(site => {
-                  const siteData = dailyWorkerCounts[site.id]
-                  const count = typeof siteData === 'object' ? (Number(siteData?.count) || 0) : (Number(siteData) || 0)
-                  const buildingId = siteData?.buildingId || null
                   const isSupervisorSite = userRole === 'supervisor' && assignedSites.some(s => s.id === site.id)
                   const canManage = userRole === 'admin' || isSupervisorSite
 
                   if (!canManage) return null
 
+                  const siteBuildings = buildings.filter(b => b.siteId === site.id).sort((a, b) => a.name.localeCompare(b.name))
+
                   return (
                     <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-gray-700">{site.name}</span>
-                        <span className="text-xs font-bold text-purple-700">{count}</span>
-                      </div>
-                      {site.id && buildings.filter(b => b.siteId === site.id).length > 0 && (
-                        <div className="mb-2">
-                          <select
-                            value={buildingId || ''}
-                            onChange={(e) => {
-                              setDailyWorkerCounts(prev => ({
-                                ...prev,
-                                [site.id]: {
-                                  ...prev[site.id],
-                                  count: prev[site.id]?.count || 0,
-                                  buildingId: e.target.value || null
-                                }
-                              }))
-                            }}
-                            className="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 text-[10px]"
-                          >
-                            <option value="">No Building</option>
-                            {buildings.filter(b => b.siteId === site.id)
-                              .sort((a, b) => a.name.localeCompare(b.name))
-                              .map(building => (
-                                <option key={building.id} value={building.id}>{building.name}</option>
-                              ))}
-                          </select>
+                      <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
+
+                      {/* Site Level Assignment (No Building) */}
+                      <div className="flex items-center justify-between mb-2 pl-2">
+                        <span className="text-[10px] font-medium text-gray-600">General (No Building)</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{typeof dailyWorkerCounts[site.id] === 'object' ? (Number(dailyWorkerCounts[site.id]?.count) || 0) : (Number(dailyWorkerCounts[site.id]) || 0)}</span>
+                          <button onClick={() => handleDailyWorkerCountChange(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                          <button onClick={() => handleDailyWorkerCountChange(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
                         </div>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleDailyWorkerCountChange(site.id, -1)}
-                          className="w-6 h-6 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-xs"
-                        >
-                          -
-                        </button>
-                        <button
-                          onClick={() => handleDailyWorkerCountChange(site.id, 1)}
-                          className="w-6 h-6 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-xs"
-                        >
-                          +
-                        </button>
                       </div>
+
+                      {/* Building Level Assignments */}
+                      {siteBuildings.map(bldg => {
+                        const key = `${site.id}_${bldg.id}`
+                        const count = typeof dailyWorkerCounts[key] === 'object' ? (Number(dailyWorkerCounts[key]?.count) || 0) : (Number(dailyWorkerCounts[key]) || 0)
+                        return (
+                          <div key={key} className="flex items-center justify-between mb-1 pl-2 border-t border-gray-100 pt-1">
+                            <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{count}</span>
+                              <button onClick={() => handleDailyWorkerCountChange(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                              <button onClick={() => handleDailyWorkerCountChange(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   )
                 })}
@@ -1770,15 +1764,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  Object.keys(dailyWorkerCounts).forEach(siteId => {
-                    if (siteId !== 'unassigned' && dailyWorkerCounts[siteId]?.count > 0) {
-                      saveDailyWorkerAttendance(siteId)
-                    }
-                  })
-                  setShowDailyWorkerModal(false)
+                onClick={async () => {
+                  try {
+                    const savePromises = [];
+
+                    // 1. Queue assignments saves
+                    Object.keys(dailyWorkerCounts).forEach(key => {
+                      if (key !== 'unassigned') {
+                        const val = dailyWorkerCounts[key];
+                        const count = typeof val === 'object' ? (Number(val?.count) || 0) : (Number(val) || 0);
+
+                        if (val !== undefined) {
+                          savePromises.push(saveDailyWorkerAttendance(key));
+                        }
+                      }
+                    });
+                    savePromises.push(saveUnassignedDailyWorkers());
+
+                    await Promise.all(savePromises);
+                    setShowDailyWorkerModal(false);
+                    showToast('Assignments synced successfully');
+                  } catch (error) {
+                    console.error('Failed to sync assignments:', error);
+                    showToast('Sync failed. Please try again.', 'error');
+                  }
                 }}
-                className="flex-1 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 font-medium text-xs"
+                className="flex-1 px-3 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 font-medium text-xs transition-colors"
               >
                 Save Assignments
               </button>
