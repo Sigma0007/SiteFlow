@@ -678,6 +678,22 @@ export const dprServices = {
     return getDocs(q)
   },
 
+  // Get DPR by building ID (building-level DPRs)
+  getDPRByBuildingId: (buildingId) => {
+    const q = query(dprCollection, where('buildingId', '==', buildingId))
+    return getDocs(q)
+  },
+
+  // Get DPR by site + building (compound filter)
+  getDPRBySiteAndBuilding: (siteId, buildingId) => {
+    const q = query(
+      dprCollection,
+      where('siteId', '==', siteId),
+      where('buildingId', '==', buildingId)
+    )
+    return getDocs(q)
+  },
+
   // Add new DPR
   addDPR: (dprData) => {
     if (!dprData.siteId) {

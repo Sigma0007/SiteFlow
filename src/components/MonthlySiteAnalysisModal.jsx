@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Users, Package, TrendingUp, Download, Printer, FileText } from 'lucide-react';
-import { attendanceServices, dprServices, materialServices, convertDocsToArray } from '../services/firebaseServices';
+import { attendanceServices, dprServices, materialServices, buildingServices, convertDocsToArray } from '../services/firebaseServices';
 
-const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attendance' }) => {
+const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defaultTab = 'attendance' }) => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState(defaultTab);
-  
+
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [dprRecords, setDprRecords] = useState([]);
   const [allMaterials, setAllMaterials] = useState([]);
@@ -20,30 +20,37 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attenda
       try {
         const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
         const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-31`;
-        
+
         // Fetch Attendance for the month
         const attSnapshot = await attendanceServices.getAttendanceByDateRange(startDate, endDate);
         const allAtt = convertDocsToArray(attSnapshot);
-        setAttendanceRecords(allAtt.filter(a => a.siteId === site.id));
-        
-        // Fetch DPR for the month
-        // const dprSnapshot = await dprServices.getDPRBySite(site.id);
-        const dprSnapshot = await dprServices.getDPRBySiteId(site.id);
+        // Filter by building if one is selected, otherwise fall back to site-level
+        setAttendanceRecords(
+          building
+            ? allAtt.filter(a => a.buildingId === building.id)
+            : allAtt.filter(a => a.siteId === site.id)
+        );
+
+        // Fetch DPR for the site or building
+        // When a building is selected, query DPRs scoped to that building
+        // When no building, fall back to site-level (existing behaviour)
+        const dprSnapshot = building
+          ? await dprServices.getDPRBySiteAndBuilding(site.id, building.id)
+          : await dprServices.getDPRBySiteId(site.id);
         const allDpr = convertDocsToArray(dprSnapshot);
         setDprRecords(allDpr.filter(d => {
           const dDate = new Date(d.date);
           return dDate.getMonth() === selectedMonth && dDate.getFullYear() === selectedYear;
         }));
-        
+
         // Fetch all materials
         const matSnapshot = await materialServices.getAllMaterials();
         setAllMaterials(convertDocsToArray(matSnapshot));
 
-        // Fetch buildings for this site
-        const buildingSnapshot = await fetch(`/api/buildings?siteId=${site.id}`);
-        if (buildingSnapshot.ok) {
-          const buildingsData = await buildingSnapshot.json();
-          setBuildings(buildingsData);
+        // Fetch buildings for this site (used for CSV grouping in site-level mode)
+        if (!building) {
+          const buildingSnapshot = await buildingServices.getBuildingsBySite(site.id);
+          setBuildings(convertDocsToArray(buildingSnapshot));
         }
 
       } catch (err) {
@@ -51,7 +58,7 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attenda
       }
       setLoading(false);
     };
-    
+
     if (site) fetchData();
   }, [site, selectedMonth, selectedYear]);
 
@@ -62,7 +69,7 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attenda
   // Staff analysis - now building-aware and handles daily/contract workers
   const staffAnalysis = useMemo(() => {
     const analysis = {};
-    
+
     // Initialize for all assigned staff or staff with records
     const relevantStaffIds = new Set([
       ...(site.assignedStaff || []),
@@ -73,22 +80,22 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attenda
       // Check if this is a daily worker or contract worker
       const isDailyWorker = empId.startsWith('daily-');
       const isContractWorker = empId.startsWith('contract-');
-      
+
       let empData;
       if (isDailyWorker) {
         empData = { name: 'Daily Workers', role: 'Daily', dailyWage: 0 };
       } else if (isContractWorker) {
         // Find the contractor name from attendance records
         const contractRecord = attendanceRecords.find(a => a.employeeId === empId);
-        empData = { 
-          name: contractRecord?.contractorName || 'Contract Workers', 
-          role: 'Contract', 
-          dailyWage: 0 
+        empData = {
+          name: contractRecord?.contractorName || 'Contract Workers',
+          role: 'Contract',
+          dailyWage: 0
         };
       } else {
         empData = labour.find(l => l.id === empId) || { name: 'Unknown', role: '-', dailyWage: 0 };
       }
-      
+
       analysis[empId] = {
         emp: empData,
         days: {},
@@ -116,24 +123,24 @@ const MonthlySiteAnalysisModal = ({ site, onClose, labour, defaultTab = 'attenda
   // Material analysis
 
   console.log("DPR Records", dprRecords);
-console.log("All Materials", allMaterials);
+  console.log("All Materials", allMaterials);
 
-console.log(
-  "First Material",
-  dprRecords[0]?.materialUsage?.[0]
-);
+  console.log(
+    "First Material",
+    dprRecords[0]?.materialUsage?.[0]
+  );
 
-console.log("First Material From Collection", allMaterials[0]);
-console.log(
-  "Material Names",
-  allMaterials.map(m => ({
-    id: m.id,
-    name: m.name
-  }))
-);
+  console.log("First Material From Collection", allMaterials[0]);
+  console.log(
+    "Material Names",
+    allMaterials.map(m => ({
+      id: m.id,
+      name: m.name
+    }))
+  );
   const materialAnalysis = useMemo(() => {
     const analysis = {};
-    
+
     dprRecords.forEach(dpr => {
       const day = parseInt(dpr.date.split('-')[2], 10);
       if (dpr.materialUsage) {
@@ -141,13 +148,13 @@ console.log(
           if (!analysis[mu.materialId]) {
             analysis[mu.materialId] = {
               mat:
-           allMaterials.find(m => m.id === mu.materialId) ||
-           allMaterials.find(m => m.name === mu.name) || {
-             name: mu.name || 'Unknown',
-             category: '-',
-             unitPrice: 0,
-             unit: mu.unit || ''
-           },
+                allMaterials.find(m => m.id === mu.materialId) ||
+                allMaterials.find(m => m.name === mu.name) || {
+                  name: mu.name || 'Unknown',
+                  category: '-',
+                  unitPrice: 0,
+                  unit: mu.unit || ''
+                },
               days: {},
               totalUsed: 0
             };
@@ -166,10 +173,10 @@ console.log(
   // Process analysis
   const processAnalysis = useMemo(() => {
     const analysis = {};
-    
+
     dprRecords.forEach(dpr => {
       const day = parseInt(dpr.date.split('-')[2], 10);
-      
+
       if (dpr.processEntries) {
         dpr.processEntries.forEach(pe => {
           const workName = pe.work || 'Unknown';
@@ -182,7 +189,7 @@ console.log(
           analysis[workName].totalQuantity += qty;
         });
       }
-      
+
       if (dpr.processProgress) {
         Object.entries(dpr.processProgress).forEach(([processKey, processData]) => {
           const workName = processData.name || processKey;
@@ -205,26 +212,27 @@ console.log(
   const handleDownloadCSV = () => {
     let csvContent = "";
 
-    
+
     csvContent += `Site: ${site.name}\r\n`;
+    if (building) csvContent += `Building: ${building.name}\r\n`;
     csvContent += `Month: ${monthName} ${selectedYear}\r\n\r\n`;
-    
+
     // Group staff by building if site has multiple buildings
     const hasMultipleBuildings = buildings.length > 1;
-    const buildingGroups = hasMultipleBuildings 
+    const buildingGroups = hasMultipleBuildings
       ? buildings.reduce((acc, building) => {
-          acc[building.id] = {
-            name: building.name,
-            staff: staffAnalysis.filter(s => s.buildingId === building.id)
-          };
-          return acc;
-        }, { 'unassigned': { name: 'No Building', staff: staffAnalysis.filter(s => !s.buildingId) } })
+        acc[building.id] = {
+          name: building.name,
+          staff: staffAnalysis.filter(s => s.buildingId === building.id)
+        };
+        return acc;
+      }, { 'unassigned': { name: 'No Building', staff: staffAnalysis.filter(s => !s.buildingId) } })
       : { 'all': { name: 'All Staff', staff: staffAnalysis } };
 
     // STAFF - Building-wise if multiple buildings exist
     Object.entries(buildingGroups).forEach(([buildingId, group]) => {
       if (group.staff.length === 0) return;
-      
+
       csvContent += `--- STAFF ATTENDANCE & SALARY - ${group.name} ---\r\n`;
       csvContent += `Employee,Role,Daily Wage,${daysArray.join(',')},Present,Absent,Leave,Est. Salary\r\n`;
       group.staff.forEach(({ emp, days, present, absent, leave }) => {
@@ -240,7 +248,7 @@ console.log(
       });
       csvContent += "\r\n";
     });
-    
+
     // MATERIALS
     csvContent += "--- MATERIAL USAGE & COST ---\r\n";
     csvContent += `Item Name,Type,Unit Price,${daysArray.join(',')},Total Used,Est. Cost\r\n`;
@@ -267,7 +275,8 @@ console.log(
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `${site.name}_Detailed_Report_${monthName}_${selectedYear}.csv`);
+    const reportLabel = building ? `${building.name}` : site.name;
+    link.setAttribute("download", `${reportLabel}_Monthly_Report_${monthName}_${selectedYear}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -319,9 +328,11 @@ console.log(
           <div className="w-full flex justify-between sm:block">
             <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-blue-600" />
-              Detailed Monthly Analysis
+              Monthly Building Analysis
             </h2>
-            <p className="text-sm text-gray-500 mt-1">{site.name}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {site.name}{building ? <span className="ml-1 text-blue-600 font-medium">› {building.name}</span> : null}
+            </p>
             <button onClick={onClose} className="sm:hidden p-1.5 hover:bg-gray-100 rounded-full transition text-gray-500">
               <X className="w-5 h-5" />
             </button>
@@ -341,10 +352,11 @@ console.log(
 
         {/* Print Header */}
         <div className="hidden print:block p-8 pb-4 border-b border-gray-200">
-          <h1 className="text-3xl font-black text-gray-900">Detailed Monthly Analysis</h1>
+          <h1 className="text-3xl font-black text-gray-900">Monthly Building Analysis</h1>
           <div className="mt-4 text-gray-600 flex justify-between">
             <div>
               <p><strong>Site:</strong> {site.name}</p>
+              {building && <p><strong>Building:</strong> {building.name}</p>}
               <p><strong>Location:</strong> {site.location}</p>
             </div>
             <div className="text-right">
@@ -353,7 +365,7 @@ console.log(
             </div>
           </div>
         </div>
-        
+
         <div className="p-2 sm:p-4 bg-white border-b border-gray-200 shrink-0 flex flex-row gap-2 sm:gap-4 print:hidden">
           <div className="flex-1 sm:max-w-xs">
             <label className="block text-[10px] sm:text-xs font-semibold text-gray-600 mb-0.5 sm:mb-1 uppercase tracking-wider">Month</label>
@@ -562,7 +574,7 @@ console.log(
                   </div>
                   {[daysArray.slice(0, 16), daysArray.slice(16)].map((chunk, idx) => (
                     <div key={idx} className={`mb-6 ${idx === 1 ? 'break-inside-avoid' : ''}`}>
-                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length-1]})</h4>
+                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length - 1]})</h4>
                       <table className="w-full text-left border-collapse print-compact-table border border-gray-300">
                         <thead className="bg-gray-100 border-b border-gray-300">
                           <tr>
@@ -623,7 +635,7 @@ console.log(
                   </div>
                   {[daysArray.slice(0, 16), daysArray.slice(16)].map((chunk, idx) => (
                     <div key={idx} className={`mb-6 ${idx === 1 ? 'break-inside-avoid' : ''}`}>
-                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length-1]})</h4>
+                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length - 1]})</h4>
                       <table className="w-full text-left border-collapse print-compact-table border border-gray-300">
                         <thead className="bg-gray-100 border-b border-gray-300">
                           <tr>
@@ -678,7 +690,7 @@ console.log(
                   </div>
                   {[daysArray.slice(0, 16), daysArray.slice(16)].map((chunk, idx) => (
                     <div key={idx} className={`mb-6 ${idx === 1 ? 'break-inside-avoid' : ''}`}>
-                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length-1]})</h4>
+                      <h4 className="text-[10px] font-bold text-gray-600 mb-1">Part {idx + 1} (Days {chunk[0]} to {chunk[chunk.length - 1]})</h4>
                       <table className="w-full text-left border-collapse print-compact-table border border-gray-300">
                         <thead className="bg-gray-100 border-b border-gray-300">
                           <tr>
