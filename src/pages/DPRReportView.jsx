@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Building2, Calendar, HardHat, FileText, CheckSquare, Package, Download, IndianRupee } from 'lucide-react';
-import { siteServices, attendanceServices, labourServices, dprServices, materialServices, convertDocsToArray, expenseServices } from '../services/firebaseServices';
+import { siteServices, attendanceServices, labourServices, dprServices, materialServices, convertDocsToArray, expenseServices, buildingServices } from '../services/firebaseServices';
 import html2pdf from 'html2pdf.js';
 
 const DPRReportView = () => {
-  const { siteId, date } = useParams();
+  const { siteId, buildingId, date } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
 
   const [site, setSite] = useState(null);
+  const [building, setBuilding] = useState(null);
   const [attendance, setAttendance] = useState([]);
   const [labour, setLabour] = useState([]);
   const [materials, setMaterials] = useState([]);
@@ -26,6 +27,13 @@ const DPRReportView = () => {
         if (siteDoc.exists()) {
           setSite({ id: siteDoc.id, ...siteDoc.data() });
         }
+        
+        if (buildingId) {
+          const buildingDoc = await buildingServices.getBuildingById(buildingId);
+          if (buildingDoc.exists()) {
+            setBuilding({ id: buildingDoc.id, ...buildingDoc.data() });
+          }
+        }
 
         // Fetch Labour for mapping names
         const labSnap = await labourServices.getAllLabour();
@@ -40,12 +48,16 @@ const DPRReportView = () => {
         // Fetch Attendance for the specific date
         const attSnap = await attendanceServices.getAttendanceByDate(date);
         const allAtt = convertDocsToArray(attSnap);
-        setAttendance(allAtt.filter(a => a.siteId === siteId));
+        setAttendance(allAtt.filter(a => {
+          if (a.siteId !== siteId) return false;
+          if (buildingId && a.buildingId !== buildingId) return false;
+          return true;
+        }));
 
         // Fetch DPR for square footage process
         const dprSnap = await dprServices.getDPRBySiteId(siteId);
         const allDprs = convertDocsToArray(dprSnap);
-        setDpr(allDprs.find(d => d.date === date && !d.is_deleted));
+        setDpr(allDprs.find(d => d.date === date && !d.is_deleted && (!buildingId || d.buildingId === buildingId)));
 
         // Fetch Expenses
         const expSnap = await expenseServices.getExpensesBySiteAndDate(siteId, date);
@@ -82,8 +94,14 @@ const DPRReportView = () => {
   const presentLabour = attendance.filter(a => a.status === 'present');
   const absentLabour = attendance.filter(a => a.status === 'absent');
 
-  const getEmpDetails = (empId) => {
-    return labour.find(l => l.id === empId) || { name: 'Unknown', role: 'Unknown' };
+  const getEmpDetails = (att) => {
+    if (att.isDailyWorker) {
+      return { name: `Daily Workers (${att.dailyWorkerCount || 0} Total)`, id: att.employeeId };
+    }
+    if (att.isContractWorker) {
+      return { name: `Contract Workers - ${att.contractorName} (${att.contractWorkerCount || 0} Total)`, id: att.employeeId };
+    }
+    return labour.find(l => l.id === att.employeeId) || { name: 'Unknown', role: 'Unknown', id: att.employeeId };
   };
 
   const getMaterialDetails = (matId) => {
@@ -133,7 +151,7 @@ const DPRReportView = () => {
             <div>
               <h1 className="text-3xl font-black text-gray-900 uppercase tracking-tight">Daily Progress Report</h1>
               <p className="text-gray-600 mt-2 font-medium flex items-center gap-2">
-                <Building2 className="w-4 h-4" /> {site.name}
+                <Building2 className="w-4 h-4" /> {building ? `${site.name} - ${building.name}` : site.name}
               </p>
             </div>
             <div className="text-right">
@@ -241,12 +259,12 @@ const DPRReportView = () => {
                   <tbody className="bg-white divide-y divide-gray-200">
                     {[...presentLabour, ...absentLabour]
                       .sort((a, b) => {
-                        const empA = getEmpDetails(a.employeeId);
-                        const empB = getEmpDetails(b.employeeId);
+                        const empA = getEmpDetails(a);
+                        const empB = getEmpDetails(b);
                         return (empA.name || '').localeCompare(empB.name || '');
                       })
                       .map((att) => {
-                      const emp = getEmpDetails(att.employeeId);
+                      const emp = getEmpDetails(att);
                       const isPresent = att.status === 'present';
                       return (
                         <tr key={att.id}>

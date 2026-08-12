@@ -836,7 +836,7 @@ const DPRSiteDetails = ({ userRole }) => {
                   <p className="text-xs text-green-600">You've already completed today's tracking. You can view or download the report.</p>
                 </div>
               </div>
-              <button onClick={() => navigate(`/dpr/${siteId}/report/${todayDate}`)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition flex items-center gap-2">
+              <button onClick={() => navigate(buildingId ? `/dpr/${siteId}/${buildingId}/report/${todayDate}` : `/dpr/${siteId}/report/${todayDate}`)} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition flex items-center gap-2">
                 <FileText className="w-4 h-4" /> View Report
               </button>
             </motion.div>

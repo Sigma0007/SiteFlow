@@ -460,6 +460,7 @@ const AppContent = () => {
               <Route path="/dpr/:siteId/:buildingId" element={<DPRSiteDetails userRole={userRole} />} />
               <Route path="/dpr/:siteId/history" element={<DPRHistory userRole={userRole} />} />
               <Route path="/dpr/:siteId/report/:date" element={<DPRReportView />} />
+              <Route path="/dpr/:siteId/:buildingId/report/:date" element={<DPRReportView />} />
               <Route
 
                 path="/materials"

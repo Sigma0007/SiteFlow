@@ -1565,7 +1565,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
 
                           <div className="mb-2 pl-2 border-b border-gray-100 pb-2">
-                            <span className="text-[10px] font-medium text-gray-600 block mb-1">General (No Building)</span>
+                            <span className="text-[10px] font-medium text-gray-600 block mb-1">Assign on site</span>
                             {allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).length === 0 ? (
                               <p className="text-[9px] text-gray-400 pl-2">No contractors assigned here</p>
                             ) : (
@@ -1665,7 +1665,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                       <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
 
                       <div className="flex items-center justify-between mb-2 pl-2">
-                        <span className="text-[10px] font-medium text-gray-600">General (No Building)</span>
+                        <span className="text-[10px] font-medium text-gray-600">Assign on site</span>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{typeof dailyWorkerCounts[site.id] === 'object' ? (Number(dailyWorkerCounts[site.id]?.count) || 0) : (Number(dailyWorkerCounts[site.id]) || 0)}</span>
                           <button onClick={() => handleDailyWorkerCountChange(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
