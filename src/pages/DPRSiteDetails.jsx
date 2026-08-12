@@ -40,7 +40,11 @@ const DPRSiteDetails = ({ userRole }) => {
 
   // Optimistic local state for immediate UI feedback
   const [dailyWorkerCounts, setDailyWorkerCounts] = useState({});
-  const [contractWorkerCounts, setContractWorkerCounts] = useState({});
+  // contractorAssignments: { "contractorName@siteId_buildingId": { count, contractorName } }
+  const [contractorAssignments, setContractorAssignments] = useState({});
+  const [showAddContractModal, setShowAddContractModal] = useState(false);
+  const [newContractEntry, setNewContractEntry] = useState({ contractorName: '', workerCount: '' });
+  const [addingContract, setAddingContract] = useState(false);
 
   // Status Modal State
   const [statusModal, setStatusModal] = useState({
@@ -189,18 +193,23 @@ const DPRSiteDetails = ({ userRole }) => {
     });
     setDailyWorkerCounts(counts);
 
-    const contractRecords = todayAttendance.filter(record => record.isContractWorker && record.date === todayDate);
-    const contractCounts = {};
+    // Per-contractor assignments (non-unassigned records only, one per contractor per location)
+    const contractRecords = todayAttendance.filter(
+      record => record.isContractWorker && record.date === todayDate && record.siteId !== 'unassigned'
+    );
+    const assignments = {};
     contractRecords.forEach(record => {
-      if (record.siteId) {
-        const key = record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId;
-        contractCounts[key] = {
+      if (record.siteId && record.contractorName) {
+        const locationKey = record.buildingId
+          ? `${record.siteId}_${record.buildingId}`
+          : record.siteId;
+        assignments[`${record.contractorName}@${locationKey}`] = {
           count: record.contractWorkerCount || 0,
-          contractorName: record.contractorName || 'Unknown'
+          contractorName: record.contractorName
         };
       }
     });
-    setContractWorkerCounts(contractCounts);
+    setContractorAssignments(assignments);
   }, [todayAttendance, todayDate]);
 
 
@@ -211,21 +220,45 @@ const DPRSiteDetails = ({ userRole }) => {
 
   const unassignedDailyCount = unassignedDailyRecord?.dailyWorkerCount || 0;
 
-  const unassignedContractRecord = useMemo(() =>
-    todayAttendance.find(a => a.isContractWorker && a.siteId === 'unassigned' && a.date === todayDate),
+  // Multiple contractors in unassigned pool — one record per contractor
+  const unassignedContractRecords = useMemo(() =>
+    todayAttendance.filter(a => a.isContractWorker && a.siteId === 'unassigned' && a.date === todayDate),
     [todayAttendance, todayDate]);
 
-  const unassignedContractCount = unassignedContractRecord?.contractWorkerCount || 0;
+  const unassignedContractCount = unassignedContractRecords.reduce(
+    (sum, r) => sum + (r.contractWorkerCount || 0), 0
+  );
+
+  // Location key for this page's building/site
+  const locationKey = buildingId ? `${siteId}_${buildingId}` : siteId;
 
   const getAssignedDailyWorkers = () => {
     const key = buildingId ? `${siteId}_${buildingId}` : siteId;
     return dailyWorkerCounts[key] || 0;
   };
 
-  const getAssignedContractWorkers = () => {
-    const key = buildingId ? `${siteId}_${buildingId}` : siteId;
-    return contractWorkerCounts[key]?.count || 0;
-  };
+  // Total assigned contract workers at this building across ALL contractors
+  const getAssignedContractWorkers = () =>
+    Object.entries(contractorAssignments)
+      .filter(([k]) => k.endsWith(`@${locationKey}`))
+      .reduce((sum, [, v]) => sum + (v.count || 0), 0);
+
+  // Per-contractor count assigned to this building
+  const getAssignedCountForContractor = (contractorName) =>
+    contractorAssignments[`${contractorName}@${locationKey}`]?.count || 0;
+
+  // Pool count for a specific contractor
+  const getPoolCountForContractor = (contractorName) =>
+    unassignedContractRecords.find(r => r.contractorName === contractorName)?.contractWorkerCount || 0;
+
+  // All unique contractor names from pool + assigned
+  const allContractorNames = useMemo(() => {
+    const names = new Set([
+      ...unassignedContractRecords.map(r => r.contractorName).filter(Boolean),
+      ...Object.values(contractorAssignments).map(v => v.contractorName).filter(Boolean)
+    ]);
+    return Array.from(names).sort();
+  }, [unassignedContractRecords, contractorAssignments]);
 
   const showDailyPanel = unassignedDailyCount > 0 || getAssignedDailyWorkers() > 0;
   const showContractPanel = unassignedContractCount > 0 || getAssignedContractWorkers() > 0;
@@ -301,50 +334,55 @@ const DPRSiteDetails = ({ userRole }) => {
     }
   };
 
-  const handleContractWorkerAssignment = async (change) => {
-    const currentAssigned = getAssignedContractWorkers();
+  // Per-contractor assignment: move workers between pool and this building
+  const handleContractWorkerAssignment = async (contractorName, change) => {
+    const unassignedRecord = unassignedContractRecords.find(r => r.contractorName === contractorName);
+    const currentUnassigned = unassignedRecord?.contractWorkerCount || 0;
+    const fullKey = `${contractorName}@${locationKey}`;
+    const currentAssigned = contractorAssignments[fullKey]?.count || 0;
     const newAssigned = Math.max(0, currentAssigned + change);
     const actualChange = newAssigned - currentAssigned;
 
     if (actualChange === 0) return;
-    if (actualChange > 0 && unassignedContractCount < actualChange) {
-      showAlert('Error', `Only ${unassignedContractCount} unassigned contract workers available`, 'error');
+    if (actualChange > 0 && currentUnassigned < actualChange) {
+      showAlert('Error', `Only ${currentUnassigned} unassigned workers from "${contractorName}" available`, 'error');
       return;
     }
 
-    const newUnassigned = unassignedContractCount - actualChange;
-    const key = buildingId ? `${siteId}_${buildingId}` : siteId;
-    const contractorName = unassignedContractRecord?.contractorName || contractWorkerCounts[key]?.contractorName || 'Unknown';
+    const newUnassigned = currentUnassigned - actualChange;
 
     // Optimistic UI update
-    setContractWorkerCounts(prev => ({
+    setContractorAssignments(prev => ({
       ...prev,
-      [key]: { count: newAssigned, contractorName }
+      [fullKey]: { count: newAssigned, contractorName }
     }));
 
     try {
       const promises = [];
-      const uniqueId = buildingId ? `contract-${siteId}-${buildingId}-${todayDate}` : `contract-${siteId}-${todayDate}`;
-      const existingSiteRecord = todayAttendance.find(r => r.employeeId === uniqueId && r.date === todayDate);
+      const safeName = contractorName.replace(/[^a-zA-Z0-9]/g, '_');
+      const uniqueId = buildingId
+        ? `contract-${siteId}-${buildingId}-${safeName}-${todayDate}`
+        : `contract-${siteId}-${safeName}-${todayDate}`;
+      const existingAssigned = todayAttendance.find(r => r.employeeId === uniqueId && r.date === todayDate);
 
-      // 1. Update site record
-      if (existingSiteRecord) {
-        promises.push(attendanceServices.updateAttendance(existingSiteRecord.id, {
+      // 1. Update/create assigned record for this contractor at this building
+      if (existingAssigned) {
+        promises.push(attendanceServices.updateAttendance(existingAssigned.id, {
           contractWorkerCount: newAssigned,
-          contractorName: contractorName,
+          contractorName,
           updatedAt: new Date().toISOString()
         }));
       } else {
         promises.push(attendanceServices.addAttendance({
           employeeId: uniqueId,
-          siteId: siteId,
+          siteId,
           buildingId: buildingId || null,
           supervisorId: user?.uid || null,
           date: todayDate,
           status: 'present',
           isContractWorker: true,
           contractWorkerCount: newAssigned,
-          contractorName: contractorName,
+          contractorName,
           checkIn: new Date().toTimeString().slice(0, 5),
           checkOut: '17:30',
           createdAt: new Date().toISOString(),
@@ -352,28 +390,81 @@ const DPRSiteDetails = ({ userRole }) => {
         }));
       }
 
-      // 2. Update unassigned pool record
-      if (unassignedContractRecord) {
-        promises.push(attendanceServices.updateAttendance(unassignedContractRecord.id, {
+      // 2. Update this contractor's unassigned pool count
+      if (unassignedRecord) {
+        promises.push(attendanceServices.updateAttendance(unassignedRecord.id, {
           contractWorkerCount: newUnassigned,
           updatedAt: new Date().toISOString()
         }));
       }
 
-      // 3. Update DPR log
+      // 3. Update DPR with new total across all contractors
       if (todayDpr) {
+        const newTotal = getAssignedContractWorkers() + actualChange;
         promises.push(dprServices.updateDPR(todayDpr.id, {
-          contractWorkerCount: newAssigned,
-          contractorName: contractorName,
+          contractWorkerCount: newTotal,
+          contractorName,
           updatedAt: new Date().toISOString()
         }));
-        setTodayDpr(prev => ({ ...prev, contractWorkerCount: newAssigned, contractorName }));
+        setTodayDpr(prev => ({ ...prev, contractWorkerCount: newTotal, contractorName }));
       }
 
       await Promise.all(promises);
     } catch (error) {
+      // Rollback optimistic update
+      setContractorAssignments(prev => ({
+        ...prev,
+        [fullKey]: { count: currentAssigned, contractorName }
+      }));
       console.error('Error syncing contract assignment:', error);
       showAlert('Sync Error', 'Failed to save assignments to database.', 'error');
+    }
+  };
+
+  // Add a fresh batch of contract workers to the unassigned pool (per-contractor record)
+  const handleAddNewContractWorkers = async () => {
+    const count = parseInt(newContractEntry.workerCount, 10);
+    const contractorName = newContractEntry.contractorName.trim();
+    if (!contractorName || isNaN(count) || count <= 0) {
+      showAlert('Validation', 'Please enter a valid contractor name and worker count.', 'warning');
+      return;
+    }
+    setAddingContract(true);
+    try {
+      // Each contractor has a unique record in the unassigned pool
+      const safeName = contractorName.replace(/[^a-zA-Z0-9]/g, '_');
+      const employeeId = `contract-unassigned-${safeName}-${todayDate}`;
+      const existingRecord = unassignedContractRecords.find(r => r.contractorName === contractorName);
+
+      if (existingRecord) {
+        // Add to existing contractor's pool count
+        await attendanceServices.updateAttendance(existingRecord.id, {
+          contractWorkerCount: (existingRecord.contractWorkerCount || 0) + count,
+          updatedAt: new Date().toISOString()
+        });
+      } else {
+        // New contractor — create a new attendance record
+        await attendanceServices.addAttendance({
+          employeeId,
+          siteId: 'unassigned',
+          buildingId: null,
+          date: todayDate,
+          status: 'present',
+          isContractWorker: true,
+          contractWorkerCount: count,
+          contractorName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        });
+      }
+      setNewContractEntry({ contractorName: '', workerCount: '' });
+      setShowAddContractModal(false);
+      showAlert('Success', `${count} contract worker${count > 1 ? 's' : ''} added to pool for "${contractorName}".`);
+    } catch (err) {
+      console.error('Error adding contract workers:', err);
+      showAlert('Error', 'Failed to add contract workers.', 'error');
+    } finally {
+      setAddingContract(false);
     }
   };
 
@@ -518,9 +609,21 @@ const DPRSiteDetails = ({ userRole }) => {
   // --- TAB: ATTENDANCE ---
   const visibleEmployees = allLabour.filter(emp => {
     const empAtt = todayAttendance.filter(a => a.employeeId === emp.id);
-    const markedPresentElsewhere = empAtt.some(a => a.status === 'present' && a.siteId !== siteId);
+
+    const markedElsewhere = empAtt.some(a => {
+      // If marked at a different site
+      if (a.siteId !== siteId) return a.status === 'present' || a.status === 'absent';
+      // If we are in a specific building, and they are marked in a different building
+      if (buildingId && a.buildingId && a.buildingId !== buildingId) return a.status === 'present' || a.status === 'absent';
+      return false;
+    });
+
     const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
-    return !markedPresentElsewhere && !isOnLeave;
+
+    // Only show employees assigned to this building, or unassigned (no building)
+    const assignedToOtherBuilding = buildingId && emp.buildingId && emp.buildingId !== buildingId;
+
+    return !markedElsewhere && !isOnLeave && !assignedToOtherBuilding;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const handleMarkAttendance = async (employeeId, status) => {
@@ -528,17 +631,20 @@ const DPRSiteDetails = ({ userRole }) => {
       const existingRecord = todayAttendance.find(a => a.employeeId === employeeId && a.date === todayDate);
       if (existingRecord) {
         if (existingRecord.siteId === siteId) {
-          await attendanceServices.updateAttendance(existingRecord.id, { status, updatedAt: new Date().toISOString() });
+          await attendanceServices.updateAttendance(existingRecord.id, {
+            status,
+            buildingId: buildingId || null,
+            updatedAt: new Date().toISOString()
+          });
         } else {
-          if (existingRecord && existingRecord.siteId !== siteId) {
-            showAlert('Warning', 'Employee already has an attendance record at another site today.', 'warning');
-            return;
-          }
+          showAlert('Warning', 'Employee already has an attendance record at another site today.', 'warning');
+          return;
         }
       } else {
         const attData = {
           employeeId,
           siteId,
+          buildingId: buildingId || null,
           date: todayDate,
           status,
           createdAt: new Date().toISOString()
@@ -548,8 +654,14 @@ const DPRSiteDetails = ({ userRole }) => {
 
       if (status === 'present') {
         const emp = allLabour.find(l => l.id === employeeId);
-        if (emp && emp.siteId !== siteId) {
-          await labourServices.updateLabour(employeeId, { siteId });
+        if (emp) {
+          const updates = {};
+          if (emp.siteId !== siteId) updates.siteId = siteId;
+          if (buildingId && emp.buildingId !== buildingId) updates.buildingId = buildingId;
+
+          if (Object.keys(updates).length > 0) {
+            await labourServices.updateLabour(employeeId, updates);
+          }
         }
       }
 
@@ -878,43 +990,72 @@ const DPRSiteDetails = ({ userRole }) => {
                 </div>
               )}
 
-              {/* === Contract Worker Assigner === */}
-              {showContractPanel && (userRole === 'admin' || userRole === 'supervisor') && (
-                <div className="bg-orange-50 rounded-xl border border-orange-200 p-3 mb-4 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Users className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-orange-600 font-medium uppercase tracking-wide">Unassigned Contract Staff Pool</p>
-                      <p className="text-2xl font-bold text-orange-800 leading-none">{unassignedContractCount}</p>
-                    </div>
-                  </div>
+              {/* === Contract Worker Panel === */}
+              {(userRole === 'admin' || userRole === 'supervisor') && (
+                <div className="mb-4">
 
-                  <div className="w-px h-12 bg-orange-200 hidden sm:block" />
+                  {/* Per-contractor pool + assignment widget */}
+                  {(showContractPanel || allContractorNames.length > 0) && (
+                    <div className="bg-orange-50 rounded-xl border border-orange-200 p-3 mb-2">
+                      {/* Header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                          <Users className="w-4 h-4 text-white" />
+                        </div>
+                        <p className="text-xs font-bold text-orange-800 uppercase tracking-wide flex-1">Contract Workers</p>
+                        <span className="text-xs bg-orange-200 text-orange-800 px-2 py-0.5 rounded-full font-semibold">
+                          {unassignedContractCount} in pool
+                        </span>
+                      </div>
 
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-[10px] text-orange-600 font-medium uppercase tracking-wide">At This Site</p>
-                    <div className="flex items-center gap-2">
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleContractWorkerAssignment(-1)}
-                        disabled={getAssignedContractWorkers() <= 0}
-                        className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-lg transition-colors ${getAssignedContractWorkers() <= 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
-                      >
-                        -
-                      </motion.button>
-                      <span className="text-2xl font-bold text-gray-800 w-10 text-center">{getAssignedContractWorkers()}</span>
-                      <motion.button
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleContractWorkerAssignment(1)}
-                        disabled={unassignedContractCount <= 0}
-                        className={`w-8 h-8 rounded-lg font-bold flex items-center justify-center text-lg transition-colors ${unassignedContractCount <= 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
-                      >
-                        +
-                      </motion.button>
+                      {/* Per-contractor rows */}
+                      <div className="space-y-2">
+                        {allContractorNames.map(contractorName => {
+                          const poolCount = getPoolCountForContractor(contractorName);
+                          const assignedCount = getAssignedCountForContractor(contractorName);
+                          return (
+                            <div key={contractorName} className="bg-white rounded-lg border border-orange-100 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-xs font-semibold text-gray-800 truncate">{contractorName}</p>
+                                  <p className="text-[10px] text-orange-500 font-medium">{poolCount} in pool</p>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <span className="text-[10px] text-gray-500 uppercase tracking-wide hidden sm:block">Here</span>
+                                  <motion.button
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => handleContractWorkerAssignment(contractorName, -1)}
+                                    disabled={assignedCount <= 0}
+                                    className={`w-7 h-7 rounded-lg font-bold flex items-center justify-center text-sm transition-colors ${assignedCount <= 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                                  >-</motion.button>
+                                  <span className="text-base font-bold text-gray-800 w-7 text-center">{assignedCount}</span>
+                                  <motion.button
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => handleContractWorkerAssignment(contractorName, 1)}
+                                    disabled={poolCount <= 0}
+                                    className={`w-7 h-7 rounded-lg font-bold flex items-center justify-center text-sm transition-colors ${poolCount <= 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-green-100 text-green-600 hover:bg-green-200'}`}
+                                  >+</motion.button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {allContractorNames.length === 0 && (
+                          <p className="text-xs text-orange-400 text-center py-1">No contractors yet. Use the button below to add.</p>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Always-visible button to add a new batch of contract workers */}
+                  <motion.button
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => { setNewContractEntry({ contractorName: '', workerCount: '' }); setShowAddContractModal(true); }}
+                    className="w-full py-2 border-2 border-dashed border-orange-300 text-orange-600 rounded-xl text-sm font-medium hover:border-orange-400 hover:bg-orange-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Add Contract Workers
+                  </motion.button>
                 </div>
               )}
 
@@ -1081,6 +1222,76 @@ const DPRSiteDetails = ({ userRole }) => {
 
       <StatusModal {...statusModal} onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))} />
       <InputModal {...inputModal} onCancel={() => setInputModal(prev => ({ ...prev, visible: false }))} />
+
+      {/* Add Contract Workers Modal */}
+      {showAddContractModal && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowAddContractModal(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6"
+          >
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                <PlusCircle className="w-5 h-5 text-orange-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Add Contract Workers</h3>
+                <p className="text-xs text-gray-500">They'll be added to the unassigned pool</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Contractor Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. ABC Contractors"
+                  value={newContractEntry.contractorName}
+                  onChange={e => setNewContractEntry(prev => ({ ...prev, contractorName: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent text-sm outline-none"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Number of Workers</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g. 5"
+                  value={newContractEntry.workerCount}
+                  onChange={e => setNewContractEntry(prev => ({ ...prev, workerCount: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent text-sm outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowAddContractModal(false)}
+                className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-semibold text-sm hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddNewContractWorkers}
+                disabled={addingContract}
+                className="flex-1 py-2.5 bg-orange-500 text-white rounded-lg font-semibold text-sm hover:bg-orange-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {addingContract
+                  ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Saving...</>
+                  : <><PlusCircle className="w-4 h-4" /> Add to Pool</>
+                }
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };

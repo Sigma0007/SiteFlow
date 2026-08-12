@@ -53,7 +53,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const saved = localStorage.getItem('dailyWorkerCounts')
     if (saved) {
       const parsed = JSON.parse(saved)
-      // Check if data is older than 24 hours
       if (parsed.timestamp) {
         const dataAge = Date.now() - parsed.timestamp
         const twentyFourHours = 24 * 60 * 60 * 1000
@@ -74,7 +73,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const saved = localStorage.getItem('contractWorkerCounts')
     if (saved) {
       const parsed = JSON.parse(saved)
-      // Check if data is older than 24 hours
       if (parsed.timestamp) {
         const dataAge = Date.now() - parsed.timestamp
         const twentyFourHours = 24 * 60 * 60 * 1000
@@ -116,11 +114,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     setTimeout(() => setToastMessage({ text: '', type: 'success', visible: false }), 3000)
   }
 
-
-
   // Real-time synchronization for zero-delay updates (CRUD)
   useEffect(() => {
-    // Guard: wait if supervisor sites aren't resolved
     if (userRole === 'supervisor' && assignedSites.length === 0) {
       setLoading(false);
       return;
@@ -149,7 +144,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const unsubscribeLabour = onSnapshot(labourQuery, (snapshot) => {
       const allLabour = convertDocsToArray(snapshot);
-      // Keep unassigned workers so they can be assigned to sites later
       setEmployees(allLabour);
     });
 
@@ -173,7 +167,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       setBuildings(convertDocsToArray(snapshot));
     });
 
-    // Admin site sync (reactive)
     let unsubscribeSites = () => { };
     if (userRole !== 'supervisor') {
       unsubscribeSites = siteServices.onSitesChange((snapshot) => {
@@ -201,20 +194,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const employee = employees.find(emp => emp.id === employeeId)
     if (!employee) return
 
-    // Check if supervisor
     if (userRole === 'supervisor') {
       if (submittedToday) {
         showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
         return
       }
 
-      // Check if trying to modify existing attendance
       const existingRecord = attendance.find(record =>
         record.employeeId === employeeId &&
         record.date === selectedDate
       )
 
-      // If submitted, supervisor cannot modify even to the same status (or delete)
       if (existingRecord && (existingRecord.status !== newStatus || newStatus === 'removed')) {
         showToast('You cannot modify attendance after submission.', 'error')
         return
@@ -222,12 +212,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
 
     try {
-      // Check if attendance record already exists
       const existingRecord = attendance.find(record =>
         record.employeeId === employeeId && record.date === selectedDate
       );
 
-      // Prevent changing from Leave to Present/Absent unless it's explicitly removing the leave or if Admin
       if (existingRecord && existingRecord.status === 'leave' && newStatus !== 'removed' && newStatus !== 'leave') {
         if (userRole !== 'admin') {
           showToast('Leave status is locked. Please click "L" to remove leave status first.', 'error');
@@ -245,7 +233,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return;
       }
 
-      // Sync persistent leave state
       if (newStatus === 'leave') {
         if (!employee.onLeave) await labourServices.updateLabour(employeeId, { onLeave: true });
       } else {
@@ -269,10 +256,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       };
 
       if (existingRecord) {
-        // Update existing record
         await attendanceServices.updateAttendance(existingRecord.id, attendanceData);
       } else {
-        // Create new record using addAttendance
         await attendanceServices.addAttendance({
           ...attendanceData,
           createdAt: new Date().toISOString()
@@ -288,7 +273,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     if (userRole === 'supervisor') {
       try {
         const supervisorId = currentSupervisor?.firebaseUid || currentSupervisor?.id || null
-        // Mark all attendance records as submitted by supervisor
         const todayAttendance = attendance.filter(record => record.date === selectedDate)
 
         for (const record of todayAttendance) {
@@ -316,7 +300,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       return
     }
     employees.forEach(employee => {
-      // If supervisor, only mark for their assigned sites
       if (userRole === 'supervisor' && (!employee.siteId || !currentSupervisor?.assignedSites?.some(site => site.id === employee.siteId))) return
       handleAttendanceChange(employee.id, 'present')
     })
@@ -336,17 +319,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const getAttendanceStats = () => {
     let todayRecords = attendance.filter(record => record.date === selectedDate)
 
-    // Admin filtering by site
     if (userRole === 'admin' && selectedSiteFilter !== 'all') {
       todayRecords = todayRecords.filter(record => record.siteId === selectedSiteFilter)
     }
 
-    // Apply worker type filter to both records and employees
     let filteredEmployees = employees.filter(emp => {
       const employmentType = emp.employmentType || 'permanent'
       const isDailyWorker = emp.isDailyWorker || emp.temporary
 
-      // Apply worker type filter
       let matchesWorkerType = true;
       if (workerTypeFilter === 'permanent') {
         matchesWorkerType = employmentType === 'permanent' && !isDailyWorker;
@@ -366,7 +346,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       return matchesSite && matchesWorkerType;
     });
 
-    // Filter records to only include employees that match the current filters
     const filteredEmployeeIds = new Set(filteredEmployees.map(emp => emp.id));
     todayRecords = todayRecords.filter(record => filteredEmployeeIds.has(record.employeeId));
 
@@ -375,35 +354,27 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const leave = todayRecords.filter(record => record.status === 'leave').length + filteredEmployees.filter(emp => emp.onLeave && !todayRecords.some(r => r.employeeId === emp.id)).length
     const total = filteredEmployees.length;
 
-    const finalTotal = total + quickDailyWorkerCount + Object.values(contractWorkerCounts).reduce((sum, count) => sum + (Number(count) || 0), 0);
+    const finalTotal = total + quickDailyWorkerCount + Object.values(contractWorkerCounts).reduce((sum, data) => sum + ((data?.count) || 0), 0);
     return { present, absent, leave, total: finalTotal, percentage: finalTotal > 0 ? (present / finalTotal * 100).toFixed(1) : 0 }
   }
 
-  // Daily Worker Count Management - Shared pool across sites
   const handleDailyWorkerCountChange = (key, change) => {
     setDailyWorkerCounts(prev => {
       const siteData = prev[key]
       const currentCount = typeof siteData === 'object' ? (Number(siteData?.count) || 0) : (Number(siteData) || 0)
-
       const unassignedData = prev['unassigned']
       const unassignedCount = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
 
-      // Calculate new count for this site (prevent negative)
       const newCount = Math.max(0, currentCount + change)
-
-      // Calculate actual change (could be 0 if trying to go below 0)
       const actualChange = newCount - currentCount
 
-      // If no actual change (e.g., trying to subtract from 0), do nothing
       if (actualChange === 0) return prev
 
-      // If adding, check if we have enough unassigned workers
       if (actualChange > 0) {
         if (unassignedCount < actualChange) {
           showToast(`Only ${unassignedCount} unassigned workers available`, 'error')
           return prev
         }
-        // Deduct from unassigned and add to target site
         return {
           ...prev,
           'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: unassignedCount - actualChange },
@@ -411,7 +382,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         }
       }
 
-      // If removing, add back to unassigned
       if (actualChange < 0) {
         return {
           ...prev,
@@ -438,7 +408,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const buildingId = parts[1] || null
 
     try {
-      // Create attendance record for daily workers (count-based)
       const attendanceData = {
         employeeId: buildingId ? `daily-${siteId}-${buildingId}-${selectedDate}` : `daily-${siteId}-${selectedDate}`,
         siteId: siteId,
@@ -454,7 +423,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         updatedAt: new Date().toISOString()
       }
 
-      // Check if record already exists
       const existingRecord = attendance.find(record =>
         record.siteId === siteId &&
         record.buildingId === buildingId &&
@@ -470,15 +438,12 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       } else {
         await attendanceServices.addAttendance(attendanceData)
       }
-
-      showToast(`Daily workers saved: ${count} workers`)
     } catch (error) {
       console.error('Error saving daily worker attendance:', error)
       showToast('Error saving daily worker attendance', 'error')
     }
   }
 
-  // Save unassigned count to database
   const saveUnassignedDailyWorkers = async () => {
     const unassignedData = dailyWorkerCounts['unassigned']
     const count = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
@@ -517,61 +482,59 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
-  // Contract Worker Count Management
+  // Contract Worker Management (Multi-Contractor Model)
   const handleAddContractWorker = () => {
-    if (!newContractWorker.contractorName || newContractWorker.workerCount <= 0) {
+    const contractorName = newContractWorker.contractorName?.trim();
+    if (!contractorName || newContractWorker.workerCount <= 0) {
       showToast('Please enter contractor name and worker count', 'error')
       return
     }
 
     const targetSiteId = newContractWorker.siteId || 'unassigned'
     const targetBuildingId = newContractWorker.buildingId || ''
-    const key = targetSiteId !== 'unassigned' && targetBuildingId ? `${targetSiteId}_${targetBuildingId}` : targetSiteId
+    const siteKey = targetSiteId !== 'unassigned' && targetBuildingId ? `${targetSiteId}_${targetBuildingId}` : targetSiteId
+    const key = `${siteKey}@${contractorName}`
 
     setContractWorkerCounts(prev => ({
       ...prev,
       [key]: {
-        contractorName: newContractWorker.contractorName,
+        contractorName: contractorName,
         count: (prev[key]?.count || 0) + newContractWorker.workerCount,
+        siteId: targetSiteId,
         buildingId: targetBuildingId || null
       }
     }))
 
     setNewContractWorker({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
-    showToast(`${newContractWorker.workerCount} contract workers added for ${newContractWorker.contractorName}`)
+    showToast(`${newContractWorker.workerCount} contract workers added for ${contractorName}`)
   }
 
-  const handleContractWorkerAssignment = (key, change) => {
+  const handleContractWorkerAssignment = (siteKey, contractorName, change) => {
     setContractWorkerCounts(prev => {
-      const unassigned = prev['unassigned'] || { contractorName: '', count: 0 }
-      const currentCount = (prev[key]?.count) || 0
+      const unassignedKey = `unassigned@${contractorName}`
+      const assignedKey = `${siteKey}@${contractorName}`
+
+      const unassigned = prev[unassignedKey] || { contractorName, count: 0, siteId: 'unassigned', buildingId: null }
+      const currentAssigned = prev[assignedKey] || { contractorName, count: 0, siteId: siteKey.split('_')[0], buildingId: siteKey.split('_')[1] || null }
 
       if (change > 0) {
         if (unassigned.count < change) {
-          showToast(`Only ${unassigned.count} unassigned contract workers available`, 'error')
+          showToast(`Only ${unassigned.count} unassigned contract workers available for ${contractorName}`, 'error')
           return prev
         }
         return {
           ...prev,
-          'unassigned': { ...unassigned, count: unassigned.count - change },
-          [key]: {
-            ...prev[key],
-            contractorName: unassigned.contractorName,
-            count: currentCount + change
-          }
+          [unassignedKey]: { ...unassigned, count: unassigned.count - change },
+          [assignedKey]: { ...currentAssigned, count: currentAssigned.count + change }
         }
       } else if (change < 0) {
         const actualChange = Math.abs(change)
-        const newCount = Math.max(0, currentCount - actualChange)
-        const returnedCount = currentCount - newCount
+        const newCount = Math.max(0, currentAssigned.count - actualChange)
+        const returnedCount = currentAssigned.count - newCount
         return {
           ...prev,
-          'unassigned': { ...unassigned, count: unassigned.count + returnedCount },
-          [key]: {
-            ...prev[key],
-            contractorName: prev[key]?.contractorName || unassigned.contractorName,
-            count: newCount
-          }
+          [unassignedKey]: { ...unassigned, count: unassigned.count + returnedCount },
+          [assignedKey]: { ...currentAssigned, count: newCount }
         }
       }
       return prev
@@ -580,17 +543,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   const saveContractWorkerAttendance = async (key) => {
     const contractData = contractWorkerCounts[key]
-    if (!contractData || contractData.count <= 0) return
+    if (!contractData) return
 
-    const parts = key.split('_')
-    const siteId = parts[0]
-    const buildingId = parts[1] || null
+    const safeName = contractData.contractorName.replace(/[^a-zA-Z0-9]/g, '_')
+    const isUnassigned = key.startsWith('unassigned@')
+    const employeeId = isUnassigned
+      ? `contract-unassigned-${safeName}-${selectedDate}`
+      : (contractData.buildingId
+        ? `contract-${contractData.siteId}-${contractData.buildingId}-${safeName}-${selectedDate}`
+        : `contract-${contractData.siteId}-${safeName}-${selectedDate}`)
 
     try {
       const attendanceData = {
-        employeeId: buildingId ? `contract-${siteId}-${buildingId}-${selectedDate}` : `contract-${siteId}-${selectedDate}`,
-        siteId: siteId,
-        buildingId: buildingId,
+        employeeId,
+        siteId: isUnassigned ? 'unassigned' : contractData.siteId,
+        buildingId: contractData.buildingId || null,
         supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
         date: selectedDate,
         status: 'present',
@@ -603,27 +570,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         updatedAt: new Date().toISOString()
       }
 
-      const existingRecord = attendance.find(record =>
-        record.siteId === siteId &&
-        record.buildingId === buildingId &&
-        record.isContractWorker &&
-        record.date === selectedDate
-      )
+      const existingRecord = attendance.find(record => record.employeeId === employeeId && record.date === selectedDate)
 
       if (existingRecord) {
         await attendanceServices.updateAttendance(existingRecord.id, attendanceData)
-      } else {
+      } else if (contractData.count > 0) {
         await attendanceServices.addAttendance(attendanceData)
       }
-
-      showToast(`Contract workers saved: ${contractData.count} workers from ${contractData.contractorName}`)
     } catch (error) {
       console.error('Error saving contract worker attendance:', error)
-      showToast('Error saving contract worker attendance', 'error')
     }
   }
 
-  // Load existing contract worker attendance for the selected date
   const loadContractWorkerAttendance = () => {
     const contractRecords = attendance.filter(record =>
       record.isContractWorker && record.date === selectedDate
@@ -631,20 +589,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
     const loadedCounts = {}
     contractRecords.forEach(record => {
-      if (record.siteId) {
-        const key = record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId
-        loadedCounts[key] = {
-          contractorName: record.contractorName,
-          count: record.contractWorkerCount,
-          buildingId: record.buildingId || null
-        }
+      const siteKey = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
+      const key = `${siteKey}@${record.contractorName}`
+      loadedCounts[key] = {
+        contractorName: record.contractorName,
+        count: record.contractWorkerCount,
+        siteId: record.siteId,
+        buildingId: record.buildingId || null
       }
     })
 
-    setContractWorkerCounts(loadedCounts)
+    if (Object.keys(loadedCounts).length > 0) {
+      setContractWorkerCounts(loadedCounts)
+    }
   }
 
-  // Load existing daily worker attendance for the selected date
   const loadDailyWorkerAttendance = () => {
     const dailyRecords = attendance.filter(record =>
       record.isDailyWorker && record.date === selectedDate
@@ -659,51 +618,41 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       }
     })
 
-    // Only update if we have records, otherwise keep localStorage data
     if (Object.keys(loadedCounts).length > 0) {
       setDailyWorkerCounts(loadedCounts)
     }
   }
 
-  // Load daily worker attendance when date changes
   useEffect(() => {
     loadDailyWorkerAttendance()
   }, [selectedDate, attendance])
 
-  // Load contract worker attendance when date changes
   useEffect(() => {
     loadContractWorkerAttendance()
   }, [selectedDate, attendance])
+
   const handleQuickDailyWorkerAdd = async () => {
     if (quickDailyWorkerCount <= 0) {
       showToast('Please enter worker count', 'error')
       return
     }
 
-    // Calculate new count
     const unassignedData = dailyWorkerCounts['unassigned']
     const currentUnassigned = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
     const newUnassigned = currentUnassigned + quickDailyWorkerCount
 
-    console.log('Adding daily workers:', { currentUnassigned, quickDailyWorkerCount, newUnassigned })
-
     try {
-      // Find existing record
       const existingRecord = attendance.find(record =>
         record.employeeId === `daily-unassigned-${selectedDate}` &&
         record.date === selectedDate
       )
 
       if (existingRecord) {
-        console.log('Updating existing record:', existingRecord.id, existingRecord.dailyWorkerCount, '->', newUnassigned)
-        // Update existing record
         await attendanceServices.updateAttendance(existingRecord.id, {
           dailyWorkerCount: newUnassigned,
           updatedAt: new Date().toISOString()
         })
       } else {
-        console.log('Creating new record with count:', newUnassigned)
-        // Create new record
         const attendanceData = {
           employeeId: `daily-unassigned-${selectedDate}`,
           siteId: 'unassigned',
@@ -721,7 +670,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         await attendanceServices.addAttendance(attendanceData)
       }
 
-      // Update local state immediately
       setDailyWorkerCounts(prev => {
         const unassignedData = prev['unassigned']
         return {
@@ -737,11 +685,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       showToast('Error saving daily workers', 'error')
     }
   }
+
   const handleAddStaff = async () => {
     try {
-      // Handle daily worker count addition (if count is provided)
       if (newStaff.employmentType === 'daily' && newStaff.dailyWorkerCount > 0) {
-        // For daily workers, add to daily worker counts without requiring site
         const targetSiteId = newStaff.siteId || 'unassigned'
         setDailyWorkerCounts(prev => {
           const targetData = prev[targetSiteId]
@@ -757,7 +704,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return
       }
 
-      // Handle individual daily staff member (with name)
       if (newStaff.employmentType === 'daily' && newStaff.name) {
         const staffData = {
           ...newStaff,
@@ -778,13 +724,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         return
       }
 
-      // Handle regular staff (permanent/contract)
       if (!newStaff.name) {
         showToast('Please enter staff name', 'error')
         return
       }
 
-      // Generate unique number ID for the staff member
       const uniqueNumber = Date.now() + Math.floor(Math.random() * 1000)
 
       const staffData = {
@@ -840,7 +784,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
-  // Inline site assignment from the table dropdown
   const handleInlineSiteChange = async (employeeId, newSiteId) => {
     try {
       await labourServices.updateLabour(employeeId, {
@@ -870,7 +813,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     setShowEditStaffModal(true)
   }
 
-  // Attendance Editing Functions
   const handleEditAttendance = (attendanceRecord) => {
     setEditingAttendance(attendanceRecord)
     setEditAttendanceData({
@@ -913,11 +855,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     )
     const status = attendanceRecord?.status || (employee.onLeave ? 'leave' : 'not-marked')
 
-    // Check employee employment type
     const employmentType = employee.employmentType || 'permanent'
     const isDailyWorker = employee.isDailyWorker || employee.temporary
 
-    // Get site name from sites data
     const siteName = sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
 
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -925,7 +865,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       employee.role.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || status === filterStatus
 
-    // Filter by worker type
     let matchesWorkerType = true;
     if (workerTypeFilter === 'permanent') {
       matchesWorkerType = employmentType === 'permanent' && !isDailyWorker;
@@ -935,19 +874,15 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       matchesWorkerType = isDailyWorker;
     }
 
-    // Filter by assigned sites for supervisors, or selected site for admin
     let matchesSite = true;
     if (userRole === 'supervisor') {
-      // Show all employees assigned to supervisor's sites OR unassigned employees
       matchesSite = !employee.siteId || employee.siteId === 'unassigned' || assignedSites.some(site => site.id === employee.siteId);
     } else if (userRole === 'admin' && selectedSiteFilter !== 'all') {
-      // Show employees matching the site filter OR unassigned employees
       matchesSite = !employee.siteId || employee.siteId === 'unassigned' || employee.siteId === selectedSiteFilter;
     }
 
     return matchesSearch && matchesFilter && matchesSite && matchesWorkerType
   }).map(employee => {
-    // Determine employment type for display
     let displayEmploymentType = employee.employmentType || 'permanent';
     if (employee.isDailyWorker || employee.temporary) {
       displayEmploymentType = 'daily';
@@ -959,22 +894,19 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       employmentType: displayEmploymentType
     };
   }).sort((a, b) => {
-    // Sort by attendance status: unmarked → daily workers → present/absent → leave
     const aAttendance = attendance.find(record => record.employeeId === a.id && record.date === selectedDate)
     const bAttendance = attendance.find(record => record.employeeId === b.id && record.date === selectedDate)
     const aStatus = aAttendance?.status || (a.onLeave ? 'leave' : 'not-marked')
     const bStatus = bAttendance?.status || (b.onLeave ? 'leave' : 'not-marked')
 
-    // Check if employee is a daily worker
     const aIsDaily = a.isDailyWorker || a.temporary
     const bIsDaily = b.isDailyWorker || b.temporary
 
-    // Define priority: not-marked = 0, daily workers = 1, present/absent = 2, leave = 3
     const getPriority = (status, isDaily) => {
       if (isDaily) return 1
       if (status === 'not-marked') return 0
       if (status === 'leave') return 3
-      return 2 // present or absent
+      return 2
     }
 
     const aPriority = getPriority(aStatus, aIsDaily)
@@ -984,7 +916,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       return aPriority - bPriority
     }
 
-    // Then sort by employment type: permanent → contract → daily
     const order = { permanent: 0, contract: 1, daily: 2 };
     const aOrder = order[a.employmentType] || 0;
     const bOrder = order[b.employmentType] || 0;
@@ -996,6 +927,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   })
 
   const stats = getAttendanceStats()
+  const activeAssignedContractors = Object.entries(contractWorkerCounts).filter(([key, data]) => !key.startsWith('unassigned@') && data?.count > 0)
 
   if (loading) {
     return (
@@ -1006,7 +938,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     )
   }
 
-  // Supervisor has no sites assigned at all
   if (userRole === 'supervisor' && assignedSites.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center p-6">
@@ -1019,7 +950,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     )
   }
 
-  // Supervisor has sites but no staff assigned to those sites
   if (userRole === 'supervisor' && assignedSites.length > 0 && employees.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center p-6">
@@ -1041,8 +971,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className={`fixed bottom-8 right-8 z-[100] px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 text-white ${toastMessage.type === 'error' ? 'bg-red-600' : 'bg-gray-800'
-              }`}
+            className={`fixed bottom-8 right-8 z-[100] px-5 py-3 rounded-xl shadow-xl flex items-center gap-3 text-white ${toastMessage.type === 'error' ? 'bg-red-600' : 'bg-gray-800'}`}
           >
             {toastMessage.type === 'error' ? <XCircle className="w-5 h-5" /> : <CheckCircle className="w-5 h-5 text-green-400" />}
             <span className="font-medium tracking-wide text-sm">{toastMessage.text}</span>
@@ -1075,7 +1004,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
-      {/* Stats Cards - compact single row */}
       <div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-4">
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
           <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Total</p>
@@ -1109,7 +1037,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </motion.div>
       </div>
 
-      {/* Quick Actions */}
       {(userRole === 'admin' || userRole === 'supervisor') && (
         <div className="flex flex-wrap gap-2 sm:gap-3 mb-6">
           {userRole === 'admin' && (
@@ -1153,7 +1080,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   whileTap={{ scale: 0.98 }}
                   onClick={() => {
                     setShowContractWorkerModal(true)
-                    // Scroll to assignment section
                     setTimeout(() => {
                       const assignmentSection = document.querySelector('[data-contract-assignment]')
                       if (assignmentSection) assignmentSection.scrollIntoView({ behavior: 'smooth' })
@@ -1188,7 +1114,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Filters */}
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative w-full sm:flex-1">
@@ -1243,10 +1168,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
-      {/* Daily Worker Section - Combined Row */}
       {(userRole === 'admin' || userRole === 'supervisor') && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-          {/* Quick Daily Worker Addition */}
           <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
             <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 mb-1 sm:mb-2 flex items-center gap-1">
               <Users className="w-2 h-2 sm:w-3 sm:h-3" />
@@ -1270,7 +1193,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </motion.button>
             </div>
           </div>
-          {/* Daily Worker Count Management - Enterprise UI Pattern */}
           {Object.values(dailyWorkerCounts).some(data => (typeof data === 'object' ? data?.count : data) > 0) && (
             <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3 flex flex-col h-full">
               <div className="flex items-center justify-between mb-2">
@@ -1305,9 +1227,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Attendance List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Daily Workers Section */}
         {Object.keys(dailyWorkerCounts).some(siteId => siteId !== 'unassigned' && dailyWorkerCounts[siteId]?.count > 0) && (
           <div className="bg-purple-50 border-b-2 border-purple-200">
             <div className="p-2 bg-purple-100 border-b border-purple-200">
@@ -1351,8 +1271,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         )}
 
-        {/* Contract Workers Section */}
-        {Object.keys(contractWorkerCounts).some(siteId => siteId !== 'unassigned' && contractWorkerCounts[siteId]?.count > 0) && (
+        {activeAssignedContractors.length > 0 && (
           <div className="bg-orange-50 border-b-2 border-orange-200">
             <div className="p-2 bg-orange-100 border-b border-orange-200">
               <h3 className="text-xs font-bold text-orange-800 flex items-center gap-1">
@@ -1361,11 +1280,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </h3>
             </div>
             <div className="p-2 space-y-2">
-              {Object.entries(contractWorkerCounts).map(([key, contractData]) => {
-                if (key === 'unassigned' || !contractData?.count) return null
-                const actualSiteId = key.split('_')[0]
-
-                const site = sites.find(s => s.id === actualSiteId)
+              {activeAssignedContractors.map(([key, contractData]) => {
+                const site = sites.find(s => s.id === contractData.siteId)
                 const siteName = site?.name || 'Unknown Site'
                 const building = contractData.buildingId ? buildings.find(b => b.id === contractData.buildingId) : null
                 const buildingName = building?.name || ''
@@ -1533,7 +1449,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       </div>
 
-      {/* Contract Worker Modal */}
       {showContractWorkerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
@@ -1613,19 +1528,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </button>
             </div>
 
-            {/* Contract Worker Assignment Section */}
             {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
               <div className="mt-4 pt-4 border-t border-gray-200" data-contract-assignment>
                 <h4 className="text-xs font-semibold mb-2 text-orange-700">Assign to Sites</h4>
 
-                {contractWorkerCounts['unassigned']?.count > 0 && (
-                  <div className="bg-orange-50 rounded-lg p-2 mb-3 border border-orange-200">
+                {Object.entries(contractWorkerCounts).filter(([k, v]) => k.startsWith('unassigned@') && v.count > 0).map(([k, v]) => (
+                  <div key={k} className="bg-orange-50 rounded-lg p-2 mb-2 border border-orange-200">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-gray-700">Unassigned: {contractWorkerCounts['unassigned']?.contractorName}</span>
-                      <span className="text-sm font-bold text-orange-700">{contractWorkerCounts['unassigned']?.count || 0}</span>
+                      <span className="text-xs font-medium text-gray-700">Unassigned: {v.contractorName}</span>
+                      <span className="text-sm font-bold text-orange-700">{v.count}</span>
                     </div>
                   </div>
-                )}
+                ))}
 
                 <div className="space-y-2 mb-3">
                   {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
@@ -1638,37 +1552,60 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
                       const siteBuildings = buildings.filter(b => b.siteId === site.id).sort((a, b) => a.name.localeCompare(b.name))
 
+                      const allContractors = Array.from(new Set([
+                        ...Object.entries(contractWorkerCounts).filter(([k]) => k.startsWith('unassigned@')).map(([, v]) => v.contractorName),
+                        ...Object.entries(contractWorkerCounts).filter(([k]) => k.startsWith(`${site.id}@`)).map(([, v]) => v.contractorName),
+                        ...siteBuildings.flatMap(bldg => Object.entries(contractWorkerCounts).filter(([k]) => k.startsWith(`${site.id}_${bldg.id}@`)).map(([, v]) => v.contractorName))
+                      ]));
+
+                      if (allContractors.length === 0) return null;
+
                       return (
                         <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
                           <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
 
-                          {/* Site Level Assignment (No Building) */}
-                          <div className="flex items-center justify-between mb-2 pl-2">
-                            <span className="text-[10px] font-medium text-gray-600">General (No Building)</span>
-                            <div className="flex items-center gap-2">
-                              {contractWorkerCounts[site.id]?.contractorName && (
-                                <span className="text-[9px] text-gray-500">{contractWorkerCounts[site.id].contractorName}</span>
-                              )}
-                              <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{contractWorkerCounts[site.id]?.count || 0}</span>
-                              <button onClick={() => handleContractWorkerAssignment(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                              <button onClick={() => handleContractWorkerAssignment(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
-                            </div>
+                          <div className="mb-2 pl-2 border-b border-gray-100 pb-2">
+                            <span className="text-[10px] font-medium text-gray-600 block mb-1">General (No Building)</span>
+                            {allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).length === 0 ? (
+                              <p className="text-[9px] text-gray-400 pl-2">No contractors assigned here</p>
+                            ) : (
+                              allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).map(cName => {
+                                const assignedCount = contractWorkerCounts[`${site.id}@${cName}`]?.count || 0;
+                                return (
+                                  <div key={cName} className="flex items-center justify-between mt-1 pl-2">
+                                    <span className="text-[9px] text-gray-500">{cName}</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
+                                      <button onClick={() => handleContractWorkerAssignment(site.id, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                      <button onClick={() => handleContractWorkerAssignment(site.id, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                                    </div>
+                                  </div>
+                                )
+                              })
+                            )}
                           </div>
 
-                          {/* Building Level Assignments */}
                           {siteBuildings.map(bldg => {
-                            const key = `${site.id}_${bldg.id}`
+                            const bldgKey = `${site.id}_${bldg.id}`;
+                            const relevantContractors = allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0) > 0);
+                            if (relevantContractors.length === 0) return null;
+
                             return (
-                              <div key={key} className="flex items-center justify-between mb-1 pl-2 border-t border-gray-100 pt-1">
-                                <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
-                                <div className="flex items-center gap-2">
-                                  {contractWorkerCounts[key]?.contractorName && (
-                                    <span className="text-[9px] text-gray-500">{contractWorkerCounts[key].contractorName}</span>
-                                  )}
-                                  <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{contractWorkerCounts[key]?.count || 0}</span>
-                                  <button onClick={() => handleContractWorkerAssignment(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                                  <button onClick={() => handleContractWorkerAssignment(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
-                                </div>
+                              <div key={bldgKey} className="mb-2 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0">
+                                <span className="text-[10px] font-medium text-gray-600 block mb-1">{bldg.name}</span>
+                                {relevantContractors.map(cName => {
+                                  const assignedCount = contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0;
+                                  return (
+                                    <div key={cName} className="flex items-center justify-between mt-1 pl-2">
+                                      <span className="text-[9px] text-gray-500">{cName}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
+                                        <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                        <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
                             )
                           })}
@@ -1680,11 +1617,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
-                      Object.keys(contractWorkerCounts).forEach(key => {
-                        if (key !== 'unassigned' && contractWorkerCounts[key]?.count > 0) {
-                          saveContractWorkerAttendance(key)
-                        }
-                      })
+                      Object.keys(contractWorkerCounts).forEach(key => saveContractWorkerAttendance(key))
                       setShowContractWorkerModal(false)
                     }}
                     className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
@@ -1704,7 +1637,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Daily Worker Assignment Modal */}
       {showDailyWorkerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
@@ -1732,7 +1664,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
                       <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
 
-                      {/* Site Level Assignment (No Building) */}
                       <div className="flex items-center justify-between mb-2 pl-2">
                         <span className="text-[10px] font-medium text-gray-600">General (No Building)</span>
                         <div className="flex items-center gap-2">
@@ -1742,7 +1673,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         </div>
                       </div>
 
-                      {/* Building Level Assignments */}
                       {siteBuildings.map(bldg => {
                         const key = `${site.id}_${bldg.id}`
                         const count = typeof dailyWorkerCounts[key] === 'object' ? (Number(dailyWorkerCounts[key]?.count) || 0) : (Number(dailyWorkerCounts[key]) || 0)
@@ -1767,20 +1697,13 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 onClick={async () => {
                   try {
                     const savePromises = [];
-
-                    // 1. Queue assignments saves
                     Object.keys(dailyWorkerCounts).forEach(key => {
                       if (key !== 'unassigned') {
                         const val = dailyWorkerCounts[key];
-                        const count = typeof val === 'object' ? (Number(val?.count) || 0) : (Number(val) || 0);
-
-                        if (val !== undefined) {
-                          savePromises.push(saveDailyWorkerAttendance(key));
-                        }
+                        if (val !== undefined) savePromises.push(saveDailyWorkerAttendance(key));
                       }
                     });
                     savePromises.push(saveUnassignedDailyWorkers());
-
                     await Promise.all(savePromises);
                     setShowDailyWorkerModal(false);
                     showToast('Assignments synced successfully');
@@ -1804,7 +1727,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Add Staff Modal */}
       {showAddStaffModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
@@ -1897,7 +1819,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Edit Staff Modal */}
       {showEditStaffModal && staffToEdit && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
@@ -1968,7 +1889,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {showDeleteConfirm && staffToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm mx-4">
@@ -1994,7 +1914,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
-      {/* Edit Attendance Modal */}
       {editingAttendance && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">

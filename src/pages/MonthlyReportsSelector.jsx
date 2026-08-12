@@ -45,7 +45,11 @@ const MonthlyReportsSelector = () => {
       setShowModal(false);
       try {
         const snapshot = await buildingServices.getBuildingsBySite(selectedSite.id);
-        setBuildings(convertDocsToArray(snapshot));
+        const fetchedBuildings = convertDocsToArray(snapshot);
+        setBuildings(fetchedBuildings);
+        if (fetchedBuildings.length === 0) {
+          setShowModal(true);
+        }
       } catch (err) {
         console.error('Error fetching buildings:', err);
         setBuildings([]);
@@ -143,8 +147,14 @@ const MonthlyReportsSelector = () => {
               </div>
             ) : buildings.length === 0 ? (
               <div className="text-center py-8 bg-gray-50 rounded-lg">
-                <Building2 className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-500 text-sm">No buildings found for <strong>{selectedSite.name}</strong></p>
+                <Building2 className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm mb-4">No buildings found for <strong>{selectedSite.name}</strong>.</p>
+                <button
+                  onClick={() => setShowModal(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  View Site Report
+                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -187,8 +197,8 @@ const MonthlyReportsSelector = () => {
         )}
       </div>
 
-      {/* Modal — shown when both site and building are selected */}
-      {showModal && selectedSite && selectedBuilding && (
+      {/* Modal — shown when site is selected, and either a building is selected OR the site has no buildings */}
+      {showModal && selectedSite && (selectedBuilding || buildings.length === 0) && (
         <MonthlySiteAnalysisModal
           site={selectedSite}
           building={selectedBuilding}
