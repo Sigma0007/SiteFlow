@@ -1821,6 +1821,119 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         </div>
       )}
+      {/* --- ADD STAFF MODAL --- */}
+      {showAddStaffModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Add New Staff</h3>
+            <div className="space-y-4">
+              <input type="text" placeholder="Name" value={newStaff.name} onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              {newStaff.employmentType !== 'daily' && (
+                <input type="text" placeholder="Role" value={newStaff.role} onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              )}
+              <input type="number" placeholder="Salary" value={newStaff.dailyWage} onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="text" placeholder="Phone" value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Site (Optional)</label>
+                <select value={newStaff.siteId} onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="">No Site (Unassigned)</option>
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {newStaff.employmentType !== 'daily' && newStaff.siteId && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Select Building (Optional)</label>
+                  <select value={newStaff.buildingId} onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })} disabled={!newStaff.siteId} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50">
+                    <option value="">Select Building</option>
+                    {buildings.filter(b => b.siteId === newStaff.siteId).map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={handleAddStaff} className="flex-1 bg-blue-500 text-white py-2.5 rounded-lg font-bold hover:bg-blue-600 transition-colors">Add Staff</button>
+              <button onClick={() => { setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent' }); setShowAddStaffModal(false); }} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT STAFF MODAL --- */}
+      {showEditStaffModal && staffToEdit && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Edit Staff</h3>
+            <div className="space-y-4">
+              <input type="text" placeholder="Name" value={editStaff.name} onChange={(e) => setEditStaff({ ...editStaff, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="number" placeholder="Salary" value={editStaff.dailyWage} onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="text" placeholder="Phone" value={editStaff.phone} onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <select value={editStaff.employmentType} onChange={(e) => setEditStaff({ ...editStaff, employmentType: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="permanent">Permanent Staff</option>
+                <option value="contract">Contract Worker</option>
+              </select>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Site (Optional)</label>
+                <select value={editStaff.siteId} onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="">No Site (Unassigned)</option>
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button onClick={handleEditStaff} className="flex-1 bg-blue-500 text-white py-2.5 rounded-lg font-bold hover:bg-blue-600 transition-colors">Update Staff</button>
+              <button onClick={() => setShowEditStaffModal(false)} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- DELETE CONFIRM MODAL --- */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Confirm Deletion</h3>
+            <p className="text-sm text-gray-600 mb-6">Are you sure you want to delete {staffToDelete?.name}? This action cannot be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={handleDeleteStaff} className="flex-1 bg-red-500 text-white py-2.5 rounded-lg font-bold hover:bg-red-600 transition-colors">Delete</button>
+              <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT ATTENDANCE MODAL --- */}
+      {editingAttendance && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Edit Attendance</h3>
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wider">Status</label>
+                <select value={editAttendanceData.status} onChange={(e) => setEditAttendanceData({ ...editAttendanceData, status: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                  <option value="leave">Leave</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={handleSaveAttendanceEdit} className="flex-1 bg-blue-500 text-white py-2.5 rounded-lg font-bold hover:bg-blue-600 transition-colors">Save</button>
+              <button onClick={() => setEditingAttendance(null)} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <Footer />
     </div>
   )
