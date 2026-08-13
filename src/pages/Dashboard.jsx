@@ -57,21 +57,21 @@ const Dashboard = ({ userRole }) => {
   })
 
   const showAlert = (title, message, type = 'success') => {
-    setStatusModal({ 
-      visible: true, 
-      type, 
-      title, 
-      message, 
-      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false })) 
+    setStatusModal({
+      visible: true,
+      type,
+      title,
+      message,
+      onConfirm: () => setStatusModal(prev => ({ ...prev, visible: false }))
     })
   }
 
   const showConfirm = (title, message, onConfirm) => {
-    setStatusModal({ 
-      visible: true, 
-      type: 'confirm', 
-      title, 
-      message, 
+    setStatusModal({
+      visible: true,
+      type: 'confirm',
+      title,
+      message,
       onConfirm: () => {
         onConfirm();
         setStatusModal(prev => ({ ...prev, visible: false }));
@@ -151,7 +151,7 @@ const Dashboard = ({ userRole }) => {
           setMaterials(convertDocsToArray(snap))
         })
       )
-      
+
       setLoading(false)
     } else {
       // Admin sees all data
@@ -478,7 +478,9 @@ const Dashboard = ({ userRole }) => {
               { icon: Package, label: 'Inventory', path: '/materials', color: 'bg-orange-500', desc: 'MATERIALS' }
             ] : []),
             { icon: DollarSign, label: 'PO Requests', path: '/po-requests', color: 'bg-amber-500', desc: 'PURCHASES' },
-            { icon: TrendingUp, label: 'Monthly Report', path: '/reports', color: 'bg-purple-500', desc: 'ANALYSIS' },
+            ...(userRole === 'admin' ? [
+              { icon: TrendingUp, label: 'Monthly Report', path: '/reports', color: 'bg-purple-500', desc: 'ANALYSIS' }
+            ] : []),
             {
               icon: LogOut,
               label: 'Logout',
@@ -689,8 +691,8 @@ const Dashboard = ({ userRole }) => {
         )}
       </AnimatePresence>
 
-      <StatusModal 
-        {...statusModal} 
+      <StatusModal
+        {...statusModal}
         onCancel={() => setStatusModal(prev => ({ ...prev, visible: false }))}
       />
       <Footer />

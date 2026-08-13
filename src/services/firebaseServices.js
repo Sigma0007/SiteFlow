@@ -35,6 +35,25 @@ export const organizationsCollection = collection(db, 'organizations');
 export const siteInventoryCollection = collection(db, 'siteInventory');
 export const siteMaterialLogsCollection = collection(db, 'siteMaterialLogs');
 export const notificationsCollection = collection(db, 'notifications');
+export const contractorsCollection = collection(db, 'contractors');
+
+// Contractor Management Services
+export const contractorServices = {
+  // Get all contractors
+  getAllContractors: () => getDocs(contractorsCollection),
+
+  // Add new contractor assignment
+  addContractor: (contractorData) => addDoc(contractorsCollection, contractorData),
+
+  // Update contractor assignment (e.g. changing worker count)
+  updateContractor: (id, contractorData) => updateDoc(doc(db, 'contractors', id), contractorData),
+
+  // Delete contractor assignment
+  deleteContractor: (id) => deleteDoc(doc(db, 'contractors', id)),
+
+  // Real-time listener for contractors
+  onContractorsChange: (callback) => onSnapshot(contractorsCollection, callback)
+};
 
 // Site Management Services
 export const siteServices = {
@@ -375,7 +394,7 @@ export const siteInventoryServices = {
     const normalizedName = materialName.trim();
     const docId = `${siteId}_${normalizedName.toLowerCase().replace(/\s+/g, '_')}`;
     const docRef = doc(db, 'siteInventory', docId);
-    
+
     // Check if item already exists
     const docSnap = await getDoc(docRef);
     let newQty = quantity;
@@ -386,7 +405,7 @@ export const siteInventoryServices = {
       existingCategory = docSnap.data().category || existingCategory;
       existingUnit = docSnap.data().unit || existingUnit;
     }
-    
+
     // Update or create inventory item
     await setDoc(docRef, {
       siteId,
@@ -408,7 +427,7 @@ export const siteInventoryServices = {
       addedBy: userEmail || '',
       createdAt: new Date().toISOString()
     });
-    
+
     return { id: docId, currentStock: newQty };
   },
 
@@ -1139,7 +1158,7 @@ export const notificationServices = {
       where('read', '==', false)
     );
     const snapshot = await getDocs(q);
-    const updatePromises = snapshot.docs.map(doc => 
+    const updatePromises = snapshot.docs.map(doc =>
       updateDoc(doc.ref, { read: true, readAt: new Date().toISOString() })
     );
     return Promise.all(updatePromises);
@@ -1165,7 +1184,7 @@ export const notificationServices = {
     try {
       const usersCollection = collection(db, 'users');
       const userDocRef = doc(usersCollection, userEmail);
-      
+
       // Check if user document exists first
       const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
@@ -1205,7 +1224,7 @@ export const notificationServices = {
   sendPushNotification: async (notificationData) => {
     try {
       const workerUrl = import.meta.env.VITE_CLOUDFLARE_WORKER_URL;
-      
+
       if (!workerUrl || workerUrl.includes('YOUR_SUBDOMAIN')) {
         console.log('Cloudflare Worker not configured. In-app notifications (bell icon) will work.');
         console.log('To enable push notifications, deploy Cloudflare Worker and update VITE_CLOUDFLARE_WORKER_URL in .env');
@@ -1232,7 +1251,7 @@ export const notificationServices = {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         console.log('✅ Push notification sent via Cloudflare Worker:', result);
         return result;
@@ -1251,14 +1270,14 @@ export const notificationServices = {
     try {
       // Always save to Firestore
       await notificationServices.addNotification(notificationData);
-      
+
       // Try to send push notification (optional)
       try {
         await notificationServices.sendPushNotification(notificationData);
       } catch (pushError) {
         console.log('Push notification failed, but Firestore notification saved:', pushError.message);
       }
-      
+
       // Show native browser notification banner if permission is granted
       if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
         try {
@@ -1510,14 +1529,14 @@ export const runDataMigration = async () => {
       const empId = doc.employeeId || doc.labourId;
       const date = doc.date;
       if (!empId || !date) continue;
-      
+
       const key = `${empId}_${date}`;
       if (!groupings[key]) groupings[key] = [];
       groupings[key].push(doc);
     }
 
     const docsToDelete = new Set();
-    
+
     for (const [key, records] of Object.entries(groupings)) {
       const [empId, date] = key.split('_');
       const deterministicId = `${empId}_${date}`;

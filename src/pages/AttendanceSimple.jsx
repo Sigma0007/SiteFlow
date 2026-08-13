@@ -19,7 +19,7 @@ import {
   UserPlus,
   ArrowLeft
 } from 'lucide-react'
-import { labourServices, attendanceServices, siteServices, buildingServices, convertDocsToArray, query, where, getDocs, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
+import { labourServices, attendanceServices, siteServices, buildingServices, contractorServices, convertDocsToArray, query, where, getDocs, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
 import { onSnapshot } from 'firebase/firestore'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import Footer from '../components/Footer'
@@ -68,27 +68,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [quickDailyWorkerCount, setQuickDailyWorkerCount] = useState(0)
   const [showDailyWorkerModal, setShowDailyWorkerModal] = useState(false)
 
-  // Contract worker count management with 24-hour expiration
-  const [contractWorkerCounts, setContractWorkerCounts] = useState(() => {
-    const saved = localStorage.getItem('contractWorkerCounts')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      if (parsed.timestamp) {
-        const dataAge = Date.now() - parsed.timestamp
-        const twentyFourHours = 24 * 60 * 60 * 1000
-        if (dataAge > twentyFourHours) {
-          localStorage.removeItem('contractWorkerCounts')
-          return {}
-        }
-        return parsed.data || {}
-      }
-    }
-    return {}
-  })
-  const [showContractWorkerModal, setShowContractWorkerModal] = useState(false)
-  const [newContractWorker, setNewContractWorker] = useState({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
-
-  // Persist counts to localStorage with timestamp
   useEffect(() => {
     localStorage.setItem('dailyWorkerCounts', JSON.stringify({
       data: dailyWorkerCounts,
@@ -96,12 +75,31 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }))
   }, [dailyWorkerCounts])
 
+  // --- PERSISTENT CONTRACT WORKERS SYSTEM ---
+  const [persistentContractors, setPersistentContractors] = useState([])
+  const [contractWorkerCounts, setContractWorkerCounts] = useState({})
+  const [showContractWorkerModal, setShowContractWorkerModal] = useState(false)
+  const [newContractWorker, setNewContractWorker] = useState({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
+  const [editContractorData, setEditContractorData] = useState(null)
+
+  // Sync Persistent Data to Local UI State (Allows Instant rapid clicks without flickering)
   useEffect(() => {
-    localStorage.setItem('contractWorkerCounts', JSON.stringify({
-      data: contractWorkerCounts,
-      timestamp: Date.now()
-    }))
-  }, [contractWorkerCounts])
+    if (!showContractWorkerModal) {
+      const counts = {};
+      persistentContractors.forEach(c => {
+        const siteKey = c.siteId === 'unassigned' ? 'unassigned' : (c.buildingId ? `${c.siteId}_${c.buildingId}` : c.siteId);
+        const key = `${siteKey}@${c.contractorName}`;
+        counts[key] = {
+          id: c.id,
+          contractorName: c.contractorName,
+          count: c.workerCount,
+          siteId: c.siteId,
+          buildingId: c.buildingId || null
+        };
+      });
+      setContractWorkerCounts(counts);
+    }
+  }, [persistentContractors, showContractWorkerModal]);
 
   // Attendance editing states
   const [editingAttendance, setEditingAttendance] = useState(null)
@@ -167,6 +165,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       setBuildings(convertDocsToArray(snapshot));
     });
 
+    const unsubscribeContractors = contractorServices.onContractorsChange((snapshot) => {
+      setPersistentContractors(convertDocsToArray(snapshot));
+    });
+
     let unsubscribeSites = () => { };
     if (userRole !== 'supervisor') {
       unsubscribeSites = siteServices.onSitesChange((snapshot) => {
@@ -178,11 +180,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       unsubscribeLabour();
       unsubscribeAttendance();
       unsubscribeBuildings();
+      unsubscribeContractors();
       unsubscribeSites();
     };
   }, [selectedDate, userRole, assignedSites, currentSupervisor]);
 
-  // Enterprise Pattern: Derived state for unassigned workers
   const unassignedDailyCount = React.useMemo(() => {
     const data = dailyWorkerCounts['unassigned'];
     return typeof data === 'object' ? (Number(data?.count) || 0) : (Number(data) || 0);
@@ -394,11 +396,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     })
   }
 
-  const getDailyWorkerCountForSite = (siteId) => {
-    const data = dailyWorkerCounts[siteId]
-    return typeof data === 'object' ? (Number(data?.count) || 0) : (Number(data) || 0)
-  }
-
   const saveDailyWorkerAttendance = async (key) => {
     const dailyData = dailyWorkerCounts[key]
     const count = typeof dailyData === 'object' ? (Number(dailyData?.count) || 0) : (Number(dailyData) || 0)
@@ -482,128 +479,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
-  // Contract Worker Management (Multi-Contractor Model)
-  const handleAddContractWorker = () => {
-    const contractorName = newContractWorker.contractorName?.trim();
-    if (!contractorName || newContractWorker.workerCount <= 0) {
-      showToast('Please enter contractor name and worker count', 'error')
-      return
-    }
-
-    const targetSiteId = newContractWorker.siteId || 'unassigned'
-    const targetBuildingId = newContractWorker.buildingId || ''
-    const siteKey = targetSiteId !== 'unassigned' && targetBuildingId ? `${targetSiteId}_${targetBuildingId}` : targetSiteId
-    const key = `${siteKey}@${contractorName}`
-
-    setContractWorkerCounts(prev => ({
-      ...prev,
-      [key]: {
-        contractorName: contractorName,
-        count: (prev[key]?.count || 0) + newContractWorker.workerCount,
-        siteId: targetSiteId,
-        buildingId: targetBuildingId || null
-      }
-    }))
-
-    setNewContractWorker({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
-    showToast(`${newContractWorker.workerCount} contract workers added for ${contractorName}`)
-  }
-
-  const handleContractWorkerAssignment = (siteKey, contractorName, change) => {
-    setContractWorkerCounts(prev => {
-      const unassignedKey = `unassigned@${contractorName}`
-      const assignedKey = `${siteKey}@${contractorName}`
-
-      const unassigned = prev[unassignedKey] || { contractorName, count: 0, siteId: 'unassigned', buildingId: null }
-      const currentAssigned = prev[assignedKey] || { contractorName, count: 0, siteId: siteKey.split('_')[0], buildingId: siteKey.split('_')[1] || null }
-
-      if (change > 0) {
-        if (unassigned.count < change) {
-          showToast(`Only ${unassigned.count} unassigned contract workers available for ${contractorName}`, 'error')
-          return prev
-        }
-        return {
-          ...prev,
-          [unassignedKey]: { ...unassigned, count: unassigned.count - change },
-          [assignedKey]: { ...currentAssigned, count: currentAssigned.count + change }
-        }
-      } else if (change < 0) {
-        const actualChange = Math.abs(change)
-        const newCount = Math.max(0, currentAssigned.count - actualChange)
-        const returnedCount = currentAssigned.count - newCount
-        return {
-          ...prev,
-          [unassignedKey]: { ...unassigned, count: unassigned.count + returnedCount },
-          [assignedKey]: { ...currentAssigned, count: newCount }
-        }
-      }
-      return prev
-    })
-  }
-
-  const saveContractWorkerAttendance = async (key) => {
-    const contractData = contractWorkerCounts[key]
-    if (!contractData) return
-
-    const safeName = contractData.contractorName.replace(/[^a-zA-Z0-9]/g, '_')
-    const isUnassigned = key.startsWith('unassigned@')
-    const employeeId = isUnassigned
-      ? `contract-unassigned-${safeName}-${selectedDate}`
-      : (contractData.buildingId
-        ? `contract-${contractData.siteId}-${contractData.buildingId}-${safeName}-${selectedDate}`
-        : `contract-${contractData.siteId}-${safeName}-${selectedDate}`)
-
-    try {
-      const attendanceData = {
-        employeeId,
-        siteId: isUnassigned ? 'unassigned' : contractData.siteId,
-        buildingId: contractData.buildingId || null,
-        supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
-        date: selectedDate,
-        status: 'present',
-        isContractWorker: true,
-        contractorName: contractData.contractorName,
-        contractWorkerCount: contractData.count,
-        checkIn: new Date().toTimeString().slice(0, 5),
-        checkOut: '17:30',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-
-      const existingRecord = attendance.find(record => record.employeeId === employeeId && record.date === selectedDate)
-
-      if (existingRecord) {
-        await attendanceServices.updateAttendance(existingRecord.id, attendanceData)
-      } else if (contractData.count > 0) {
-        await attendanceServices.addAttendance(attendanceData)
-      }
-    } catch (error) {
-      console.error('Error saving contract worker attendance:', error)
-    }
-  }
-
-  const loadContractWorkerAttendance = () => {
-    const contractRecords = attendance.filter(record =>
-      record.isContractWorker && record.date === selectedDate
-    )
-
-    const loadedCounts = {}
-    contractRecords.forEach(record => {
-      const siteKey = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
-      const key = `${siteKey}@${record.contractorName}`
-      loadedCounts[key] = {
-        contractorName: record.contractorName,
-        count: record.contractWorkerCount,
-        siteId: record.siteId,
-        buildingId: record.buildingId || null
-      }
-    })
-
-    if (Object.keys(loadedCounts).length > 0) {
-      setContractWorkerCounts(loadedCounts)
-    }
-  }
-
   const loadDailyWorkerAttendance = () => {
     const dailyRecords = attendance.filter(record =>
       record.isDailyWorker && record.date === selectedDate
@@ -625,10 +500,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   useEffect(() => {
     loadDailyWorkerAttendance()
-  }, [selectedDate, attendance])
-
-  useEffect(() => {
-    loadContractWorkerAttendance()
   }, [selectedDate, attendance])
 
   const handleQuickDailyWorkerAdd = async () => {
@@ -686,6 +557,177 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
+  // --- CONTRACT WORKER MANAGEMENT (OPTIMISTIC LOCAL STATE) ---
+  const handleAddContractWorker = () => {
+    const contractorName = newContractWorker.contractorName?.trim();
+    if (!contractorName || newContractWorker.workerCount <= 0) {
+      showToast('Please enter contractor name and worker count', 'error');
+      return;
+    }
+
+    const targetSiteId = newContractWorker.siteId || 'unassigned';
+    const targetBuildingId = newContractWorker.buildingId || null;
+    const siteKey = targetSiteId !== 'unassigned' && targetBuildingId ? `${targetSiteId}_${targetBuildingId}` : targetSiteId;
+    const key = `${siteKey}@${contractorName}`;
+
+    setContractWorkerCounts(prev => ({
+      ...prev,
+      [key]: {
+        id: prev[key]?.id || null,
+        contractorName: contractorName,
+        count: (prev[key]?.count || 0) + newContractWorker.workerCount,
+        siteId: targetSiteId,
+        buildingId: targetBuildingId
+      }
+    }));
+
+    setNewContractWorker({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' });
+    showToast(`${newContractWorker.workerCount} workers added locally. Click Save Assignments to push to database.`);
+  }
+
+  const handleContractWorkerAssignment = (siteKey, contractorName, change) => {
+    setContractWorkerCounts(prev => {
+      const unassignedKey = `unassigned@${contractorName}`;
+      const assignedKey = `${siteKey}@${contractorName}`;
+
+      const unassigned = prev[unassignedKey] || { contractorName, count: 0, siteId: 'unassigned', buildingId: null };
+      const currentAssigned = prev[assignedKey] || { contractorName, count: 0, siteId: siteKey.split('_')[0], buildingId: siteKey.split('_')[1] || null };
+
+      if (change > 0) {
+        if (unassigned.count < change) {
+          showToast(`Only ${unassigned.count} unassigned contract workers available for ${contractorName}`, 'error');
+          return prev;
+        }
+        return {
+          ...prev,
+          [unassignedKey]: { ...unassigned, count: unassigned.count - change },
+          [assignedKey]: { ...currentAssigned, count: currentAssigned.count + change }
+        };
+      } else if (change < 0) {
+        const actualChange = Math.abs(change);
+        const newCount = Math.max(0, currentAssigned.count - actualChange);
+        const returnedCount = currentAssigned.count - newCount;
+        return {
+          ...prev,
+          [unassignedKey]: { ...unassigned, count: unassigned.count + returnedCount },
+          [assignedKey]: { ...currentAssigned, count: newCount }
+        };
+      }
+      return prev;
+    });
+  }
+
+  // Save ALL contract local state to Firestore AT ONCE
+  const handleSaveContractAssignments = async () => {
+    try {
+      const promises = [];
+
+      Object.entries(contractWorkerCounts).forEach(([key, localData]) => {
+        // 1. UPDATE PERSISTENT CONTRACTORS COLLECTION
+        if (localData.id) {
+          promises.push(contractorServices.updateContractor(localData.id, {
+            workerCount: localData.count,
+            updatedAt: new Date().toISOString()
+          }));
+        } else if (localData.count > 0) {
+          promises.push(contractorServices.addContractor({
+            contractorName: localData.contractorName,
+            workerCount: localData.count,
+            siteId: localData.siteId,
+            buildingId: localData.buildingId || null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }));
+        }
+
+        // 2. UPDATE TODAY'S ATTENDANCE
+        const safeName = localData.contractorName.replace(/[^a-zA-Z0-9]/g, '_');
+        const isUnassigned = key.startsWith('unassigned@');
+        const employeeId = isUnassigned
+          ? `contract-unassigned-${safeName}-${selectedDate}`
+          : (localData.buildingId
+            ? `contract-${localData.siteId}-${localData.buildingId}-${safeName}-${selectedDate}`
+            : `contract-${localData.siteId}-${safeName}-${selectedDate}`);
+
+        const attendanceData = {
+          employeeId,
+          siteId: isUnassigned ? 'unassigned' : localData.siteId,
+          buildingId: localData.buildingId || null,
+          supervisorId: userRole === 'supervisor' ? (currentSupervisor?.firebaseUid || currentSupervisor?.id || null) : null,
+          date: selectedDate,
+          status: 'present',
+          isContractWorker: true,
+          contractorName: localData.contractorName,
+          contractWorkerCount: localData.count,
+          checkIn: new Date().toTimeString().slice(0, 5),
+          checkOut: '17:30',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        const existingRecord = attendance.find(record => record.employeeId === employeeId && record.date === selectedDate);
+
+        if (existingRecord) {
+          promises.push(attendanceServices.updateAttendance(existingRecord.id, attendanceData));
+        } else if (localData.count > 0) {
+          promises.push(attendanceServices.addAttendance(attendanceData));
+        }
+      });
+
+      await Promise.all(promises);
+      setShowContractWorkerModal(false);
+      showToast('Assignments saved successfully!');
+    } catch (error) {
+      console.error('Error saving contract worker assignments:', error);
+      showToast('Failed to save assignments.', 'error');
+    }
+  };
+
+  const handleUpdateContractorCount = async () => {
+    if (!editContractorData || !editContractorData.id) {
+      showToast('Error: Cannot update unsaved contractor. Ensure it was saved first.', 'error');
+      return;
+    }
+    try {
+      await contractorServices.updateContractor(editContractorData.id, {
+        workerCount: editContractorData.count,
+        updatedAt: new Date().toISOString()
+      });
+      showToast('Contract worker updated successfully!');
+      setEditContractorData(null);
+    } catch (error) {
+      console.error(error)
+      showToast('Failed to update contract worker', 'error');
+    }
+  }
+
+  const handleDeleteContractor = async () => {
+    if (!editContractorData || !editContractorData.id) {
+      showToast('Error: Missing contractor ID', 'error');
+      return;
+    }
+    try {
+      await contractorServices.deleteContractor(editContractorData.id);
+
+      const safeName = editContractorData.contractorName.replace(/[^a-zA-Z0-9]/g, '_');
+      const empId = editContractorData.siteId === 'unassigned'
+        ? `contract-unassigned-${safeName}-${selectedDate}`
+        : (editContractorData.buildingId ? `contract-${editContractorData.siteId}-${editContractorData.buildingId}-${safeName}-${selectedDate}` : `contract-${editContractorData.siteId}-${safeName}-${selectedDate}`);
+
+      const existingAtt = attendance.find(a => a.employeeId === empId && a.date === selectedDate);
+      if (existingAtt) {
+        await attendanceServices.deleteAttendance(existingAtt.id);
+      }
+
+      showToast('Contract worker deleted permanently!');
+      setEditContractorData(null);
+    } catch (error) {
+      console.error(error)
+      showToast('Failed to delete contract worker', 'error');
+    }
+  }
+
+  // --- STAFF ADD/EDIT/DELETE ---
   const handleAddStaff = async () => {
     try {
       if (newStaff.employmentType === 'daily' && newStaff.dailyWorkerCount > 0) {
@@ -1271,6 +1313,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         )}
 
+        {/* --- MODIFIED: Contract Workers List with Click-to-Edit --- */}
         {activeAssignedContractors.length > 0 && (
           <div className="bg-orange-50 border-b-2 border-orange-200">
             <div className="p-2 bg-orange-100 border-b border-orange-200">
@@ -1287,7 +1330,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 const buildingName = building?.name || ''
                 const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
                 return (
-                  <div key={key} className="bg-white rounded-lg p-2 border border-orange-200">
+                  <div key={key}
+                    className="bg-white rounded-lg p-2 border border-orange-200 cursor-pointer hover:bg-orange-50 transition-colors"
+                    onClick={() => setEditContractorData(contractData)}>
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold">
@@ -1298,9 +1343,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           <p className="text-[10px] text-gray-500">{locationText}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-orange-700">{contractData.count} workers</span>
-                        <span className="px-1.5 py-0.5 bg-green-500 text-white text-[8px] font-bold rounded-full">P</span>
+                        <Edit2 className="w-3 h-3 text-gray-400 group-hover:text-orange-500" />
                       </div>
                     </div>
                   </div>
@@ -1533,7 +1578,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <h4 className="text-xs font-semibold mb-2 text-orange-700">Assign to Sites</h4>
 
                 {Object.entries(contractWorkerCounts).filter(([k, v]) => k.startsWith('unassigned@') && v.count > 0).map(([k, v]) => (
-                  <div key={k} className="bg-orange-50 rounded-lg p-2 mb-2 border border-orange-200">
+                  <div key={k} className="bg-orange-50 rounded-lg p-2 mb-2 border border-orange-200" onClick={() => setEditContractorData(v)}>
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-gray-700">Unassigned: {v.contractorName}</span>
                       <span className="text-sm font-bold text-orange-700">{v.count}</span>
@@ -1558,58 +1603,66 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         ...siteBuildings.flatMap(bldg => Object.entries(contractWorkerCounts).filter(([k]) => k.startsWith(`${site.id}_${bldg.id}@`)).map(([, v]) => v.contractorName))
                       ]));
 
-                      if (allContractors.length === 0) return null;
-
                       return (
-                        <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                          <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
+                        <details key={site.id} className="bg-gray-50 rounded-lg border border-gray-200 group mb-2 [&::-webkit-details-marker]:hidden">
+                          <summary className="p-3 text-xs font-bold text-gray-800 cursor-pointer list-none flex items-center justify-between hover:bg-gray-100 rounded-lg transition-colors outline-none">
+                            {site.name}
+                            <span className="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                          </summary>
 
-                          <div className="mb-2 pl-2 border-b border-gray-100 pb-2">
-                            <span className="text-[10px] font-medium text-gray-600 block mb-1">Assign on site</span>
-                            {allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).length === 0 ? (
-                              <p className="text-[9px] text-gray-400 pl-2">No contractors assigned here</p>
-                            ) : (
-                              allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).map(cName => {
-                                const assignedCount = contractWorkerCounts[`${site.id}@${cName}`]?.count || 0;
-                                return (
-                                  <div key={cName} className="flex items-center justify-between mt-1 pl-2">
-                                    <span className="text-[9px] text-gray-500">{cName}</span>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
-                                      <button onClick={() => handleContractWorkerAssignment(site.id, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                                      <button onClick={() => handleContractWorkerAssignment(site.id, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
-                                    </div>
-                                  </div>
-                                )
-                              })
-                            )}
-                          </div>
-
-                          {siteBuildings.map(bldg => {
-                            const bldgKey = `${site.id}_${bldg.id}`;
-                            const relevantContractors = allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0) > 0);
-                            if (relevantContractors.length === 0) return null;
-
-                            return (
-                              <div key={bldgKey} className="mb-2 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0">
-                                <span className="text-[10px] font-medium text-gray-600 block mb-1">{bldg.name}</span>
-                                {relevantContractors.map(cName => {
-                                  const assignedCount = contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0;
-                                  return (
-                                    <div key={cName} className="flex items-center justify-between mt-1 pl-2">
-                                      <span className="text-[9px] text-gray-500">{cName}</span>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
-                                        <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                                        <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                          <div className="p-3 border-t border-gray-200 bg-white rounded-b-lg">
+                            {siteBuildings.length === 0 && (
+                              <div className="mb-2 pl-2 border-b border-gray-100 pb-2">
+                                <span className="text-[10px] font-medium text-gray-600 block mb-1">Assign on site</span>
+                                {allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).length === 0 ? (
+                                  <p className="text-[9px] text-gray-400 pl-2">No contractors assigned here</p>
+                                ) : (
+                                  allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${site.id}@${cName}`]?.count || 0) > 0).map(cName => {
+                                    const assignedCount = contractWorkerCounts[`${site.id}@${cName}`]?.count || 0;
+                                    return (
+                                      <div key={cName} className="flex items-center justify-between mt-1 pl-2">
+                                        <span className="text-[9px] text-gray-500">{cName}</span>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
+                                          <button onClick={() => handleContractWorkerAssignment(site.id, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                          <button onClick={() => handleContractWorkerAssignment(site.id, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                                        </div>
                                       </div>
-                                    </div>
-                                  )
-                                })}
+                                    )
+                                  })
+                                )}
                               </div>
-                            )
-                          })}
-                        </div>
+                            )}
+
+                            {siteBuildings.map(bldg => {
+                              const bldgKey = `${site.id}_${bldg.id}`;
+                              const relevantContractors = allContractors.filter(cName => (contractWorkerCounts[`unassigned@${cName}`]?.count || 0) > 0 || (contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0) > 0);
+
+                              return (
+                                <div key={bldgKey} className="mb-2 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0">
+                                  <span className="text-[10px] font-medium text-gray-600 block mb-1">{bldg.name}</span>
+                                  {relevantContractors.length === 0 ? (
+                                    <p className="text-[9px] text-gray-400 pl-2">No contractors assigned here</p>
+                                  ) : (
+                                    relevantContractors.map(cName => {
+                                      const assignedCount = contractWorkerCounts[`${bldgKey}@${cName}`]?.count || 0;
+                                      return (
+                                        <div key={cName} className="flex items-center justify-between mt-1 pl-2">
+                                          <span className="text-[9px] text-gray-500">{cName}</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] font-bold text-orange-700 w-4 text-center">{assignedCount}</span>
+                                            <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                            <button onClick={() => handleContractWorkerAssignment(bldgKey, cName, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                                          </div>
+                                        </div>
+                                      )
+                                    })
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </details>
                       )
                     })}
                 </div>
@@ -1617,8 +1670,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
-                      Object.keys(contractWorkerCounts).forEach(key => saveContractWorkerAttendance(key))
-                      setShowContractWorkerModal(false)
+                      handleSaveContractAssignments()
                     }}
                     className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
                   >
@@ -1637,6 +1689,42 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         </div>
       )}
 
+      {/* --- EDIT / DELETE CONTRACT WORKER MODAL --- */}
+      {editContractorData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-xl p-6 w-full max-w-sm mx-auto shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Manage Contractor</h3>
+            <p className="text-xs text-gray-500 mb-5">{editContractorData.contractorName} • {editContractorData.siteId === 'unassigned' ? 'Unassigned Pool' : 'Assigned to Site'}</p>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">Worker Count</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editContractorData.count}
+                  onChange={(e) => setEditContractorData({ ...editContractorData, count: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:outline-none font-semibold"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mb-3">
+              <button onClick={handleUpdateContractorCount} className="flex-1 bg-orange-500 text-white py-2 rounded-lg font-bold hover:bg-orange-600 transition-colors">
+                Save Changes
+              </button>
+              <button onClick={() => setEditContractorData(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition-colors">
+                Cancel
+              </button>
+            </div>
+
+            <button onClick={handleDeleteContractor} className="w-full flex items-center justify-center gap-2 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg font-bold transition-colors">
+              <Trash2 className="w-4 h-4" /> Remove Contractor Permanently
+            </button>
+          </motion.div>
+        </div>
+      )}
+      {/* --- DAILY WORKER ASSIGNMENT MODAL --- */}
       {showDailyWorkerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
@@ -1661,33 +1749,40 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                   const siteBuildings = buildings.filter(b => b.siteId === site.id).sort((a, b) => a.name.localeCompare(b.name))
 
                   return (
-                    <div key={site.id} className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                      <h5 className="text-xs font-bold text-gray-800 mb-2">{site.name}</h5>
+                    <details key={site.id} className="bg-gray-50 rounded-lg border border-gray-200 group mb-2 [&::-webkit-details-marker]:hidden">
+                      <summary className="p-3 text-xs font-bold text-gray-800 cursor-pointer list-none flex items-center justify-between hover:bg-gray-100 rounded-lg transition-colors outline-none">
+                        {site.name}
+                        <span className="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
 
-                      <div className="flex items-center justify-between mb-2 pl-2">
-                        <span className="text-[10px] font-medium text-gray-600">Assign on site</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{typeof dailyWorkerCounts[site.id] === 'object' ? (Number(dailyWorkerCounts[site.id]?.count) || 0) : (Number(dailyWorkerCounts[site.id]) || 0)}</span>
-                          <button onClick={() => handleDailyWorkerCountChange(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                          <button onClick={() => handleDailyWorkerCountChange(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
-                        </div>
-                      </div>
-
-                      {siteBuildings.map(bldg => {
-                        const key = `${site.id}_${bldg.id}`
-                        const count = typeof dailyWorkerCounts[key] === 'object' ? (Number(dailyWorkerCounts[key]?.count) || 0) : (Number(dailyWorkerCounts[key]) || 0)
-                        return (
-                          <div key={key} className="flex items-center justify-between mb-1 pl-2 border-t border-gray-100 pt-1">
-                            <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
+                      <div className="p-3 border-t border-gray-200 bg-white rounded-b-lg">
+                        {siteBuildings.length === 0 && (
+                          <div className="flex items-center justify-between mb-2 pl-2">
+                            <span className="text-[10px] font-medium text-gray-600">Assign on site</span>
                             <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{count}</span>
-                              <button onClick={() => handleDailyWorkerCountChange(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
-                              <button onClick={() => handleDailyWorkerCountChange(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                              <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{typeof dailyWorkerCounts[site.id] === 'object' ? (Number(dailyWorkerCounts[site.id]?.count) || 0) : (Number(dailyWorkerCounts[site.id]) || 0)}</span>
+                              <button onClick={() => handleDailyWorkerCountChange(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                              <button onClick={() => handleDailyWorkerCountChange(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
                             </div>
                           </div>
-                        )
-                      })}
-                    </div>
+                        )}
+
+                        {siteBuildings.map(bldg => {
+                          const key = `${site.id}_${bldg.id}`
+                          const count = typeof dailyWorkerCounts[key] === 'object' ? (Number(dailyWorkerCounts[key]?.count) || 0) : (Number(dailyWorkerCounts[key]) || 0)
+                          return (
+                            <div key={key} className="flex items-center justify-between mb-1 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0">
+                              <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{count}</span>
+                                <button onClick={() => handleDailyWorkerCountChange(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
+                                <button onClick={() => handleDailyWorkerCountChange(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </details>
                   )
                 })}
             </div>
@@ -1726,230 +1821,6 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           </div>
         </div>
       )}
-
-      {showAddStaffModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">Add New Staff</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Name"
-                value={newStaff.name}
-                onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {newStaff.employmentType !== 'daily' && (
-                <input
-                  type="text"
-                  placeholder="Role"
-                  value={newStaff.role}
-                  onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              )}
-              <input
-                type="number"
-                placeholder="Salary"
-                value={newStaff.dailyWage}
-                onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Phone"
-                value={newStaff.phone}
-                onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
-              <select
-                value={newStaff.siteId}
-                onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">No Site (Unassigned)</option>
-                {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
-              </select>
-            </div>
-
-            {newStaff.employmentType !== 'daily' && newStaff.siteId && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Select Building</label>
-                <select
-                  value={newStaff.buildingId}
-                  onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })}
-                  disabled={!newStaff.siteId}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                >
-                  <option value="">Select Building</option>
-                  {buildings
-                    .filter(b => b.siteId === newStaff.siteId)
-                    .map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
-                </select>
-              </div>
-            )}
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleAddStaff}
-                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                Add Staff
-              </button>
-              <button
-                onClick={() => {
-                  setNewStaff({ name: '', role: '', dailyWage: '', phone: '', siteId: '', buildingId: '', employmentType: 'permanent', dailyWorkerCount: 0 })
-                  setShowAddStaffModal(false)
-                }}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showEditStaffModal && staffToEdit && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Staff</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Name"
-                value={editStaff.name}
-                onChange={(e) => setEditStaff({ ...editStaff, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="number"
-                placeholder="Salary"
-                value={editStaff.dailyWage}
-                onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <input
-                type="text"
-                placeholder="Phone"
-                value={editStaff.phone}
-                onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <select
-                value={editStaff.employmentType}
-                onChange={(e) => setEditStaff({ ...editStaff, employmentType: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="permanent">Permanent Staff</option>
-                <option value="contract">Contract Worker</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Select Site (Optional)</label>
-              <select
-                value={editStaff.siteId}
-                onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">No Site (Unassigned)</option>
-                {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
-                  .sort((a, b) => a.name.localeCompare(b.name))
-                  .map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
-              </select>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleEditStaff}
-                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                Update Staff
-              </button>
-              <button
-                onClick={() => setShowEditStaffModal(false)}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeleteConfirm && staffToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-4">Delete Staff</h3>
-            <p className="text-gray-600 mb-6">
-              Are you sure you want to delete {staffToDelete.name}? This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={handleDeleteStaff}
-                className="flex-1 bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition-colors"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editingAttendance && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Attendance</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select
-                  value={editAttendanceData.status}
-                  onChange={(e) => setEditAttendanceData({ ...editAttendanceData, status: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="present">Present</option>
-                  <option value="absent">Absent</option>
-                  <option value="leave">Leave</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={handleSaveAttendanceEdit}
-                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                Save Changes
-              </button>
-              <button
-                onClick={() => setEditingAttendance(null)}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <Footer />
     </div>
   )

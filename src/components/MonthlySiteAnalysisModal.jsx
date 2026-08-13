@@ -66,60 +66,83 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
   const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
   const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  // Staff analysis - now building-aware and handles daily/contract workers
+  // Staff analysis - strictly building-aware and aggregates daily/contract workers reliably
   const staffAnalysis = useMemo(() => {
     const analysis = {};
 
-    // Initialize for all assigned staff or staff with records
-    const relevantStaffIds = new Set([
-      ...(site.assignedStaff || []),
-      ...attendanceRecords.map(a => a.employeeId).filter(Boolean)
-    ]);
+    // 1. Add permanent staff assigned strictly to THIS specific scope
+    const assignedPermanentStaff = (site.assignedStaff || [])
+      .map(empId => labour.find(l => l.id === empId))
+      .filter(emp => {
+        if (!emp) return false;
+        // If a specific building report is requested, ONLY include staff assigned to THAT building
+        if (building && emp.buildingId !== building.id) return false;
+        return true;
+      });
 
-    relevantStaffIds.forEach(empId => {
-      // Check if this is a daily worker or contract worker
-      const isDailyWorker = empId.startsWith('daily-');
-      const isContractWorker = empId.startsWith('contract-');
-
-      let empData;
-      if (isDailyWorker) {
-        empData = { name: 'Daily Workers', role: 'Daily', dailyWage: 0 };
-      } else if (isContractWorker) {
-        // Find the contractor name from attendance records
-        const contractRecord = attendanceRecords.find(a => a.employeeId === empId);
-        empData = {
-          name: contractRecord?.contractorName || 'Contract Workers',
-          role: 'Contract',
-          dailyWage: 0
-        };
-      } else {
-        empData = labour.find(l => l.id === empId) || { name: 'Unknown', role: '-', dailyWage: 0 };
-      }
-
-      analysis[empId] = {
-        emp: empData,
-        days: {},
-        present: 0,
-        absent: 0,
-        leave: 0,
-        buildingId: null
+    assignedPermanentStaff.forEach(emp => {
+      analysis[emp.id] = {
+        id: emp.id,
+        emp: { name: emp.name, role: emp.role || 'Staff', dailyWage: emp.dailyWage || 0 },
+        days: {}, present: 0, absent: 0, leave: 0,
+        buildingId: emp.buildingId || null
       };
     });
 
+    // 2. Process the actual attendance records (which are already securely filtered to the selected building/site)
     attendanceRecords.forEach(record => {
-      if (analysis[record.employeeId]) {
-        const day = parseInt(record.date.split('-')[2], 10);
-        analysis[record.employeeId].days[day] = record.status;
-        analysis[record.employeeId].buildingId = record.buildingId;
-        if (record.status === 'present') analysis[record.employeeId].present++;
-        if (record.status === 'absent') analysis[record.employeeId].absent++;
-        if (record.status === 'leave') analysis[record.employeeId].leave++;
+      const day = parseInt(record.date.split('-')[2], 10);
+      let groupKey = record.employeeId;
+
+      if (record.isContractWorker) {
+        // Force contract workers into a single, unified row for the entire month
+        groupKey = `contract_${record.contractorName}_${record.buildingId || 'site'}`;
+        if (!analysis[groupKey]) {
+          analysis[groupKey] = {
+            id: groupKey,
+            emp: { name: record.contractorName, role: 'Contractor Pool', dailyWage: 0 },
+            days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId
+          };
+        }
+        const count = Number(record.contractWorkerCount || 0);
+        if (count > 0) {
+          analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
+          analysis[groupKey].present += count;
+        }
+      } else if (record.isDailyWorker) {
+        // Force daily workers into a single, unified row for the entire month
+        groupKey = `daily_${record.buildingId || 'site'}`;
+        if (!analysis[groupKey]) {
+          analysis[groupKey] = {
+            id: groupKey,
+            emp: { name: 'Daily Workers', role: 'Daily Pool', dailyWage: 0 },
+            days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId
+          };
+        }
+        const count = Number(record.dailyWorkerCount || 0);
+        if (count > 0) {
+          analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
+          analysis[groupKey].present += count;
+        }
+      } else {
+        // Standard Permanent Employee Processing
+        if (!analysis[groupKey]) {
+          const empData = labour.find(l => l.id === groupKey) || { name: 'Unknown', role: '-', dailyWage: 0 };
+          analysis[groupKey] = {
+            id: groupKey,
+            emp: { name: empData.name, role: empData.role, dailyWage: empData.dailyWage || 0 },
+            days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId
+          };
+        }
+        analysis[groupKey].days[day] = record.status;
+        if (record.status === 'present') analysis[groupKey].present++;
+        if (record.status === 'absent') analysis[groupKey].absent++;
+        if (record.status === 'leave') analysis[groupKey].leave++;
       }
     });
 
     return Object.values(analysis).sort((a, b) => (a.emp.name || '').localeCompare(b.emp.name || ''));
-  }, [attendanceRecords, site, labour]);
-
+  }, [attendanceRecords, site, labour, building]);
   // Material analysis
 
   console.log("DPR Records", dprRecords);
@@ -240,7 +263,7 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
         const estSalary = present * wage;
         const dayStatuses = daysArray.map(d => {
           const s = days[d];
-          return s === 'present' ? 'P' : s === 'absent' ? 'A' : s === 'leave' ? 'L' : '-';
+          return s === 'present' ? 'P' : s === 'absent' ? 'A' : s === 'leave' ? 'L' : (typeof s === 'number' ? s : '-');
         });
         // Escape commas in names
         const safeName = emp.name ? `"${emp.name.replace(/"/g, '""')}"` : 'Unknown';
@@ -440,8 +463,9 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                                   const status = days[day];
                                   let txt = '-'; let color = 'text-gray-300';
                                   if (status === 'present') { txt = 'P'; color = 'text-green-600 font-bold bg-green-50'; }
-                                  if (status === 'absent') { txt = 'A'; color = 'text-red-600 font-bold bg-red-50'; }
-                                  if (status === 'leave') { txt = 'L'; color = 'text-yellow-600 font-bold bg-yellow-50'; }
+                                  else if (status === 'absent') { txt = 'A'; color = 'text-red-600 font-bold bg-red-50'; }
+                                  else if (status === 'leave') { txt = 'L'; color = 'text-yellow-600 font-bold bg-yellow-50'; }
+                                  else if (typeof status === 'number' && status > 0) { txt = status; color = 'text-green-600 font-bold bg-green-50'; }
                                   return <td key={day} className={`px-1 py-2 text-center text-xs border-r border-gray-200 ${color}`}>{txt}</td>;
                                 })}
                                 <td className="px-3 py-2 text-center font-bold text-green-600 border-l border-gray-200">{present}</td>
@@ -604,8 +628,9 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                                     const status = days[day];
                                     let txt = '-'; let color = 'text-gray-400';
                                     if (status === 'present') { txt = 'P'; color = 'text-gray-900 font-bold'; }
-                                    if (status === 'absent') { txt = 'A'; color = 'text-gray-900 font-bold'; }
-                                    if (status === 'leave') { txt = 'L'; color = 'text-gray-900 font-bold'; }
+                                    else if (status === 'absent') { txt = 'A'; color = 'text-gray-900 font-bold'; }
+                                    else if (status === 'leave') { txt = 'L'; color = 'text-gray-900 font-bold'; }
+                                    else if (typeof status === 'number' && status > 0) { txt = status; color = 'text-gray-900 font-bold'; }
                                     return <td key={day} className={`px-1 py-1 text-center border-r border-gray-300 ${color}`}>{txt}</td>;
                                   })}
                                   {idx === 1 && (

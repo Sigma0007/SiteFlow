@@ -483,7 +483,14 @@ const AppContent = () => {
 
               <Route path="/processes" element={<ProcessManagement userRole={userRole} />} />
 
-              <Route path="/reports" element={<MonthlyReportsSelector />} />
+              <Route
+                path="/reports"
+                element={
+                  <ProtectedRoute userRole={userRole} allowedRoles={['admin']}>
+                    <MonthlyReportsSelector />
+                  </ProtectedRoute>
+                }
+              />
 
               <Route path="/dpr-report" element={<DPRReport />} />
 
