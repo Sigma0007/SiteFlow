@@ -16,7 +16,7 @@ import {
   ArrowLeft
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supervisorServices, siteServices, materialServices, buildingServices, convertDocsToArray } from '../services/firebaseServices'
+import { supervisorServices, siteServices, materialServices, buildingServices, notificationServices, convertDocsToArray } from '../services/firebaseServices'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import { useAuth } from '../components/Auth'
 import StatusModal from '../components/StatusModal'
@@ -37,13 +37,39 @@ const PORequests = ({ userRole = 'admin' }) => {
   const [formData, setFormData] = useState({
     siteId: '',
     buildingId: '',
-    materialName: '',
-    quantity: '',
-    unit: '',
     urgency: 'normal',
     reason: '',
-    expectedDate: ''
+    expectedDate: '',
+    items: [{ id: Date.now(), materialName: '', quantity: '', unit: '' }]
   })
+
+  // Helper functions for managing items
+  const addItem = () => {
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, { id: Date.now(), materialName: '', quantity: '', unit: '' }]
+    }))
+  }
+
+  const removeItem = (itemId) => {
+    if (formData.items.length === 1) {
+      showAlert('Warning', 'At least one item is required.', 'warning')
+      return
+    }
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.filter(item => item.id !== itemId)
+    }))
+  }
+
+  const updateItem = (itemId, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.map(item =>
+        item.id === itemId ? { ...item, [field]: value } : item
+      )
+    }))
+  }
 
   // Status Modal State
   const [statusModal, setStatusModal] = useState({
@@ -108,20 +134,26 @@ const PORequests = ({ userRole = 'admin' }) => {
         showAlert('Required', 'Please select a site for this request.', 'warning')
         return
       }
-      if (!formData.materialName) {
-        showAlert('Required', 'Please enter a material name.', 'warning')
+
+      // Validate items
+      const validItems = formData.items.filter(item => item.materialName && item.quantity)
+      if (validItems.length === 0) {
+        showAlert('Required', 'Please add at least one material item.', 'warning')
         return
       }
-      const selectedMaterial = materials.find(m => m.name === formData.materialName)
-      const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
-      const totalAmount = unitPrice * Number(formData.quantity || 1)
+
+      // Calculate total amount
+      let totalAmount = 0
+      validItems.forEach(item => {
+        const selectedMaterial = materials.find(m => m.name === item.materialName)
+        const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
+        totalAmount += unitPrice * Number(item.quantity || 1)
+      })
 
       const newRequest = {
         siteId: formData.siteId,
         buildingId: formData.buildingId || null,
-        materialName: formData.materialName,
-        quantity: formData.quantity,
-        unit: formData.unit,
+        items: validItems,
         urgency: formData.urgency,
         reason: formData.reason,
         expectedDate: formData.expectedDate,
@@ -132,17 +164,34 @@ const PORequests = ({ userRole = 'admin' }) => {
         approvedBy: '',
         adminNotes: ''
       }
-      await supervisorServices.createPORequest(newRequest)
+      const poDoc = await supervisorServices.createPORequest(newRequest)
+
+      const targetSite = sites.find(s => s.id === formData.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const requesterName = formatDisplayName(currentSupervisor?.email || user?.email)
+      const materialList = validItems.map(item => `${item.materialName} (${item.quantity} ${item.unit})`).join(', ')
+
+      notificationServices.addNotificationWithPush({
+        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        type: 'po_generated',
+        poId: poDoc.id,
+        message: `Materials: ${materialList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
+        materialName: materialList,
+        quantity: validItems.length,
+        siteId: formData.siteId,
+        siteName: siteName,
+        requestedBy: requesterName
+      }).catch(err => console.log('Notification failed (non-critical):', err))
+
       await reloadRequests()
       setShowCreateModal(false)
-      setFormData({ siteId: '', buildingId: '', materialName: '', quantity: '', unit: '', urgency: 'normal', reason: '', expectedDate: '' })
+      setFormData({ siteId: '', buildingId: '', urgency: 'normal', reason: '', expectedDate: '', items: [{ id: Date.now(), materialName: '', quantity: '', unit: '' }] })
       showAlert('Success', 'PO request created successfully!')
     } catch (error) {
       console.error('Error creating PO request:', error)
       showAlert('Error', 'Error creating PO request. Please try again.', 'error')
     }
   }
-
   const handleApprove = async (requestId) => {
     try {
       const updateData = {
@@ -168,28 +217,56 @@ const PORequests = ({ userRole = 'admin' }) => {
       }
       await supervisorServices.updatePORequest(request.id, updateData)
 
-      // 2. Add material directly to site
+      // 2. Add materials directly to site (handle multiple items)
       const siteDoc = await siteServices.getSiteById(request.siteId)
       if (siteDoc.exists()) {
         const siteData = siteDoc.data()
         let assignedMaterials = siteData.assignedMaterials || []
 
-        const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === request.materialName.toLowerCase())
-        const quantityNum = parseFloat(request.quantity) || 1
+        const itemsToAdd = request.items || [{
+          materialName: request.materialName,
+          quantity: request.quantity,
+          unit: request.unit
+        }]
 
-        if (existingMatIndex >= 0) {
-          assignedMaterials[existingMatIndex].quantity += quantityNum
-        } else {
-          assignedMaterials.push({
-            materialId: `direct_po_${Date.now()}`,
-            name: request.materialName,
-            category: 'PO Directed',
-            quantity: quantityNum
-          })
-        }
+        itemsToAdd.forEach(item => {
+          const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === item.materialName.toLowerCase())
+          const quantityNum = parseFloat(item.quantity) || 1
+
+          if (existingMatIndex >= 0) {
+            assignedMaterials[existingMatIndex].quantity += quantityNum
+          } else {
+            assignedMaterials.push({
+              materialId: `direct_po_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: item.materialName,
+              category: 'PO Directed',
+              quantity: quantityNum,
+              unit: item.unit || ''
+            })
+          }
+        })
 
         await siteServices.updateSite(request.siteId, { assignedMaterials })
       }
+
+      const targetSite = sites.find(s => s.id === request?.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const requesterName = formatDisplayName(request.requestedBy)
+
+      // 3. Notify admin that PO has arrived
+      const itemsList = request.items ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ') : `${request.materialName} (${request.quantity} ${request.unit})`
+
+      notificationServices.addNotificationWithPush({
+        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        type: 'po_arrived',
+        poId: request.id,
+        message: `Material Arrived: ${itemsList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
+        materialName: itemsList,
+        quantity: request.items ? request.items.length : request.quantity,
+        siteId: request.siteId,
+        siteName: siteName,
+        requestedBy: request.requestedBy
+      }).catch(err => console.log('Notification failed:', err))
 
       await reloadRequests()
       showAlert('Arrived & Allocated', 'PO material has arrived and stock was allocated to the site!')
@@ -241,6 +318,32 @@ const PORequests = ({ userRole = 'admin' }) => {
     )
   }
 
+  const formatDisplayName = (emailOrName) => {
+    if (!emailOrName) return 'User';
+    if (currentSupervisor?.email === emailOrName && currentSupervisor?.name) {
+      return currentSupervisor.name;
+    }
+    const knownNames = {
+      'odedraarjun928@gmail.com': 'Arjun Odedra (Admin)',
+      'aodedra259@rku.ac.in': 'Arjun Odedra (Supervisor)',
+      'odedraarjun0007@gmail.com': 'Arjun Odedra (Supervisor 2)'
+    };
+    if (knownNames[emailOrName]) {
+      return knownNames[emailOrName];
+    }
+    if (!emailOrName.includes('@')) {
+      return emailOrName;
+    }
+    const username = emailOrName.split('@')[0];
+    const cleanName = username.replace(/[0-9]+$/g, '');
+    return cleanName
+      .replace(/[._-]/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
@@ -271,11 +374,15 @@ const PORequests = ({ userRole = 'admin' }) => {
   }
 
   const filteredRequests = poRequests.filter(request => {
-    const matchesSearch = request.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      request.reason.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesFilter = filterStatus === 'all' || request.status === filterStatus
-    return matchesSearch && matchesFilter
-  })
+    const searchStr = searchTerm.toLowerCase();
+    const materialNames = request.items ? request.items.map(i => i.materialName).join(' ') : (request.materialName || '');
+    const reason = request.reason || '';
+
+    const matchesSearch = materialNames.toLowerCase().includes(searchStr) || reason.toLowerCase().includes(searchStr);
+    const matchesFilter = filterStatus === 'all' || request.status === filterStatus;
+
+    return matchesSearch && matchesFilter;
+  });
 
   const stats = {
     total: poRequests.length,
@@ -449,7 +556,9 @@ const PORequests = ({ userRole = 'admin' }) => {
                       }`} />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-gray-900 leading-tight">{request.materialName}</h3>
+                    <h3 className="text-base font-semibold text-gray-900 leading-tight truncate">
+                      {request.items ? request.items.map(i => i.materialName).join(', ') : request.materialName}
+                    </h3>
                     <p className="text-gray-500 text-sm mt-0.5 line-clamp-2">{request.reason}</p>
                   </div>
                 </div>
@@ -465,8 +574,10 @@ const PORequests = ({ userRole = 'admin' }) => {
 
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Quantity</p>
-                  <p className="font-semibold text-gray-900 text-sm">{request.quantity} {request.unit}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Items/Quantity</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {request.items ? `${request.items.length} item(s)` : `${request.quantity} ${request.unit}`}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Est. Total</p>
@@ -599,93 +710,115 @@ const PORequests = ({ userRole = 'admin' }) => {
             </div>
 
             <form onSubmit={handleSubmitRequest} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Name (Material/Tool) *</label>
-                  <select
-                    required
-                    value={formData.materialName}
-                    onChange={(e) => {
-                      const selectedMat = materials.find(m => m.name === e.target.value);
-                      setFormData({
-                        ...formData,
-                        materialName: e.target.value,
-                        unit: selectedMat ? selectedMat.unit : formData.unit
-                      });
-                    }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="">Select an item</option>
-                    {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
-                      <option key={m.id} value={m.name}>
-                        {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Quantity</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., 100"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
+                <select
+                  required
+                  value={formData.siteId}
+                  onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select site</option>
+                  {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
+                </select>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {formData.siteId && buildings.filter(b => b.siteId === formData.siteId).length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Unit</label>
-                  <input
-                    type="text"
-                    value={formData.unit}
-                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., bags, tons, pieces"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Building (Optional)</label>
                   <select
-                    required
-                    value={formData.siteId}
-                    onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
+                    value={formData.buildingId}
+                    onChange={(e) => setFormData({ ...formData, buildingId: e.target.value })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="">Select site</option>
-                    {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
-                      <option key={site.id} value={site.id}>{site.name}</option>
+                    <option value="">Select building</option>
+                    {buildings.filter(b => b.siteId === formData.siteId).map(building => (
+                      <option key={building.id} value={building.id}>{building.name}</option>
                     ))}
                   </select>
                 </div>
-                {formData.siteId && buildings.filter(b => b.siteId === formData.siteId).length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Building (Optional)</label>
-                    <select
-                      value={formData.buildingId}
-                      onChange={(e) => setFormData({ ...formData, buildingId: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Select building</option>
-                      {buildings.filter(b => b.siteId === formData.siteId).map(building => (
-                        <option key={building.id} value={building.id}>{building.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                {/* <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Expected Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={formData.expectedDate}
-                    onChange={(e) => setFormData({...formData, expectedDate: e.target.value})}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div> */}
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Material Items *</label>
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Item
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {formData.items.map((item, index) => (
+                    <div key={item.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">Item {index + 1}</span>
+                        {formData.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Material Name *</label>
+                          <select
+                            required
+                            value={item.materialName}
+                            onChange={(e) => {
+                              const selectedMat = materials.find(m => m.name === e.target.value);
+                              updateItem(item.id, 'materialName', e.target.value);
+                              if (selectedMat) {
+                                updateItem(item.id, 'unit', selectedMat.unit || '');
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          >
+                            <option value="">Select item</option>
+                            {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
+                              <option key={m.id} value={m.name}>
+                                {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Quantity *</label>
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="e.g., 100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                          <input
+                            type="text"
+                            value={item.unit}
+                            onChange={(e) => updateItem(item.id, 'unit', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            placeholder="e.g., bags"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {/* <div>
