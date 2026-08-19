@@ -82,21 +82,26 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const [newContractWorker, setNewContractWorker] = useState({ contractorName: '', workerCount: 0, siteId: '', buildingId: '' })
   const [editContractorData, setEditContractorData] = useState(null)
 
-  // Sync Persistent Data to Local UI State (Allows Instant rapid clicks without flickering)
+  // Sync Persistent Data to Local UI State
+  // Guard: only re-sync when the modal is CLOSED to prevent mid-interaction flicker.
+  // BUT we still do one initial sync so that workers assigned via DPR (before the
+  // modal opens) are visible inside the popup.
   useEffect(() => {
+    const counts = {};
+    persistentContractors.forEach(c => {
+      const siteKey = c.siteId === 'unassigned' ? 'unassigned' : (c.buildingId ? `${c.siteId}_${c.buildingId}` : c.siteId);
+      const key = `${siteKey}@${c.contractorName}`;
+      counts[key] = {
+        id: c.id,
+        contractorName: c.contractorName,
+        count: c.workerCount,
+        siteId: c.siteId,
+        buildingId: c.buildingId || null
+      };
+    });
+    // Only overwrite local state when modal is closed (to avoid race-condition flicker
+    // while the user is actively adjusting counts inside the modal).
     if (!showContractWorkerModal) {
-      const counts = {};
-      persistentContractors.forEach(c => {
-        const siteKey = c.siteId === 'unassigned' ? 'unassigned' : (c.buildingId ? `${c.siteId}_${c.buildingId}` : c.siteId);
-        const key = `${siteKey}@${c.contractorName}`;
-        counts[key] = {
-          id: c.id,
-          contractorName: c.contractorName,
-          count: c.workerCount,
-          siteId: c.siteId,
-          buildingId: c.buildingId || null
-        };
-      });
       setContractWorkerCounts(counts);
     }
   }, [persistentContractors, showContractWorkerModal]);
@@ -1573,7 +1578,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </button>
             </div>
 
-            {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
+            {/* BUG FIX A: Show "Assign to Sites" section when ANY contractor entry exists
+                (including those fully assigned to buildings with 0 in the unassigned pool).
+                The old condition only showed this section when unassigned pool count > 0,
+                hiding all already-assigned contractors from the popup. */}
+            {Object.keys(contractWorkerCounts).length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-200" data-contract-assignment>
                 <h4 className="text-xs font-semibold mb-2 text-orange-700">Assign to Sites</h4>
 

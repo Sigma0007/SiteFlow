@@ -12,7 +12,7 @@ const ReportsPage = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(false);
-  
+
   const [sites, setSites] = useState([]);
   const [labour, setLabour] = useState([]);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
@@ -50,12 +50,21 @@ const ReportsPage = () => {
       try {
         const startDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
         const endDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-31`;
-        
+
         // Fetch Attendance
         const attSnapshot = await attendanceServices.getAttendanceByDateRange(startDate, endDate);
         const allAtt = convertDocsToArray(attSnapshot);
-        setAttendanceRecords(allAtt.filter(a => a.siteId === selectedSite.id));
-        
+        // Include records for the selected site AND contract/daily worker records whose
+        // employeeId references this site (they may be stored with siteId='unassigned').
+        setAttendanceRecords(
+          allAtt.filter(a =>
+            a.siteId === selectedSite.id ||
+            ((a.isContractWorker || a.isDailyWorker) &&
+              a.employeeId &&
+              a.employeeId.includes(selectedSite.id))
+          )
+        );
+
         // Fetch DPR
         const dprSnapshot = await dprServices.getDPRBySiteId(selectedSite.id);
         const allDpr = convertDocsToArray(dprSnapshot);
@@ -63,7 +72,7 @@ const ReportsPage = () => {
           const dDate = new Date(d.date);
           return dDate.getMonth() === selectedMonth && dDate.getFullYear() === selectedYear;
         }));
-        
+
         // Fetch Materials
         const matSnapshot = await materialServices.getAllMaterials();
         setAllMaterials(convertDocsToArray(matSnapshot));
@@ -72,7 +81,7 @@ const ReportsPage = () => {
       }
       setLoading(false);
     };
-    
+
     fetchData();
   }, [selectedSite, selectedMonth, selectedYear]);
 
@@ -84,10 +93,10 @@ const ReportsPage = () => {
   const processAnalysis = useMemo(() => {
     if (!selectedSite) return [];
     const analysis = {};
-    
+
     dprRecords.forEach(dpr => {
       const day = parseInt(dpr.date.split('-')[2], 10);
-      
+
       if (dpr.processEntries) {
         dpr.processEntries.forEach(pe => {
           const workName = pe.work || 'Unknown';
@@ -100,7 +109,7 @@ const ReportsPage = () => {
           analysis[workName].totalQuantity += qty;
         });
       }
-      
+
       if (dpr.processProgress) {
         Object.entries(dpr.processProgress).forEach(([processKey, processData]) => {
           const workName = processData.name || processKey;
@@ -122,15 +131,12 @@ const ReportsPage = () => {
   const staffAnalysis = useMemo(() => {
     if (!selectedSite) return [];
     const analysis = {};
-    
-    const relevantStaffIds = new Set([
-      ...(selectedSite.assignedStaff || []),
-      ...attendanceRecords.map(a => a.employeeId).filter(Boolean)
-    ]);
 
-    relevantStaffIds.forEach(empId => {
+    // 1. Pre-populate permanent staff assigned to this site
+    (selectedSite.assignedStaff || []).forEach(empId => {
+      const empData = labour.find(l => l.id === empId) || { name: 'Unknown', role: '-', dailyWage: 0 };
       analysis[empId] = {
-        emp: labour.find(l => l.id === empId) || { name: 'Unknown', role: '-', dailyWage: 0 },
+        emp: empData,
         days: {},
         present: 0,
         absent: 0,
@@ -138,9 +144,56 @@ const ReportsPage = () => {
       };
     });
 
+    // 2. Process attendance records — handle contract workers, daily workers, and permanent staff
     attendanceRecords.forEach(record => {
-      if (analysis[record.employeeId]) {
-        const day = parseInt(record.date.split('-')[2], 10);
+      const day = parseInt(record.date.split('-')[2], 10);
+
+      if (record.isContractWorker) {
+        // Group all contract worker records by contractor name into a single row
+        const groupKey = `contract_${record.contractorName}_${record.buildingId || 'site'}`;
+        if (!analysis[groupKey]) {
+          analysis[groupKey] = {
+            emp: { name: record.contractorName, role: 'Contractor Pool', dailyWage: 0 },
+            days: {},
+            present: 0,
+            absent: 0,
+            leave: 0
+          };
+        }
+        const count = Number(record.contractWorkerCount || 0);
+        if (count > 0) {
+          analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
+          analysis[groupKey].present += count;
+        }
+      } else if (record.isDailyWorker) {
+        // Group all daily worker records into a single row
+        const groupKey = `daily_${record.buildingId || 'site'}`;
+        if (!analysis[groupKey]) {
+          analysis[groupKey] = {
+            emp: { name: 'Daily Workers', role: 'Daily Pool', dailyWage: 0 },
+            days: {},
+            present: 0,
+            absent: 0,
+            leave: 0
+          };
+        }
+        const count = Number(record.dailyWorkerCount || 0);
+        if (count > 0) {
+          analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
+          analysis[groupKey].present += count;
+        }
+      } else {
+        // Standard permanent employee
+        if (!analysis[record.employeeId]) {
+          const empData = labour.find(l => l.id === record.employeeId) || { name: 'Unknown', role: '-', dailyWage: 0 };
+          analysis[record.employeeId] = {
+            emp: empData,
+            days: {},
+            present: 0,
+            absent: 0,
+            leave: 0
+          };
+        }
         analysis[record.employeeId].days[day] = record.status;
         if (record.status === 'present') analysis[record.employeeId].present++;
         if (record.status === 'absent') analysis[record.employeeId].absent++;
@@ -155,7 +208,7 @@ const ReportsPage = () => {
   const materialAnalysis = useMemo(() => {
     if (!selectedSite) return [];
     const analysis = {};
-    
+
     dprRecords.forEach(dpr => {
       const day = parseInt(dpr.date.split('-')[2], 10);
       if (dpr.materialUsage) {
@@ -163,12 +216,12 @@ const ReportsPage = () => {
           if (!analysis[mu.materialId]) {
             analysis[mu.materialId] = {
               mat: allMaterials.find(m => m.id === mu.materialId) ||
-                   allMaterials.find(m => m.name === mu.name) || {
-                     name: mu.name || 'Unknown',
-                     category: '-',
-                     unitPrice: 0,
-                     unit: mu.unit || ''
-                   },
+                allMaterials.find(m => m.name === mu.name) || {
+                name: mu.name || 'Unknown',
+                category: '-',
+                unitPrice: 0,
+                unit: mu.unit || ''
+              },
               days: {},
               totalUsed: 0
             };
@@ -187,10 +240,10 @@ const ReportsPage = () => {
   const handleDownloadCSV = () => {
     if (!selectedSite) return;
     let csvContent = "";
-    
+
     csvContent += `Site: ${selectedSite.name}\r\n`;
     csvContent += `Month: ${monthName} ${selectedYear}\r\n\r\n`;
-    
+
     if (selectedTab === 'process') {
       csvContent += "--- PROCESS WORK ANALYSIS ---\r\n";
       csvContent += `Process Name,Unit,${daysArray.join(',')},Total Quantity\r\n`;
@@ -357,11 +410,10 @@ const ReportsPage = () => {
                 <button
                   key={tab.id}
                   onClick={() => setSelectedTab(tab.id)}
-                  className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${
-                    selectedTab === tab.id
+                  className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${selectedTab === tab.id
                       ? `text-${tab.color}-600 border-b-2 border-${tab.color}-600 bg-${tab.color}-50`
                       : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   {tab.label}

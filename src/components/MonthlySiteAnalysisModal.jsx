@@ -24,10 +24,18 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
         // Fetch Attendance for the month
         const attSnapshot = await attendanceServices.getAttendanceByDateRange(startDate, endDate);
         const allAtt = convertDocsToArray(attSnapshot);
-        // Filter by building if one is selected, otherwise fall back to site-level
+        // BUG FIX B: Building-level filter.
+        // Primary match:  a.buildingId === building.id  (all records written after the fix)
+        // Fallback match: employeeId contains the building.id  (backward-compat for older
+        //                 DPR-written contract/daily records that may lack a buildingId field)
         setAttendanceRecords(
           building
-            ? allAtt.filter(a => a.buildingId === building.id)
+            ? allAtt.filter(a =>
+              a.buildingId === building.id ||
+              ((a.isContractWorker || a.isDailyWorker) &&
+                a.employeeId &&
+                a.employeeId.includes(building.id))
+            )
             : allAtt.filter(a => a.siteId === site.id)
         );
 

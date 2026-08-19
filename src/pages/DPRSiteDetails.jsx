@@ -112,6 +112,23 @@ const DPRSiteDetails = ({ userRole }) => {
     return () => unsubBldg();
   }, [siteId]);
 
+  // ROOT CAUSE FIX: Auto-redirect to building-level DPR when site has exactly one building.
+  //
+  // The building selector only renders when siteBuildings.length > 1. For sites with
+  // exactly ONE building (e.g. Balaji Wafers → Nava Vadvasa), the selector never shows
+  // and the DPR stays at site-level (buildingId = undefined in URL). Every write —
+  // contractor records, attendance records, DPR logs — would then get buildingId: null.
+  // Those records are INVISIBLE in building-level attendance popup and monthly reports
+  // because every building filter checks `a.buildingId === building.id`.
+  //
+  // Fix: replace the current URL with the building-level URL so that buildingId is
+  // always set correctly. `{ replace: true }` avoids polluting the browser history.
+  useEffect(() => {
+    if (!buildingId && siteBuildings.length === 1) {
+      navigate(`/dpr/${siteId}/${siteBuildings[0].id}`, { replace: true });
+    }
+  }, [buildingId, siteBuildings, siteId, navigate]);
+
   useEffect(() => {
     if (!siteId) return;
     setLoading(true);
@@ -220,13 +237,38 @@ const DPRSiteDetails = ({ userRole }) => {
     return dailyWorkerCounts[key] || 0;
   };
 
+  // === CONTRACTOR AGGREGATION — SITE-LEVEL vs BUILDING-LEVEL ===
+  // ROOT CAUSE FIX: When the DPR is opened at SITE level (buildingId is null),
+  // the original filter `c.buildingId === null` only matched contractors assigned
+  // directly to the site — it excluded any contractor assigned to a specific BUILDING
+  // within the site (e.g. Mayank at Nava Vadvasa). Other sites without buildings
+  // worked fine because their contractors always had buildingId=null.
+  //
+  // Fix: at site level, sum ALL contractors for this site (across every building).
+  //      at building level, keep the exact-building match (unchanged behaviour).
+
   const getAssignedContractWorkers = () => persistentContractors
-    .filter(c => c.siteId === siteId && (buildingId ? c.buildingId === buildingId : c.buildingId === null))
+    .filter(c => {
+      if (c.siteId !== siteId) return false;
+      // Building-level DPR: only count this specific building
+      if (buildingId) return c.buildingId === buildingId;
+      // Site-level DPR: count all buildings + direct site assignments
+      return true;
+    })
     .reduce((sum, c) => sum + (c.workerCount || 0), 0);
 
   const getAssignedCountForContractor = (contractorName) => {
-    const c = persistentContractors.find(c => c.contractorName === contractorName && c.siteId === siteId && (buildingId ? c.buildingId === buildingId : c.buildingId === null));
-    return c ? c.workerCount : 0;
+    if (buildingId) {
+      // Building-level: exact match
+      const c = persistentContractors.find(c =>
+        c.contractorName === contractorName && c.siteId === siteId && c.buildingId === buildingId
+      );
+      return c ? c.workerCount : 0;
+    }
+    // Site-level: sum across all buildings for this contractor + site
+    return persistentContractors
+      .filter(c => c.contractorName === contractorName && c.siteId === siteId)
+      .reduce((sum, c) => sum + (c.workerCount || 0), 0);
   };
 
   const getPoolCountForContractor = (contractorName) => {
@@ -236,12 +278,17 @@ const DPRSiteDetails = ({ userRole }) => {
 
   const allContractorNames = Array.from(new Set(
     persistentContractors
-      .filter(c =>
-        (c.siteId === 'unassigned' && c.workerCount > 0) ||
-        (c.siteId === siteId && (buildingId ? c.buildingId === buildingId : c.buildingId === null) && c.workerCount > 0)
-      )
+      .filter(c => {
+        if (c.siteId === 'unassigned' && c.workerCount > 0) return true;
+        if (c.siteId !== siteId || c.workerCount <= 0) return false;
+        // Building-level DPR: only show this building's contractors
+        if (buildingId) return c.buildingId === buildingId;
+        // Site-level DPR: show ALL contractors for this site (any building)
+        return true;
+      })
       .map(c => c.contractorName)
   )).sort();
+
   const showDailyPanel = unassignedDailyCount > 0 || getAssignedDailyWorkers() > 0;
   const showContractPanel = unassignedContractCount > 0 || getAssignedContractWorkers() > 0;
 
@@ -332,38 +379,117 @@ const DPRSiteDetails = ({ userRole }) => {
       return;
     }
 
+    // Snapshot stable values for this transaction before any async writes.
+    // DO NOT call getAssignedContractWorkers() after writes begin — it reads
+    // stale React state and will produce wrong totals on rapid ±clicks.
+    const newUnassignedCount = currentUnassigned - actualChange;
+    // BUG FIX 3: Use local arithmetic instead of stale selector.
+    const newTotal = currentAssigned + actualChange;
+
+    const now = new Date().toISOString();
+    const checkInTime = new Date().toTimeString().slice(0, 5);
+
     try {
       const promises = [];
+
+      // ── Contractors collection (source of truth for pool/assigned counts) ──
       if (actualChange > 0) {
-        promises.push(contractorServices.updateContractor(unassignedRecord.id, { workerCount: currentUnassigned - actualChange }));
-        if (assignedRecord) promises.push(contractorServices.updateContractor(assignedRecord.id, { workerCount: currentAssigned + actualChange }));
-        else promises.push(contractorServices.addContractor({ contractorName, workerCount: actualChange, siteId, buildingId: buildingId || null, createdAt: new Date().toISOString() }));
+        promises.push(contractorServices.updateContractor(unassignedRecord.id, { workerCount: newUnassignedCount, updatedAt: now }));
+        if (assignedRecord) {
+          promises.push(contractorServices.updateContractor(assignedRecord.id, { workerCount: newTotal, updatedAt: now }));
+        } else {
+          promises.push(contractorServices.addContractor({
+            contractorName, workerCount: newTotal, siteId,
+            buildingId: buildingId || null,
+            createdAt: now, updatedAt: now
+          }));
+        }
       } else {
-        promises.push(contractorServices.updateContractor(assignedRecord.id, { workerCount: currentAssigned - Math.abs(actualChange) }));
-        if (unassignedRecord) promises.push(contractorServices.updateContractor(unassignedRecord.id, { workerCount: currentUnassigned + Math.abs(actualChange) }));
-        else promises.push(contractorServices.addContractor({ contractorName, workerCount: Math.abs(actualChange), siteId: 'unassigned', buildingId: null, createdAt: new Date().toISOString() }));
+        promises.push(contractorServices.updateContractor(assignedRecord.id, { workerCount: newTotal, updatedAt: now }));
+        if (unassignedRecord) {
+          promises.push(contractorServices.updateContractor(unassignedRecord.id, { workerCount: newUnassignedCount, updatedAt: now }));
+        } else {
+          promises.push(contractorServices.addContractor({
+            contractorName, workerCount: newUnassignedCount, siteId: 'unassigned',
+            buildingId: null, createdAt: now, updatedAt: now
+          }));
+        }
       }
 
+      // ── Attendance collection (mirrors contractor state for monthly reports) ──
+      // BUG FIX 2: All new attendance records must have the full, standardised
+      // schema so both DPR and Attendance modules can read/write them without
+      // shape mismatches on subsequent updates.
       const safeName = contractorName.replace(/[^a-zA-Z0-9]/g, '_');
-      const uniqueId = buildingId ? `contract-${siteId}-${buildingId}-${safeName}-${todayDate}` : `contract-${siteId}-${safeName}-${todayDate}`;
+      const uniqueId = buildingId
+        ? `contract-${siteId}-${buildingId}-${safeName}-${todayDate}`
+        : `contract-${siteId}-${safeName}-${todayDate}`;
       const unassignedUniqueId = `contract-unassigned-${safeName}-${todayDate}`;
 
       const existingAssignedAtt = todayAttendance.find(r => r.employeeId === uniqueId && r.date === todayDate);
       const existingUnassignedAtt = todayAttendance.find(r => r.employeeId === unassignedUniqueId && r.date === todayDate);
 
-      if (existingAssignedAtt) promises.push(attendanceServices.updateAttendance(existingAssignedAtt.id, { contractWorkerCount: newAssigned, updatedAt: new Date().toISOString() }));
-      else if (newAssigned > 0) promises.push(attendanceServices.addAttendance({ employeeId: uniqueId, siteId, buildingId: buildingId || null, date: todayDate, status: 'present', isContractWorker: true, contractWorkerCount: newAssigned, contractorName }));
+      // Assigned-site attendance record
+      if (existingAssignedAtt) {
+        promises.push(attendanceServices.updateAttendance(existingAssignedAtt.id, {
+          contractWorkerCount: newTotal,
+          updatedAt: now
+        }));
+      } else if (newTotal > 0) {
+        promises.push(attendanceServices.addAttendance({
+          employeeId: uniqueId,
+          siteId,
+          buildingId: buildingId || null,
+          supervisorId: user?.uid || null,
+          date: todayDate,
+          status: 'present',
+          isContractWorker: true,
+          contractWorkerCount: newTotal,
+          contractorName,
+          checkIn: checkInTime,
+          checkOut: '17:30',
+          createdAt: now,
+          updatedAt: now
+        }));
+      }
 
-      if (existingUnassignedAtt) promises.push(attendanceServices.updateAttendance(existingUnassignedAtt.id, { contractWorkerCount: currentUnassigned - actualChange, updatedAt: new Date().toISOString() }));
-      else if (currentUnassigned - actualChange > 0) promises.push(attendanceServices.addAttendance({ employeeId: unassignedUniqueId, siteId: 'unassigned', buildingId: null, date: todayDate, status: 'present', isContractWorker: true, contractWorkerCount: currentUnassigned - actualChange, contractorName }));
+      // Unassigned-pool attendance record
+      if (existingUnassignedAtt) {
+        promises.push(attendanceServices.updateAttendance(existingUnassignedAtt.id, {
+          contractWorkerCount: newUnassignedCount,
+          updatedAt: now
+        }));
+      } else if (newUnassignedCount > 0) {
+        promises.push(attendanceServices.addAttendance({
+          employeeId: unassignedUniqueId,
+          siteId: 'unassigned',
+          buildingId: null,
+          supervisorId: user?.uid || null,
+          date: todayDate,
+          status: 'present',
+          isContractWorker: true,
+          contractWorkerCount: newUnassignedCount,
+          contractorName,
+          checkIn: checkInTime,
+          checkOut: '17:30',
+          createdAt: now,
+          updatedAt: now
+        }));
+      }
 
+      // ── DPR log (mirrors new total for daily summary) ──
       if (todayDpr) {
-        const newTotal = getAssignedContractWorkers() + actualChange;
-        promises.push(dprServices.updateDPR(todayDpr.id, { contractWorkerCount: newTotal, contractorName, updatedAt: new Date().toISOString() }));
+        promises.push(dprServices.updateDPR(todayDpr.id, {
+          contractWorkerCount: newTotal,
+          contractorName,
+          updatedAt: now
+        }));
         setTodayDpr(prev => ({ ...prev, contractWorkerCount: newTotal, contractorName }));
       }
+
       await Promise.all(promises);
     } catch (error) {
+      console.error('Contract worker assignment error:', error);
       showAlert('Sync Error', 'Failed to save assignments to database.', 'error');
     }
   };
@@ -1004,7 +1130,10 @@ const DPRSiteDetails = ({ userRole }) => {
                   <div className="text-xs font-medium text-purple-500 uppercase tracking-wider">Daily Workers</div>
                 </div>
                 <div className="bg-orange-50 rounded-lg p-4 border border-orange-200 text-center">
-                  <div className="text-2xl font-bold text-orange-600">{todayAttendance.filter(a => a.isContractWorker && a.siteId === siteId).reduce((sum, a) => sum + (a.contractWorkerCount || 0), 0)}</div>
+                  {/* BUG FIX 1: Read from persistentContractors (live onSnapshot source of truth)
+                      instead of attendance records whose siteId may be 'unassigned' and would
+                      be excluded by the old siteId === siteId filter. */}
+                  <div className="text-2xl font-bold text-orange-600">{getAssignedContractWorkers()}</div>
                   <div className="text-xs font-medium text-orange-500 uppercase tracking-wider">Contract Workers</div>
                 </div>
               </div>
