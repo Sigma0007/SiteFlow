@@ -581,8 +581,11 @@ const PORequests = ({ userRole = 'admin' }) => {
                       }`} />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-gray-900 leading-tight truncate">
-                      {request.items ? request.items.map(i => i.materialName).join(', ') : request.materialName}
+                    <h3 className="text-base font-semibold text-gray-900 leading-tight">
+                      {request.items
+                        ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit || ''})`).join(', ')
+                        : `${request.materialName} (${request.quantity} ${request.unit || ''})`
+                      }
                     </h3>
                     <p className="text-gray-500 text-sm mt-0.5 line-clamp-2">{request.reason}</p>
                   </div>
@@ -598,11 +601,25 @@ const PORequests = ({ userRole = 'admin' }) => {
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Items/Quantity</p>
-                  <p className="font-semibold text-gray-900 text-sm">
-                    {request.items ? `${request.items.length} item(s)` : `${request.quantity} ${request.unit}`}
-                  </p>
+                {/* Materials breakdown — shows each item name + quantity + unit */}
+                <div className="col-span-2">
+                  <p className="text-xs text-gray-500 mb-1">Materials &amp; Quantities</p>
+                  {request.items && request.items.length > 0 ? (
+                    <div className="space-y-1">
+                      {request.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-sm">
+                          <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                          <span className="font-semibold text-gray-900">{item.materialName}</span>
+                          <span className="text-gray-500">—</span>
+                          <span className="font-medium text-blue-700">{item.quantity} {item.unit || ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="font-semibold text-gray-900 text-sm">
+                      {request.materialName} — {request.quantity} {request.unit || ''}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Est. Total</p>
@@ -822,7 +839,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                           <label className="block text-xs font-medium text-gray-600 mb-1">Quantity *</label>
                           <input
                             type="number"
-                            min="1"
+                            // min="1"
                             required
                             value={item.quantity}
                             onChange={(e) => updateItem(item.id, 'quantity', e.target.value)}
