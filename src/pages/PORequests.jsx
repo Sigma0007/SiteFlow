@@ -171,8 +171,11 @@ const PORequests = ({ userRole = 'admin' }) => {
       const requesterName = formatDisplayName(currentSupervisor?.email || user?.email)
       const materialList = validItems.map(item => `${item.materialName} (${item.quantity} ${item.unit})`).join(', ')
 
+      // Send notification to all admins using role-based targeting.
+      // recipientRole:'admin' avoids needing to know specific admin emails
+      // (supervisors cannot read the users collection due to Firestore rules).
       notificationServices.addNotificationWithPush({
-        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        recipientRole: 'admin',
         type: 'po_generated',
         poId: poDoc.id,
         message: `Materials: ${materialList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
@@ -200,6 +203,27 @@ const PORequests = ({ userRole = 'admin' }) => {
         approvedDate: new Date().toISOString().split('T')[0]
       }
       await supervisorServices.updatePORequest(requestId, updateData)
+
+      // Notify the supervisor who made this request.
+      // recipientEmail targets their personal bell listener directly.
+      const request = poRequests.find(r => r.id === requestId)
+      if (request?.requestedBy) {
+        const targetSite = sites.find(s => s.id === request.siteId)
+        const siteName = targetSite ? targetSite.name : 'Site'
+        const materialList = request.items
+          ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ')
+          : (request.materialName || 'Materials')
+        notificationServices.addNotificationWithPush({
+          recipientEmail: request.requestedBy,
+          type: 'po_approved',
+          poId: requestId,
+          message: `Your PO request has been approved!\nMaterials: ${materialList}\nSite: ${siteName}`,
+          materialName: materialList,
+          siteId: request.siteId,
+          siteName: siteName,
+        }).catch(err => console.log('Approval notification failed (non-critical):', err))
+      }
+
       await reloadRequests()
       showAlert('Approved', 'PO request has been approved successfully!')
     } catch (error) {
@@ -256,8 +280,9 @@ const PORequests = ({ userRole = 'admin' }) => {
       // 3. Notify admin that PO has arrived
       const itemsList = request.items ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ') : `${request.materialName} (${request.quantity} ${request.unit})`
 
+      // Send notification to all admins using role-based targeting.
       notificationServices.addNotificationWithPush({
-        recipientEmail: 'odedraarjun928@gmail.com', // Admin email
+        recipientRole: 'admin',
         type: 'po_arrived',
         poId: request.id,
         message: `Material Arrived: ${itemsList}\nSite: ${siteName}\nRequested by: ${requesterName}`,

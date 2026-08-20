@@ -1170,13 +1170,58 @@ export const notificationServices = {
   },
 
   // Real-time listener for notifications
-  onNotificationsChange: (recipientEmail, callback) => {
+  // NOTE: orderBy('createdAt') is intentionally omitted here.
+  // Combining where() on one field + orderBy() on a different field requires
+  // a Firestore composite index. If that index is absent, onSnapshot throws
+  // a FirebaseError silently (no UI feedback) and the listener never fires.
+  // We query only by recipientEmail (single-field index — always available)
+  // and sort the results client-side in NotificationBell instead.
+  onNotificationsChange: (recipientEmail, callback, onError) => {
     const q = query(
       notificationsCollection,
-      where('recipientEmail', '==', recipientEmail),
-      orderBy('createdAt', 'desc')
+      where('recipientEmail', '==', recipientEmail)
     );
-    return onSnapshot(q, callback);
+    return onSnapshot(
+      q,
+      callback,
+      (error) => {
+        console.error('❌ NotificationBell listener error:', error.message);
+        if (typeof onError === 'function') onError(error);
+      }
+    );
+  },
+
+  // Real-time listener for role-based notifications (e.g. all admins).
+  // Supervisors save PO notifications with recipientRole:'admin' instead of a
+  // specific email, because they cannot read the users collection to resolve
+  // admin emails at runtime (Firestore permission rules block it).
+  onRoleNotificationsChange: (role, callback, onError) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientRole', '==', role)
+    );
+    return onSnapshot(
+      q,
+      callback,
+      (error) => {
+        console.error(`❌ Role notification listener error (${role}):`, error.message);
+        if (typeof onError === 'function') onError(error);
+      }
+    );
+  },
+
+  // Mark all role-based notifications as read
+  markAllRoleNotificationsAsRead: async (role) => {
+    const q = query(
+      notificationsCollection,
+      where('recipientRole', '==', role),
+      where('read', '==', false)
+    );
+    const snapshot = await getDocs(q);
+    const updatePromises = snapshot.docs.map(d =>
+      updateDoc(d.ref, { read: true, readAt: new Date().toISOString() })
+    );
+    return Promise.all(updatePromises);
   },
 
   // Save FCM token for user
@@ -1268,14 +1313,19 @@ export const notificationServices = {
   // Add notification with optional push (handles permission errors)
   addNotificationWithPush: async (notificationData) => {
     try {
-      // Always save to Firestore
+      // Always save to Firestore (works for both email-based and role-based)
       await notificationServices.addNotification(notificationData);
 
-      // Try to send push notification (optional)
-      try {
-        await notificationServices.sendPushNotification(notificationData);
-      } catch (pushError) {
-        console.log('Push notification failed, but Firestore notification saved:', pushError.message);
+      // Send Cloudflare Worker push ONLY when a specific recipientEmail is present.
+      // The Worker requires recipientEmail to route the push — role-based notifications
+      // (recipientRole:'admin') cannot be routed by the Worker at this time, so we
+      // skip the push for those. The in-app bell handles them via the role listener.
+      if (notificationData.recipientEmail) {
+        try {
+          await notificationServices.sendPushNotification(notificationData);
+        } catch (pushError) {
+          console.log('Push notification failed, but Firestore notification saved:', pushError.message);
+        }
       }
 
       // Show native browser notification banner if permission is granted
@@ -1298,6 +1348,27 @@ export const notificationServices = {
       console.error('Error adding notification:', error);
       throw error;
     }
+  }
+};
+
+// ---------------------------------------------------------------------------
+// getAdminEmails — dynamically resolves all admin email addresses from Firestore
+// Use this instead of hardcoding admin emails in notification calls.
+// Falls back to an empty array on error so callers can apply their own fallback.
+// ---------------------------------------------------------------------------
+export const getAdminEmails = async () => {
+  try {
+    const usersCollection = collection(db, 'users');
+    const q = query(usersCollection, where('role', '==', 'admin'), where('status', '==', 'active'));
+    const snapshot = await getDocs(q);
+    const emails = snapshot.docs
+      .map(d => d.data().email)
+      .filter(Boolean);
+    console.log('📧 Admin emails resolved:', emails);
+    return emails;
+  } catch (error) {
+    console.error('❌ getAdminEmails failed:', error.message);
+    return [];
   }
 };
 

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Bell, X, Check, Package, CheckCircle, Clock } from 'lucide-react'
+import { Bell, Package, CheckCircle, Clock } from 'lucide-react'
 import { notificationServices, convertDocsToArray } from '../services/firebaseServices'
 import { useAuth } from './Auth'
 import { onForegroundMessage } from '../firebase'
 import { useNavigate } from 'react-router-dom'
 
 const NotificationBell = () => {
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -16,18 +16,71 @@ const NotificationBell = () => {
   useEffect(() => {
     if (!user?.email) return
 
-    // Real-time listener for notifications from Firestore
-    const unsubscribe = notificationServices.onNotificationsChange(user.email, (snapshot) => {
-      const notifs = convertDocsToArray(snapshot)
-      setNotifications(notifs)
-      setUnreadCount(notifs.filter(n => !n.read).length)
-    })
+    // ------------------------------------------------------------------
+    // Dual-listener architecture
+    // ------------------------------------------------------------------
+    // Listener 1 — Personal:   recipientEmail == user.email
+    // Listener 2 — Role-based: recipientRole  == userRole (e.g. 'admin')
+    //
+    // Supervisors cannot read the 'users' collection (Firestore rules),
+    // so they cannot resolve admin emails at notification-send time.
+    // Instead they save notifications with recipientRole:'admin'.
+    // This role listener picks those up on the admin side with zero
+    // hardcoded emails and zero permission errors.
+    //
+    // Both pools are merged, deduplicated by doc ID, and sorted newest-
+    // first in memory — no Firestore composite index required.
+    // ------------------------------------------------------------------
 
-    // Listen for foreground FCM messages
+    let personalNotifs = []
+    let roleNotifs = []
+
+    const sortAndSet = () => {
+      const seen = new Set()
+      const merged = [...personalNotifs, ...roleNotifs].filter(n => {
+        if (seen.has(n.id)) return false
+        seen.add(n.id)
+        return true
+      })
+      merged.sort((a, b) => {
+        const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0
+        const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0
+        return tB - tA
+      })
+      setNotifications(merged)
+      setUnreadCount(merged.filter(n => !n.read).length)
+    }
+
+    // Listener 1: personal notifications
+    const unsubPersonal = notificationServices.onNotificationsChange(
+      user.email,
+      (snapshot) => {
+        personalNotifs = convertDocsToArray(snapshot)
+        sortAndSet()
+      },
+      (error) => {
+        console.error('NotificationBell personal listener error:', error.message)
+      }
+    )
+
+    // Listener 2: role-based notifications
+    let unsubRole = () => {}
+    if (userRole) {
+      unsubRole = notificationServices.onRoleNotificationsChange(
+        userRole,
+        (snapshot) => {
+          roleNotifs = convertDocsToArray(snapshot)
+          sortAndSet()
+        },
+        (error) => {
+          console.error('NotificationBell role listener error:', error.message)
+        }
+      )
+    }
+
+    // Show native banner for foreground FCM messages
     const unsubscribeForeground = onForegroundMessage((payload) => {
       console.log('Foreground FCM message received:', payload)
-      
-      // Show browser notification for foreground messages
       if (Notification.permission === 'granted') {
         const notification = new Notification(payload.notification?.title || 'Site Manager', {
           body: payload.notification?.body || payload.data?.message,
@@ -35,7 +88,6 @@ const NotificationBell = () => {
           badge: '/favicon-96x96.png',
           data: payload.data
         })
-        
         notification.onclick = () => {
           window.focus()
           notification.close()
@@ -44,10 +96,11 @@ const NotificationBell = () => {
     })
 
     return () => {
-      unsubscribe()
+      unsubPersonal()
+      unsubRole()
       if (unsubscribeForeground) unsubscribeForeground()
     }
-  }, [user?.email])
+  }, [user?.email, userRole])
 
   const handleMarkAsRead = async (notificationId) => {
     try {
@@ -59,7 +112,11 @@ const NotificationBell = () => {
 
   const handleMarkAllAsRead = async () => {
     try {
-      await notificationServices.markAllAsRead(user?.email)
+      // Mark both personal and role-based notifications as read
+      await Promise.all([
+        notificationServices.markAllAsRead(user?.email),
+        userRole ? notificationServices.markAllRoleNotificationsAsRead(userRole) : Promise.resolve()
+      ])
     } catch (error) {
       console.error('Error marking all as read:', error)
     }
