@@ -174,13 +174,18 @@ const ReportsPage = () => {
             days: {},
             present: 0,
             absent: 0,
-            leave: 0
+            leave: 0,
+            totalLabourCost: 0
           };
         }
         const count = Number(record.dailyWorkerCount || 0);
+        const charge = Number(record.labourCharge || 0);
         if (count > 0) {
           analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
           analysis[groupKey].present += count;
+          analysis[groupKey].totalLabourCost = (analysis[groupKey].totalLabourCost || 0) + (count * charge);
+          // Track the latest non-zero charge for display in the Wage column
+          if (charge > 0) analysis[groupKey].emp.dailyWage = charge;
         }
       } else {
         // Standard permanent employee
@@ -523,9 +528,11 @@ const ReportsPage = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {staffAnalysis.length > 0 ? (
-                        staffAnalysis.map(({ emp, days, present, absent }) => {
+                        staffAnalysis.map(({ emp, days, present, absent, totalLabourCost }) => {
                           const wage = Number(emp.dailyWage || 0);
-                          const estSalary = present * wage;
+                          const estSalary = (totalLabourCost !== undefined && totalLabourCost > 0)
+                            ? totalLabourCost
+                            : present * wage;
                           return (
                             <tr key={emp.id} className="hover:bg-gray-50">
                               <td className="px-4 py-3 font-medium text-gray-900 border-r border-gray-200 sticky left-0 bg-white">

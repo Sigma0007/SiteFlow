@@ -66,6 +66,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     return {}
   })
   const [quickDailyWorkerCount, setQuickDailyWorkerCount] = useState(0)
+  const [quickLabourCharge, setQuickLabourCharge] = useState(0)
   const [showDailyWorkerModal, setShowDailyWorkerModal] = useState(false)
 
   useEffect(() => {
@@ -404,6 +405,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const saveDailyWorkerAttendance = async (key) => {
     const dailyData = dailyWorkerCounts[key]
     const count = typeof dailyData === 'object' ? (Number(dailyData?.count) || 0) : (Number(dailyData) || 0)
+    const labourCharge = typeof dailyData === 'object' ? (Number(dailyData?.labourCharge) || 0) : 0
 
     const parts = key.split('_')
     const siteId = parts[0]
@@ -419,6 +421,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         status: 'present',
         isDailyWorker: true,
         dailyWorkerCount: count,
+        labourCharge: labourCharge,
         checkIn: new Date().toTimeString().slice(0, 5),
         checkOut: '17:30',
         createdAt: new Date().toISOString(),
@@ -449,6 +452,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const saveUnassignedDailyWorkers = async () => {
     const unassignedData = dailyWorkerCounts['unassigned']
     const count = typeof unassignedData === 'object' ? (Number(unassignedData?.count) || 0) : (Number(unassignedData) || 0)
+    const labourCharge = typeof unassignedData === 'object' ? (Number(unassignedData?.labourCharge) || 0) : 0
 
     try {
       const attendanceData = {
@@ -460,6 +464,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         status: 'present',
         isDailyWorker: true,
         dailyWorkerCount: count,
+        labourCharge: labourCharge,
         checkIn: new Date().toTimeString().slice(0, 5),
         checkOut: '17:30',
         createdAt: new Date().toISOString(),
@@ -494,7 +499,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       const key = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
       loadedCounts[key] = {
         count: record.dailyWorkerCount,
-        buildingId: record.buildingId || null
+        buildingId: record.buildingId || null,
+        labourCharge: Number(record.labourCharge) || 0
       }
     })
 
@@ -526,6 +532,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
       if (existingRecord) {
         await attendanceServices.updateAttendance(existingRecord.id, {
           dailyWorkerCount: newUnassigned,
+          labourCharge: quickLabourCharge,
           updatedAt: new Date().toISOString()
         })
       } else {
@@ -538,6 +545,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           status: 'present',
           isDailyWorker: true,
           dailyWorkerCount: newUnassigned,
+          labourCharge: quickLabourCharge,
           checkIn: new Date().toTimeString().slice(0, 5),
           checkOut: '17:30',
           createdAt: new Date().toISOString(),
@@ -550,12 +558,13 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         const unassignedData = prev['unassigned']
         return {
           ...prev,
-          'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: newUnassigned }
+          'unassigned': { ...(typeof unassignedData === 'object' ? unassignedData : {}), count: newUnassigned, labourCharge: quickLabourCharge }
         }
       })
       setQuickDailyWorkerCount(0)
+      setQuickLabourCharge(0)
 
-      showToast(`${quickDailyWorkerCount} daily workers added! Total: ${newUnassigned}`)
+      showToast(`${quickDailyWorkerCount} daily workers added @ ₹${quickLabourCharge}/day. Total: ${newUnassigned}`)
     } catch (error) {
       console.error('Error saving daily workers:', error)
       showToast('Error saving daily workers', 'error')
@@ -1222,21 +1231,31 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               <Users className="w-2 h-2 sm:w-3 sm:h-3" />
               Quick Add Daily Workers
             </h3>
-            <div className="flex gap-2 sm:gap-3">
-              <input
-                type="number"
-                placeholder="Worker Count"
-                value={quickDailyWorkerCount || ''}
-                onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
-                className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
-                min="1"
-              />
+            <div className="flex flex-col gap-1.5">
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  placeholder="Workers"
+                  value={quickDailyWorkerCount || ''}
+                  onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
+                  className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                  min="1"
+                />
+                <input
+                  type="number"
+                  placeholder="₹/Worker/Day"
+                  value={quickLabourCharge || ''}
+                  onChange={(e) => setQuickLabourCharge(parseFloat(e.target.value) || 0)}
+                  className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                  min="0"
+                />
+              </div>
               <motion.button
                 whileTap={{ scale: 0.9 }}
                 onClick={handleQuickDailyWorkerAdd}
-                className="px-3 py-1.5 bg-purple-500 text-white text-[10px] sm:text-xs font-medium rounded-lg hover:bg-purple-600"
+                className="w-full px-3 py-1.5 bg-purple-500 text-white text-[10px] sm:text-xs font-medium rounded-lg hover:bg-purple-600"
               >
-                Add
+                Add Daily Workers
               </motion.button>
             </div>
           </div>
@@ -1306,8 +1325,11 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           <p className="text-[10px] text-gray-500">{locationText}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap justify-end">
                         <span className="text-xs font-bold text-purple-700">{dailyData.count} workers</span>
+                        {dailyData.labourCharge > 0 && (
+                          <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[8px] font-bold rounded-full">₹{dailyData.labourCharge}/day</span>
+                        )}
                         <span className="px-1.5 py-0.5 bg-green-500 text-white text-[8px] font-bold rounded-full">P</span>
                       </div>
                     </div>
@@ -1766,9 +1788,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
                       <div className="p-3 border-t border-gray-200 bg-white rounded-b-lg">
                         {siteBuildings.length === 0 && (
-                          <div className="flex items-center justify-between mb-2 pl-2">
-                            <span className="text-[10px] font-medium text-gray-600">Assign on site</span>
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between mb-2 pl-2 gap-2">
+                            <span className="text-[10px] font-medium text-gray-600 shrink-0">Assign on site</span>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                placeholder="₹/day"
+                                value={(typeof dailyWorkerCounts[site.id] === 'object' ? (dailyWorkerCounts[site.id]?.labourCharge || '') : '')}
+                                onChange={(e) => setDailyWorkerCounts(prev => { const d = prev[site.id]; return { ...prev, [site.id]: { ...(typeof d === 'object' ? d : { count: Number(d) || 0 }), labourCharge: parseFloat(e.target.value) || 0 } }; })}
+                                className="w-14 px-1 py-0.5 border border-purple-200 rounded text-[9px] focus:outline-none focus:ring-1 focus:ring-purple-500 text-center"
+                                min="0"
+                              />
                               <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{typeof dailyWorkerCounts[site.id] === 'object' ? (Number(dailyWorkerCounts[site.id]?.count) || 0) : (Number(dailyWorkerCounts[site.id]) || 0)}</span>
                               <button onClick={() => handleDailyWorkerCountChange(site.id, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
                               <button onClick={() => handleDailyWorkerCountChange(site.id, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
@@ -1780,9 +1810,17 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           const key = `${site.id}_${bldg.id}`
                           const count = typeof dailyWorkerCounts[key] === 'object' ? (Number(dailyWorkerCounts[key]?.count) || 0) : (Number(dailyWorkerCounts[key]) || 0)
                           return (
-                            <div key={key} className="flex items-center justify-between mb-1 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0">
-                              <span className="text-[10px] font-medium text-gray-600">{bldg.name}</span>
-                              <div className="flex items-center gap-2">
+                            <div key={key} className="flex items-center justify-between mb-1 pl-2 border-b border-gray-100 pb-2 last:border-0 last:mb-0 last:pb-0 gap-2">
+                              <span className="text-[10px] font-medium text-gray-600 shrink-0">{bldg.name}</span>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  placeholder="₹/day"
+                                  value={(typeof dailyWorkerCounts[key] === 'object' ? (dailyWorkerCounts[key]?.labourCharge || '') : '')}
+                                  onChange={(e) => setDailyWorkerCounts(prev => { const d = prev[key]; return { ...prev, [key]: { ...(typeof d === 'object' ? d : { count: Number(d) || 0 }), labourCharge: parseFloat(e.target.value) || 0 } }; })}
+                                  className="w-14 px-1 py-0.5 border border-purple-200 rounded text-[9px] focus:outline-none focus:ring-1 focus:ring-purple-500 text-center"
+                                  min="0"
+                                />
                                 <span className="text-[10px] font-bold text-purple-700 w-4 text-center">{count}</span>
                                 <button onClick={() => handleDailyWorkerCountChange(key, -1)} className="w-5 h-5 rounded bg-red-100 text-red-600 font-bold hover:bg-red-200 flex items-center justify-center text-[10px]">-</button>
                                 <button onClick={() => handleDailyWorkerCountChange(key, 1)} className="w-5 h-5 rounded bg-green-100 text-green-600 font-bold hover:bg-green-200 flex items-center justify-center text-[10px]">+</button>
