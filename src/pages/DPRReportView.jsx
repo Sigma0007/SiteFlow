@@ -46,11 +46,25 @@ const DPRReportView = () => {
         setMaterials(allMaterials);
 
         // Fetch Attendance for the specific date
+        // FIX: Include records where siteId matches directly, OR where the
+        // employeeId encodes this siteId (contract/daily worker records from
+        // the DPR or Attendance modules may have varying siteId values but
+        // always embed the target siteId in their deterministic employeeId).
         const attSnap = await attendanceServices.getAttendanceByDate(date);
         const allAtt = convertDocsToArray(attSnap);
         setAttendance(allAtt.filter(a => {
-          if (a.siteId !== siteId) return false;
-          if (buildingId && a.buildingId !== buildingId) return false;
+          const siteMatch = a.siteId === siteId ||
+            ((a.isContractWorker || a.isDailyWorker) &&
+              a.employeeId &&
+              a.employeeId.includes(siteId));
+          if (!siteMatch) return false;
+          if (buildingId) {
+            // Building-level report: match buildingId directly or via employeeId
+            return a.buildingId === buildingId ||
+              ((a.isContractWorker || a.isDailyWorker) &&
+                a.employeeId &&
+                a.employeeId.includes(buildingId));
+          }
           return true;
         }));
 

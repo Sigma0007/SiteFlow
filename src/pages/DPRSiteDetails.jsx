@@ -477,14 +477,37 @@ const DPRSiteDetails = ({ userRole }) => {
         }));
       }
 
-      // ── DPR log (mirrors new total for daily summary) ──
+      // ── DPR log (aggregate ALL contractors for this site/building) ──
+      // FIX: The previous code stored only the last contractor's name/count,
+      // overwriting data from other contractors. Now we compute the aggregate
+      // across ALL contractors assigned to this site/building and store a full
+      // contractorSummary array so the DPR document is self-contained and accurate.
       if (todayDpr) {
+        const contractorSummary = persistentContractors
+          .filter(c => {
+            if (c.siteId !== siteId) return false;
+            if (buildingId) return c.buildingId === buildingId;
+            return true;
+          })
+          .map(c => ({
+            contractorName: c.contractorName,
+            workerCount: c.contractorName === contractorName ? newTotal : c.workerCount
+          }))
+          .filter(c => c.workerCount > 0);
+
+        // If this is a brand-new contractor not yet in persistentContractors, add it
+        if (newTotal > 0 && !contractorSummary.some(c => c.contractorName === contractorName)) {
+          contractorSummary.push({ contractorName, workerCount: newTotal });
+        }
+
+        const aggregateTotal = contractorSummary.reduce((sum, c) => sum + c.workerCount, 0);
+
         promises.push(dprServices.updateDPR(todayDpr.id, {
-          contractWorkerCount: newTotal,
-          contractorName,
+          contractWorkerCount: aggregateTotal,
+          contractorSummary,
           updatedAt: now
         }));
-        setTodayDpr(prev => ({ ...prev, contractWorkerCount: newTotal, contractorName }));
+        setTodayDpr(prev => ({ ...prev, contractWorkerCount: aggregateTotal, contractorSummary }));
       }
 
       await Promise.all(promises);

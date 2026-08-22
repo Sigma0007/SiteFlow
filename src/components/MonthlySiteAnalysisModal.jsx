@@ -28,6 +28,11 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
         // Primary match:  a.buildingId === building.id  (all records written after the fix)
         // Fallback match: employeeId contains the building.id  (backward-compat for older
         //                 DPR-written contract/daily records that may lack a buildingId field)
+        //
+        // FIX (Problem 3): Site-level filter was only checking a.siteId === site.id,
+        // which silently dropped contractor/daily worker attendance records whose siteId
+        // was 'unassigned' (from the pool) but whose employeeId encoded the actual site.
+        // Now includes the same inclusive fallback used in ReportsPage.jsx.
         setAttendanceRecords(
           building
             ? allAtt.filter(a =>
@@ -36,7 +41,12 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                 a.employeeId &&
                 a.employeeId.includes(building.id))
             )
-            : allAtt.filter(a => a.siteId === site.id)
+            : allAtt.filter(a =>
+              a.siteId === site.id ||
+              ((a.isContractWorker || a.isDailyWorker) &&
+                a.employeeId &&
+                a.employeeId.includes(site.id))
+            )
         );
 
         // Fetch DPR for the site or building
