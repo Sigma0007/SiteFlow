@@ -27,7 +27,7 @@ const DPRReportView = () => {
         if (siteDoc.exists()) {
           setSite({ id: siteDoc.id, ...siteDoc.data() });
         }
-        
+
         if (buildingId) {
           const buildingDoc = await buildingServices.getBuildingById(buildingId);
           if (buildingDoc.exists()) {
@@ -44,12 +44,6 @@ const DPRReportView = () => {
         const matSnap = await materialServices.getAllMaterials();
         const allMaterials = convertDocsToArray(matSnap);
         setMaterials(allMaterials);
-
-        // Fetch Attendance for the specific date
-        // FIX: Include records where siteId matches directly, OR where the
-        // employeeId encodes this siteId (contract/daily worker records from
-        // the DPR or Attendance modules may have varying siteId values but
-        // always embed the target siteId in their deterministic employeeId).
         const attSnap = await attendanceServices.getAttendanceByDate(date);
         const allAtt = convertDocsToArray(attSnap);
         setAttendance(allAtt.filter(a => {
@@ -90,13 +84,13 @@ const DPRReportView = () => {
   const handleDownloadPdf = () => {
     const element = document.getElementById('report-canvas');
     if (!element) return;
-    
+
     const opt = {
-      margin:       0.4,
-      filename:     `DPR-${site.name.replace(/\s+/g, '-')}-${date}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true },
-      jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+      margin: 0.4,
+      filename: `DPR-${site.name.replace(/\s+/g, '-')}-${date}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
     };
 
     html2pdf().set(opt).from(element).save();
@@ -159,7 +153,7 @@ const DPRReportView = () => {
       {/* Report A4 Document Canvas */}
       <div className="max-w-4xl mx-auto mt-8 px-4 sm:px-6 lg:px-8 print:mt-0 print:px-0">
         <div id="report-canvas" className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 sm:p-12 print:shadow-none print:border-none print:p-0 relative overflow-hidden">
-          
+
           {/* Document Header */}
           <div className="flex items-start justify-between border-b-2 border-gray-900 pb-6 mb-8">
             <div>
@@ -181,35 +175,35 @@ const DPRReportView = () => {
 
           {/* Section 1: Process Entries */}
           {(dpr?.processEntries && dpr.processEntries.length > 0) && (
-          <div className="mb-10 page-break-inside-avoid">
-            <div className="flex items-center gap-2 mb-4">
-              <CheckSquare className="w-5 h-5 text-gray-700" />
-              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Today's Process Work</h2>
-            </div>
-            
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Work Description</th>
-                    <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unit</th>
-                    <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Remark</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {dpr.processEntries.map((entry, idx) => (
-                    <tr key={idx}>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{entry.work}</td>
-                      <td className="px-6 py-3 text-sm text-gray-900 font-bold text-right">{entry.quantity}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{entry.unit}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{entry.remark || '-'}</td>
+            <div className="mb-10 page-break-inside-avoid">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckSquare className="w-5 h-5 text-gray-700" />
+                <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Today's Process Work</h2>
+              </div>
+
+              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Work Description</th>
+                      <th className="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Quantity</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Unit</th>
+                      <th className="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Remark</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {dpr.processEntries.map((entry, idx) => (
+                      <tr key={idx}>
+                        <td className="px-6 py-3 text-sm font-medium text-gray-900">{entry.work}</td>
+                        <td className="px-6 py-3 text-sm text-gray-900 font-bold text-right">{entry.quantity}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600">{entry.unit}</td>
+                        <td className="px-6 py-3 text-sm text-gray-600">{entry.remark || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
           )}
 
           {/* Section 2: Work Progress Summary */}
@@ -251,7 +245,7 @@ const DPRReportView = () => {
               <HardHat className="w-5 h-5 text-gray-700" />
               <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Labour Attendance</h2>
             </div>
-            
+
             <div className="flex gap-4 mb-4">
               <span className="bg-green-100 text-green-800 font-semibold px-3 py-1 rounded-md text-sm border border-green-200">
                 Present: {presentLabour.length}
@@ -278,19 +272,19 @@ const DPRReportView = () => {
                         return (empA.name || '').localeCompare(empB.name || '');
                       })
                       .map((att) => {
-                      const emp = getEmpDetails(att);
-                      const isPresent = att.status === 'present';
-                      return (
-                        <tr key={att.id}>
-                          <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {emp.name} <span className="text-gray-400 text-xs ml-1">({emp.id ? emp.id.substring(0,6) : 'N/A'})</span>
-                          </td>
-                          <td className={`px-6 py-3 whitespace-nowrap text-sm font-bold ${isPresent ? 'text-green-600' : 'text-red-600'}`}>
-                            {isPresent ? 'P' : 'A'}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        const emp = getEmpDetails(att);
+                        const isPresent = att.status === 'present';
+                        return (
+                          <tr key={att.id}>
+                            <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {emp.name} <span className="text-gray-400 text-xs ml-1">({emp.id ? emp.id.substring(0, 6) : 'N/A'})</span>
+                            </td>
+                            <td className={`px-6 py-3 whitespace-nowrap text-sm font-bold ${isPresent ? 'text-green-600' : 'text-red-600'}`}>
+                              {isPresent ? 'P' : 'A'}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -332,11 +326,11 @@ const DPRReportView = () => {
 
           {/* Section 4: Daily Expenses (Conditional) */}
           {expenses && expenses.length > 0 && (
-          <div className="mb-6 page-break-inside-avoid">
-            <div className="flex items-center gap-2 mb-4">
-              <IndianRupee className="w-5 h-5 text-gray-700" />
-              <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Daily Expenses</h2>
-            </div>
+            <div className="mb-6 page-break-inside-avoid">
+              <div className="flex items-center gap-2 mb-4">
+                <IndianRupee className="w-5 h-5 text-gray-700" />
+                <h2 className="text-xl font-bold text-gray-900 border-b border-gray-200 pb-1 w-full flex-1">Daily Expenses</h2>
+              </div>
               <div className="overflow-x-auto border border-gray-200 rounded-lg">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -363,7 +357,7 @@ const DPRReportView = () => {
                   </tfoot>
                 </table>
               </div>
-          </div>
+            </div>
           )}
 
           {/* Footer Signature Block */}
@@ -377,7 +371,7 @@ const DPRReportView = () => {
               <p className="font-semibold text-gray-800">Approved By (Site Manager)</p>
             </div>
           </div>
-          
+
           {/* Watermark Logo */}
           <div className="absolute inset-0 z-0 flex items-center justify-center opacity-[0.05] pointer-events-none">
             <img src="/Site Flow.png" alt="Site Flow Logo Watermark" className="w-[80%] max-w-[600px] object-contain" />
@@ -385,9 +379,10 @@ const DPRReportView = () => {
 
         </div>
       </div>
-    
+
       {/* Print Specific CSS Handling */}
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         @media print {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .page-break-inside-avoid { page-break-inside: avoid; }

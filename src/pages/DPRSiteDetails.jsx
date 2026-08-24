@@ -416,10 +416,6 @@ const DPRSiteDetails = ({ userRole }) => {
         }
       }
 
-      // ── Attendance collection (mirrors contractor state for monthly reports) ──
-      // BUG FIX 2: All new attendance records must have the full, standardised
-      // schema so both DPR and Attendance modules can read/write them without
-      // shape mismatches on subsequent updates.
       const safeName = contractorName.replace(/[^a-zA-Z0-9]/g, '_');
       const uniqueId = buildingId
         ? `contract-${siteId}-${buildingId}-${safeName}-${todayDate}`
@@ -477,11 +473,6 @@ const DPRSiteDetails = ({ userRole }) => {
         }));
       }
 
-      // ── DPR log (aggregate ALL contractors for this site/building) ──
-      // FIX: The previous code stored only the last contractor's name/count,
-      // overwriting data from other contractors. Now we compute the aggregate
-      // across ALL contractors assigned to this site/building and store a full
-      // contractorSummary array so the DPR document is self-contained and accurate.
       if (todayDpr) {
         const contractorSummary = persistentContractors
           .filter(c => {

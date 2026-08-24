@@ -24,15 +24,6 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
         // Fetch Attendance for the month
         const attSnapshot = await attendanceServices.getAttendanceByDateRange(startDate, endDate);
         const allAtt = convertDocsToArray(attSnapshot);
-        // BUG FIX B: Building-level filter.
-        // Primary match:  a.buildingId === building.id  (all records written after the fix)
-        // Fallback match: employeeId contains the building.id  (backward-compat for older
-        //                 DPR-written contract/daily records that may lack a buildingId field)
-        //
-        // FIX (Problem 3): Site-level filter was only checking a.siteId === site.id,
-        // which silently dropped contractor/daily worker attendance records whose siteId
-        // was 'unassigned' (from the pool) but whose employeeId encoded the actual site.
-        // Now includes the same inclusive fallback used in ReportsPage.jsx.
         setAttendanceRecords(
           building
             ? allAtt.filter(a =>
@@ -48,10 +39,6 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                 a.employeeId.includes(site.id))
             )
         );
-
-        // Fetch DPR for the site or building
-        // When a building is selected, query DPRs scoped to that building
-        // When no building, fall back to site-level (existing behaviour)
         const dprSnapshot = building
           ? await dprServices.getDPRBySiteAndBuilding(site.id, building.id)
           : await dprServices.getDPRBySiteId(site.id);
@@ -664,7 +651,7 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                                     return <td key={day} className={`px-1 py-1 text-center border-r border-gray-300 ${color}`}>{txt}</td>;
                                   })}
                                   {idx === 1 && (
-                                    <>  
+                                    <>
                                       <td className="px-1 py-1 text-center font-bold text-gray-900 border-l border-gray-300">{present}</td>
                                       <td className="px-1 py-1 text-center font-bold text-gray-900 border-x border-gray-300">{absent}</td>
                                       <td className="px-1 py-1 text-right font-black text-gray-900">₹{estSalary.toLocaleString()}</td>

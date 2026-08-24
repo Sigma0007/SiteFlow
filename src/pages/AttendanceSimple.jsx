@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -985,6 +985,33 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   const stats = getAttendanceStats()
   const activeAssignedContractors = Object.entries(contractWorkerCounts).filter(([key, data]) => !key.startsWith('unassigned@') && data?.count > 0)
 
+  // FIX: Aggregate contractor display by siteId + contractorName to match DPR module's
+  // `getAssignedCountForContractor()` which sums across all buildings at site level.
+  // Without this, each building-level record shows separately with its individual count
+  // (e.g. "1 workers") while the DPR shows the aggregate (e.g. "4 workers").
+  // The underlying `contractWorkerCounts` is NOT modified — only the display is aggregated.
+  const aggregatedAssignedContractors = useMemo(() => {
+    const grouped = {};
+    activeAssignedContractors.forEach(([key, data]) => {
+      const groupKey = `${data.siteId}@${data.contractorName}`;
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = {
+          contractorName: data.contractorName,
+          siteId: data.siteId,
+          // Keep the first record's data for click-to-edit (building-level edit still works)
+          buildingId: data.buildingId || null,
+          id: data.id,
+          count: 0,
+          // Store all underlying entries so we can reference them if needed
+          _sourceKeys: []
+        };
+      }
+      grouped[groupKey].count += data.count;
+      grouped[groupKey]._sourceKeys.push(key);
+    });
+    return Object.entries(grouped).filter(([, data]) => data.count > 0);
+  }, [activeAssignedContractors]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1341,7 +1368,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
         )}
 
         {/* --- MODIFIED: Contract Workers List with Click-to-Edit --- */}
-        {activeAssignedContractors.length > 0 && (
+        {aggregatedAssignedContractors.length > 0 && (
           <div className="bg-orange-50 border-b-2 border-orange-200">
             <div className="p-2 bg-orange-100 border-b border-orange-200">
               <h3 className="text-xs font-bold text-orange-800 flex items-center gap-1">
@@ -1350,12 +1377,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </h3>
             </div>
             <div className="p-2 space-y-2">
-              {activeAssignedContractors.map(([key, contractData]) => {
+              {aggregatedAssignedContractors.map(([key, contractData]) => {
                 const site = sites.find(s => s.id === contractData.siteId)
                 const siteName = site?.name || 'Unknown Site'
-                const building = contractData.buildingId ? buildings.find(b => b.id === contractData.buildingId) : null
-                const buildingName = building?.name || ''
-                const locationText = buildingName ? `${siteName} - ${buildingName}` : siteName
                 return (
                   <div key={key}
                     className="bg-white rounded-lg p-2 border border-orange-200 cursor-pointer hover:bg-orange-50 transition-colors"
@@ -1367,7 +1391,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         </div>
                         <div>
                           <p className="text-xs font-bold text-gray-900">{contractData.contractorName}</p>
-                          <p className="text-[10px] text-gray-500">{locationText}</p>
+                          <p className="text-[10px] text-gray-500">{siteName}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
