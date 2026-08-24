@@ -1114,7 +1114,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-blue-500 mt-0.5" />
         </motion.div>
         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
-          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Contract Staff</p>
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Subcontractors</p>
           <p className="text-xs sm:text-lg font-bold text-orange-600">{Object.values(contractWorkerCounts).reduce((a, b) => a + (b?.count || 0), 0)}</p>
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-orange-500 mt-0.5" />
         </motion.div>
@@ -1448,7 +1448,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         </div>
                         <div className="min-w-0">
                           <p className="font-medium text-xs text-gray-900 truncate">{employee.name}</p>
-                          <p className="text-[10px] text-gray-500 truncate">{employee.role}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-[10px] text-gray-500 truncate">{employee.role}</p>
+                            {employee.employmentType === 'contract' && (
+                              <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[8px] font-bold rounded-sm border border-orange-200 uppercase tracking-wider">
+                                FTC
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="sm:hidden mt-1">
@@ -1946,8 +1953,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               <input type="number" placeholder="Salary" value={editStaff.dailyWage} onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <input type="text" placeholder="Phone" value={editStaff.phone} onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <select value={editStaff.employmentType} onChange={(e) => setEditStaff({ ...editStaff, employmentType: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                <option value="permanent">Permanent Staff</option>
-                <option value="contract">Contract Worker</option>
+                <option value="permanent">Permanent Staff (Direct)</option>
+                <option value="contract">Individual Contract (FTC)</option>
               </select>
 
               <div>

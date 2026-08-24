@@ -1069,9 +1069,8 @@ const DPRSiteDetails = ({ userRole }) => {
                         <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
                           <Users className="w-4 h-4 text-white" />
                         </div>
-                        <p className="text-xs font-bold text-orange-800 uppercase tracking-wide flex-1">Contract Workers</p>
+                        <p className="text-xs font-bold text-orange-800 uppercase tracking-wide flex-1">Subcontractor Vendors</p>
                         <span className="text-xs bg-orange-200 text-orange-800 px-2 py-0.5 rounded-full font-semibold">
-                          {unassignedContractCount} in pool
                         </span>
                       </div>
 
@@ -1121,7 +1120,7 @@ const DPRSiteDetails = ({ userRole }) => {
                     className="w-full py-2 border-2 border-dashed border-orange-300 text-orange-600 rounded-xl text-sm font-medium hover:border-orange-400 hover:bg-orange-50 transition-colors flex items-center justify-center gap-2"
                   >
                     <PlusCircle className="w-4 h-4" />
-                    Add Contract Workers
+                    Add Subcontractor Labor
                   </motion.button>
                 </div>
               )}
@@ -1144,11 +1143,8 @@ const DPRSiteDetails = ({ userRole }) => {
                   <div className="text-xs font-medium text-purple-500 uppercase tracking-wider">Daily Workers</div>
                 </div>
                 <div className="bg-orange-50 rounded-lg p-4 border border-orange-200 text-center">
-                  {/* BUG FIX 1: Read from persistentContractors (live onSnapshot source of truth)
-                      instead of attendance records whose siteId may be 'unassigned' and would
-                      be excluded by the old siteId === siteId filter. */}
                   <div className="text-2xl font-bold text-orange-600">{getAssignedContractWorkers()}</div>
-                  <div className="text-xs font-medium text-orange-500 uppercase tracking-wider">Contract Workers</div>
+                  <div className="text-xs font-medium text-orange-500 uppercase tracking-wider">Subcontractor Labor</div>
                 </div>
               </div>
             </div>
@@ -1171,7 +1167,14 @@ const DPRSiteDetails = ({ userRole }) => {
                     return (
                       <tr key={emp.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-gray-900 text-base">{emp.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-900 text-base">{emp.name}</p>
+                            {emp.employmentType === 'contract' && (
+                              <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded-sm border border-orange-200 uppercase tracking-wider">
+                                FTC
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end gap-3">

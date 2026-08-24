@@ -107,7 +107,7 @@ const DPRReportView = () => {
       return { name: `Daily Workers (${att.dailyWorkerCount || 0} Total)`, id: att.employeeId };
     }
     if (att.isContractWorker) {
-      return { name: `Contract Workers - ${att.contractorName} (${att.contractWorkerCount || 0} Total)`, id: att.employeeId };
+      return { name: `Subcontractor - ${att.contractorName} (${att.contractWorkerCount || 0} Total)`, id: att.employeeId };
     }
     return labour.find(l => l.id === att.employeeId) || { name: 'Unknown', role: 'Unknown', id: att.employeeId };
   };
@@ -277,10 +277,16 @@ const DPRReportView = () => {
                         return (
                           <tr key={att.id}>
                             <td className="px-6 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {emp.name} <span className="text-gray-400 text-xs ml-1">({emp.id ? emp.id.substring(0, 6) : 'N/A'})</span>
+                              <div className="flex items-center gap-2">
+                                <span>{emp.name} <span className="text-gray-400 text-xs ml-1">({emp.id ? emp.id.substring(0, 6) : 'N/A'})</span></span>
+                                {labour.find(l => l.id === att.employeeId)?.employmentType === 'contract' && !att.isContractWorker && (
+                                  <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-bold rounded border border-orange-200 uppercase tracking-wider">
+                                    FTC
+                                  </span>
+                                )}
+                              </div>
                             </td>
-                            <td className={`px-6 py-3 whitespace-nowrap text-sm font-bold ${isPresent ? 'text-green-600' : 'text-red-600'}`}>
-                              {isPresent ? 'P' : 'A'}
+                            <td className={`px-6 py-3 whitespace-nowrap text-sm font-bold ${isPresent ? 'text-green-600' : 'text-red-600'}`}> {isPresent ? 'P' : 'A'}
                             </td>
                           </tr>
                         );

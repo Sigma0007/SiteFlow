@@ -38,7 +38,7 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                 a.employeeId &&
                 a.employeeId.includes(site.id))
             )
-        );
+        )
         const dprSnapshot = building
           ? await dprServices.getDPRBySiteAndBuilding(site.id, building.id)
           : await dprServices.getDPRBySiteId(site.id);
@@ -105,7 +105,7 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
         if (!analysis[groupKey]) {
           analysis[groupKey] = {
             id: groupKey,
-            emp: { name: record.contractorName, role: 'Contractor Pool', dailyWage: 0 },
+            emp: { name: record.contractorName, role: 'Subcontractor Pool', dailyWage: 0 },
             days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId
           };
         }
@@ -140,7 +140,12 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
           const empData = labour.find(l => l.id === groupKey) || { name: 'Unknown', role: '-', dailyWage: 0 };
           analysis[groupKey] = {
             id: groupKey,
-            emp: { name: empData.name, role: empData.role, dailyWage: empData.dailyWage || 0 },
+            emp: {
+              name: empData.name,
+              role: empData.role,
+              dailyWage: empData.dailyWage || 0,
+              employmentType: empData.employmentType
+            },
             days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId
           };
         }
@@ -469,8 +474,15 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                             return (
                               <tr key={emp.id} className="hover:bg-gray-50">
                                 <td className="px-2 py-2 font-medium text-gray-900 border-r border-gray-200 sticky left-0 bg-white z-10 text-xs truncate max-w-[90px] sticky-col">
-                                  {emp.name}
-                                  <span className="block text-[9px] text-gray-400 font-normal truncate">{emp.role}</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="truncate">{emp.name}</span>
+                                    {emp.employmentType === 'contract' && (
+                                      <span className="px-1 py-0.5 bg-orange-100 text-orange-700 text-[8px] font-bold rounded-sm border border-orange-200 uppercase tracking-wider shrink-0">
+                                        FTC
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="block text-[9px] text-gray-400 font-normal truncate mt-0.5">{emp.role}</span>
                                 </td>
                                 <td className="px-3 py-2 text-gray-600 text-center border-r border-gray-200 text-xs">₹{wage}</td>
                                 {daysArray.map(day => {
@@ -639,7 +651,16 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                                 : present * wage;
                               return (
                                 <tr key={emp.id}>
-                                  <td className="px-1 py-1 font-medium text-gray-900 border-r border-gray-300">{emp.name}</td>
+                                  <td className="px-1 py-1 font-medium text-gray-900 border-r border-gray-300">
+                                    <div className="flex items-center gap-1">
+                                      {emp.name}
+                                      {emp.employmentType === 'contract' && (
+                                        <span className="px-1 py-0.5 bg-orange-100 text-orange-700 text-[8px] font-bold rounded border border-orange-200 uppercase tracking-wider">
+                                          FTC
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
                                   <td className="px-1 py-1 text-gray-800 text-center border-r border-gray-300">₹{wage}</td>
                                   {chunk.map(day => {
                                     const status = days[day];
