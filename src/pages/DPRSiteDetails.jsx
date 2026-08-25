@@ -218,6 +218,71 @@ const DPRSiteDetails = ({ userRole }) => {
     setDailyWorkerCounts(counts);
   }, [todayAttendance, todayDate]);
 
+  // --- SYNC ASSIGNED CONTRACTORS TO TODAY'S ATTENDANCE ---
+  // If contractors are permanently assigned to this building/site, their attendance records 
+  // need to be auto-generated for the current day so they show up accurately in the Monthly Report.
+  const todayAttendanceRef = React.useRef(todayAttendance);
+  useEffect(() => {
+    todayAttendanceRef.current = todayAttendance;
+  }, [todayAttendance]);
+
+  const syncAttemptedRef = React.useRef(new Set());
+
+  useEffect(() => {
+    if (loading || buildingsLoading || !siteId || !todayDate || persistentContractors.length === 0) return;
+
+    const syncKey = `${siteId}_${buildingId || 'null'}_${todayDate}`;
+    if (syncAttemptedRef.current.has(syncKey)) return;
+
+    const timer = setTimeout(async () => {
+      syncAttemptedRef.current.add(syncKey);
+
+      const contractorsToSync = persistentContractors.filter(c => 
+        (c.siteId === siteId && (buildingId ? c.buildingId === buildingId : c.buildingId === null))
+      );
+      
+      const unassignedToSync = persistentContractors.filter(c => c.siteId === 'unassigned');
+      const allToSync = [...contractorsToSync, ...unassignedToSync];
+
+      for (const contractor of allToSync) {
+        if (contractor.workerCount <= 0) continue;
+
+        const safeName = contractor.contractorName.replace(/[^a-zA-Z0-9]/g, '_');
+        const uniqueId = contractor.siteId === 'unassigned'
+          ? `contract-unassigned-${safeName}-${todayDate}`
+          : (contractor.buildingId
+            ? `contract-${contractor.siteId}-${contractor.buildingId}-${safeName}-${todayDate}`
+            : `contract-${contractor.siteId}-${safeName}-${todayDate}`);
+
+        const existingAtt = todayAttendanceRef.current.find(r => r.employeeId === uniqueId && r.date === todayDate);
+
+        if (!existingAtt) {
+          try {
+            await attendanceServices.addAttendance({
+              employeeId: uniqueId,
+              siteId: contractor.siteId,
+              buildingId: contractor.buildingId || null,
+              supervisorId: user?.uid || null,
+              date: todayDate,
+              status: 'present',
+              isContractWorker: true,
+              contractWorkerCount: contractor.workerCount,
+              contractorName: contractor.contractorName,
+              checkIn: new Date().toTimeString().slice(0, 5),
+              checkOut: '17:30',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+          } catch (err) {
+            console.error('Error auto-syncing contractor attendance:', err);
+          }
+        }
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [loading, buildingsLoading, persistentContractors, siteId, buildingId, todayDate, user?.uid]);
+
 
   // === ENTERPRISE PATTERN: DERIVED STATE ===
   const unassignedDailyRecord = useMemo(() =>

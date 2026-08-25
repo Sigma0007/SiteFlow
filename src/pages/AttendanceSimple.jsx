@@ -488,23 +488,21 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   }
 
   const loadDailyWorkerAttendance = () => {
-    const dailyRecords = attendance.filter(record =>
-      record.isDailyWorker && record.date === selectedDate
-    )
-
+    // Only process Daily Workers for the CURRENTLY selected date
+    const dailyRecords = attendance.filter(record => record.isDailyWorker && record.date === selectedDate)
     const loadedCounts = {}
+
     dailyRecords.forEach(record => {
-      const key = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
-      loadedCounts[key] = {
-        count: record.dailyWorkerCount,
+      const siteKey = record.siteId === 'unassigned' ? 'unassigned' : (record.buildingId ? `${record.siteId}_${record.buildingId}` : record.siteId)
+      loadedCounts[siteKey] = {
+        count: Number(record.dailyWorkerCount) || 0,
+        siteId: record.siteId,
         buildingId: record.buildingId || null,
         labourCharge: Number(record.labourCharge) || 0
       }
     })
 
-    if (Object.keys(loadedCounts).length > 0) {
-      setDailyWorkerCounts(loadedCounts)
-    }
+    setDailyWorkerCounts(loadedCounts)
   }
 
   useEffect(() => {

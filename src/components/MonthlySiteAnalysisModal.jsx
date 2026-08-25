@@ -115,24 +115,22 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
           analysis[groupKey].present += count;
         }
       } else if (record.isDailyWorker) {
-        // Force daily workers into a single, unified row for the entire month
-        groupKey = `daily_${record.buildingId || 'site'}`;
+        // Group daily workers by building and charge rate
+        const charge = Number(record.labourCharge || 0);
+        groupKey = `daily_${record.buildingId || 'site'}_${charge}`;
         if (!analysis[groupKey]) {
           analysis[groupKey] = {
             id: groupKey,
-            emp: { name: 'Daily Workers', role: 'Daily Pool', dailyWage: 0 },
+            emp: { name: `Daily Workers (₹${charge}/day)`, role: 'Daily Pool', dailyWage: charge },
             days: {}, present: 0, absent: 0, leave: 0, buildingId: record.buildingId,
             totalLabourCost: 0
           };
         }
         const count = Number(record.dailyWorkerCount || 0);
-        const charge = Number(record.labourCharge || 0);
         if (count > 0) {
           analysis[groupKey].days[day] = (analysis[groupKey].days[day] || 0) + count;
           analysis[groupKey].present += count;
           analysis[groupKey].totalLabourCost = (analysis[groupKey].totalLabourCost || 0) + (count * charge);
-          // Track the latest non-zero charge for display in the Wage column
-          if (charge > 0) analysis[groupKey].emp.dailyWage = charge;
         }
       } else {
         // Standard Permanent Employee Processing
@@ -275,9 +273,10 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
       csvContent += `Employee,Role,Daily Wage,${daysArray.join(',')},Present,Absent,Leave,Est. Salary\r\n`;
       group.staff.forEach(({ emp, days, present, absent, leave, totalLabourCost }) => {
         const wage = Number(emp.dailyWage || 0);
-        const estSalary = (totalLabourCost !== undefined && totalLabourCost > 0)
+        const isDaily = totalLabourCost !== undefined;
+        const estSalary = isDaily
           ? totalLabourCost
-          : present * wage;
+          : (emp.role === 'Subcontractor Pool' ? 0 : Math.round((wage / daysInMonth) * present));
         const dayStatuses = daysArray.map(d => {
           const s = days[d];
           return s === 'present' ? 'P' : s === 'absent' ? 'A' : s === 'leave' ? 'L' : (typeof s === 'number' ? s : '-');
@@ -468,12 +467,13 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                         {staffAnalysis.length > 0 ? (
                           staffAnalysis.map(({ emp, days, present, absent, totalLabourCost }) => {
                             const wage = Number(emp.dailyWage || 0);
-                            const estSalary = (totalLabourCost !== undefined && totalLabourCost > 0)
+                            const isDaily = totalLabourCost !== undefined;
+                            const estSalary = isDaily
                               ? totalLabourCost
-                              : present * wage;
+                              : (emp.role === 'Subcontractor Pool' ? 0 : Math.round((wage / daysInMonth) * present));
                             return (
                               <tr key={emp.id} className="hover:bg-gray-50">
-                                <td className="px-2 py-2 font-medium text-gray-900 border-r border-gray-200 sticky left-0 bg-white z-10 text-xs truncate max-w-[90px] sticky-col">
+                                <td className="px-2 py-2 font-medium text-gray-900 border-r border-gray-200 sticky left-0 bg-white z-10 text-xs truncate max-w-[90px] sticky-col" title={emp.name}>
                                   <div className="flex items-center gap-1">
                                     <span className="truncate">{emp.name}</span>
                                     {emp.employmentType === 'contract' && (
@@ -646,9 +646,10 @@ const MonthlySiteAnalysisModal = ({ site, building = null, onClose, labour, defa
                           {staffAnalysis.length > 0 ? (
                             staffAnalysis.map(({ emp, days, present, absent, totalLabourCost }) => {
                               const wage = Number(emp.dailyWage || 0);
-                              const estSalary = (totalLabourCost !== undefined && totalLabourCost > 0)
+                              const isDaily = totalLabourCost !== undefined;
+                              const estSalary = isDaily
                                 ? totalLabourCost
-                                : present * wage;
+                                : (emp.role === 'Subcontractor Pool' ? 0 : Math.round((wage / daysInMonth) * present));
                               return (
                                 <tr key={emp.id}>
                                   <td className="px-1 py-1 font-medium text-gray-900 border-r border-gray-300">
