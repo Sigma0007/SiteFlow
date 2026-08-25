@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserPlus, UserIcon, Package as PackageIcon, DollarSign, Search, X, PlusSquare, LogOut, ArrowLeft } from 'lucide-react'
+import { Building2, Users, Package, FileText, TrendingUp, Plus, MapPin, UserPlus, UserIcon, Package as PackageIcon, DollarSign, Search, X, PlusSquare, LogOut, ArrowLeft, UserCog } from 'lucide-react'
 import { siteServices, buildingServices, labourServices, materialServices, purchaseOrderServices, attendanceServices, dprServices, processServices, convertDocsToArray, supervisorServices, syncSiteToSupervisors, syncSingleStaffToSite } from '../services/firebaseServices'
 import { onSnapshot, collection, query, where, doc } from 'firebase/firestore'
 import { storage, db } from '../firebase'
@@ -468,9 +468,7 @@ const Dashboard = ({ userRole }) => {
         {/* Action Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            ...(userRole === 'admin' ? [
-              { icon: Users, label: 'Attendance', path: '/attendance', color: 'bg-emerald-500', desc: 'STAKEHOLDERS' }
-            ] : []),
+            { icon: Users, label: 'Attendance', path: '/attendance', color: 'bg-emerald-500', desc: 'STAKEHOLDERS' },
             ...(userRole === 'admin' ? [
               { icon: Building2, label: 'Management', path: '/sites', color: 'bg-blue-500', desc: 'SITES' }
             ] : []),
@@ -480,6 +478,9 @@ const Dashboard = ({ userRole }) => {
             { icon: DollarSign, label: 'PO Requests', path: '/po-requests', color: 'bg-amber-500', desc: 'PURCHASES' },
             ...(userRole === 'admin' ? [
               { icon: TrendingUp, label: 'Monthly Report', path: '/reports', color: 'bg-purple-500', desc: 'ANALYSIS' }
+            ] : []),
+            ...(userRole === 'admin' ? [
+              { icon: UserCog, label: 'Supervisors', path: '/supervisor-management', color: 'bg-indigo-500', desc: 'TEAM' }
             ] : []),
             {
               icon: LogOut,

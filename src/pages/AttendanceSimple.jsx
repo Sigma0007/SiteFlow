@@ -202,20 +202,18 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const employee = employees.find(emp => emp.id === employeeId)
     if (!employee) return
 
+    const existingRecord = attendance.find(record =>
+      record.employeeId === employeeId && record.date === selectedDate
+    );
+
     if (userRole === 'supervisor') {
       if (submittedToday) {
-        showToast('Attendance already submitted for today. Changes are not allowed.', 'error')
-        return
+        showToast('Attendance already submitted for today. Changes are not allowed.', 'error');
+        return;
       }
-
-      const existingRecord = attendance.find(record =>
-        record.employeeId === employeeId &&
-        record.date === selectedDate
-      )
-
-      if (existingRecord && (existingRecord.status !== newStatus || newStatus === 'removed')) {
-        showToast('You cannot modify attendance after submission.', 'error')
-        return
+      if (existingRecord && existingRecord.status && existingRecord.status !== 'not-marked') {
+        showToast('Attendance can only be marked once. Please contact an Admin to make modifications.', 'error');
+        return;
       }
     }
 
@@ -1157,25 +1155,25 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 <span className="hidden sm:inline">Add Contract Workers</span>
                 <span className="sm:hidden">Contract</span>
               </motion.button>
-              {Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => {
-                    setShowContractWorkerModal(true)
-                    setTimeout(() => {
-                      const assignmentSection = document.querySelector('[data-contract-assignment]')
-                      if (assignmentSection) assignmentSection.scrollIntoView({ behavior: 'smooth' })
-                    }, 100)
-                  }}
-                  className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium text-xs sm:text-sm"
-                >
-                  <Users className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline">Assign Contract Workers</span>
-                  <span className="sm:hidden">Assign</span>
-                </motion.button>
-              )}
             </>
+          )}
+          {(userRole === 'admin' || userRole === 'supervisor') && Object.keys(contractWorkerCounts).some(key => contractWorkerCounts[key]?.count > 0) && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setShowContractWorkerModal(true)
+                setTimeout(() => {
+                  const assignmentSection = document.querySelector('[data-contract-assignment]')
+                  if (assignmentSection) assignmentSection.scrollIntoView({ behavior: 'smooth' })
+                }, 100)
+              }}
+              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium text-xs sm:text-sm"
+            >
+              <Users className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Assign Contract Workers</span>
+              <span className="sm:hidden">Assign</span>
+            </motion.button>
           )}
           {userRole === 'supervisor' && !submittedToday && (
             <motion.button
@@ -1250,42 +1248,43 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           ))}
         </div>
       </div>
-
       {(userRole === 'admin' || userRole === 'supervisor') && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-          <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
-            <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 mb-1 sm:mb-2 flex items-center gap-1">
-              <Users className="w-2 h-2 sm:w-3 sm:h-3" />
-              Quick Add Daily Workers
-            </h3>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  placeholder="Workers"
-                  value={quickDailyWorkerCount || ''}
-                  onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
-                  className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
-                  min="1"
-                />
-                <input
-                  type="number"
-                  placeholder="₹/Worker/Day"
-                  value={quickLabourCharge || ''}
-                  onChange={(e) => setQuickLabourCharge(parseFloat(e.target.value) || 0)}
-                  className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
-                  min="0"
-                />
+        <div className={`grid grid-cols-1 gap-2 sm:gap-3 ${userRole === 'admin' ? 'sm:grid-cols-2' : ''}`}>
+          {userRole === 'admin' && (
+            <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3">
+              <h3 className="text-[10px] sm:text-xs font-bold text-purple-800 mb-1 sm:mb-2 flex items-center gap-1">
+                <Users className="w-2 h-2 sm:w-3 sm:h-3" />
+                Quick Add Daily Workers
+              </h3>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    placeholder="Workers"
+                    value={quickDailyWorkerCount || ''}
+                    onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
+                    className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                    min="1"
+                  />
+                  <input
+                    type="number"
+                    placeholder="₹/Worker/Day"
+                    value={quickLabourCharge || ''}
+                    onChange={(e) => setQuickLabourCharge(parseFloat(e.target.value) || 0)}
+                    className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                    min="0"
+                  />
+                </div>
+                <motion.button
+                  whileTap={{ scale: 0.9 }}
+                  onClick={handleQuickDailyWorkerAdd}
+                  className="w-full px-3 py-1.5 bg-purple-500 text-white text-[10px] sm:text-xs font-medium rounded-lg hover:bg-purple-600"
+                >
+                  Add Daily Workers
+                </motion.button>
               </div>
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={handleQuickDailyWorkerAdd}
-                className="w-full px-3 py-1.5 bg-purple-500 text-white text-[10px] sm:text-xs font-medium rounded-lg hover:bg-purple-600"
-              >
-                Add Daily Workers
-              </motion.button>
             </div>
-          </div>
+          )}
           {Object.values(dailyWorkerCounts).some(data => (typeof data === 'object' ? data?.count : data) > 0) && (
             <div className="bg-purple-50 rounded-xl shadow-sm border border-purple-200 p-2 sm:p-3 flex flex-col h-full">
               <div className="flex items-center justify-between mb-2">
@@ -1423,6 +1422,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                 )
                 const status = attendanceRecord?.status || (employee.onLeave ? 'leave' : 'not-marked')
 
+                // Determine if the supervisor is locked out of this specific employee's row
+                const isMarked = status === 'present' || status === 'absent' || status === 'leave';
+                const isSupervisorLocked = userRole === 'supervisor' && (submittedToday || isMarked);
+
                 return (
                   <motion.tr
                     key={employee.id}
@@ -1498,31 +1501,31 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     <td className="py-2 px-2">
                       <div className="flex gap-0.5 sm:gap-1 items-center justify-end sm:justify-center">
                         <motion.button
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleAttendanceChange(employee.id, status === 'present' ? 'removed' : 'present')}
+                          whileTap={!isSupervisorLocked ? { scale: 0.9 } : {}}
+                          onClick={() => !isSupervisorLocked && handleAttendanceChange(employee.id, status === 'present' ? 'removed' : 'present')}
                           className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'present'
                             ? 'bg-green-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-green-100'
-                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          disabled={userRole === 'supervisor' && submittedToday}
+                            } ${isSupervisorLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          disabled={isSupervisorLocked}
                         >P</motion.button>
                         <motion.button
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleAttendanceChange(employee.id, status === 'absent' ? 'removed' : 'absent')}
+                          whileTap={!isSupervisorLocked ? { scale: 0.9 } : {}}
+                          onClick={() => !isSupervisorLocked && handleAttendanceChange(employee.id, status === 'absent' ? 'removed' : 'absent')}
                           className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'absent'
                             ? 'bg-red-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-red-100'
-                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          disabled={userRole === 'supervisor' && submittedToday}
+                            } ${isSupervisorLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          disabled={isSupervisorLocked}
                         >A</motion.button>
                         <motion.button
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleAttendanceChange(employee.id, status === 'leave' ? 'removed' : 'leave')}
+                          whileTap={!isSupervisorLocked ? { scale: 0.9 } : {}}
+                          onClick={() => !isSupervisorLocked && handleAttendanceChange(employee.id, status === 'leave' ? 'removed' : 'leave')}
                           className={`w-6 h-6 sm:w-8 sm:h-8 rounded-md sm:rounded-lg transition-colors text-[10px] sm:text-xs font-bold flex items-center justify-center ${status === 'leave'
                             ? 'bg-yellow-500 text-white'
                             : 'bg-gray-200 text-gray-700 hover:bg-yellow-100'
-                            } ${userRole === 'supervisor' && submittedToday ? 'opacity-50 cursor-not-allowed' : ''}`}
-                          disabled={userRole === 'supervisor' && submittedToday}
+                            } ${isSupervisorLocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          disabled={isSupervisorLocked}
                         >L</motion.button>
                         {userRole === 'admin' && (
                           <>
@@ -1554,82 +1557,86 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
       {showContractWorkerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-sm font-semibold mb-3">Add Contract Workers</h3>
+          <div className="bg-white rounded-xl p-4 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto flex flex-col">
 
-            <div className="space-y-3 mb-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Contractor Name</label>
-                <input
-                  type="text"
-                  placeholder="Enter contractor name"
-                  value={newContractWorker.contractorName}
-                  onChange={(e) => setNewContractWorker({ ...newContractWorker, contractorName: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Worker Count</label>
-                <input
-                  type="number"
-                  placeholder="Enter number of workers"
-                  value={newContractWorker.workerCount || ''}
-                  onChange={(e) => setNewContractWorker({ ...newContractWorker, workerCount: parseInt(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                  min="1"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Select Site (Optional)</label>
-                <select
-                  value={newContractWorker.siteId}
-                  onChange={(e) => setNewContractWorker({ ...newContractWorker, siteId: e.target.value, buildingId: '' })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                >
-                  <option value="">No Site (Unassigned)</option>
-                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map(site => (
-                      <option key={site.id} value={site.id}>{site.name}</option>
-                    ))}
-                </select>
-              </div>
-              {newContractWorker.siteId && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Select Building (Optional)</label>
-                  <select
-                    value={newContractWorker.buildingId}
-                    onChange={(e) => setNewContractWorker({ ...newContractWorker, buildingId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                  >
-                    <option value="">No Building</option>
-                    {buildings.filter(building => building.siteId === newContractWorker.siteId)
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map(building => (
-                        <option key={building.id} value={building.id}>{building.name}</option>
-                      ))}
-                  </select>
+            {userRole === 'admin' && (
+              <>
+                <h3 className="text-sm font-semibold mb-3">Add Contract Workers</h3>
+                <div className="space-y-3 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Contractor Name</label>
+                    <input
+                      type="text"
+                      placeholder="Enter contractor name"
+                      value={newContractWorker.contractorName}
+                      onChange={(e) => setNewContractWorker({ ...newContractWorker, contractorName: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Worker Count</label>
+                    <input
+                      type="number"
+                      placeholder="Enter number of workers"
+                      value={newContractWorker.workerCount || ''}
+                      onChange={(e) => setNewContractWorker({ ...newContractWorker, workerCount: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                      min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Select Site (Optional)</label>
+                    <select
+                      value={newContractWorker.siteId}
+                      onChange={(e) => setNewContractWorker({ ...newContractWorker, siteId: e.target.value, buildingId: '' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                    >
+                      <option value="">No Site (Unassigned)</option>
+                      {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed')
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(site => (
+                          <option key={site.id} value={site.id}>{site.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                  {newContractWorker.siteId && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Select Building (Optional)</label>
+                      <select
+                        value={newContractWorker.buildingId}
+                        onChange={(e) => setNewContractWorker({ ...newContractWorker, buildingId: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                      >
+                        <option value="">No Building</option>
+                        {buildings.filter(building => building.siteId === newContractWorker.siteId)
+                          .sort((a, b) => a.name.localeCompare(b.name))
+                          .map(building => (
+                            <option key={building.id} value={building.id}>{building.name}</option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div className="flex gap-2">
-              <button
-                onClick={handleAddContractWorker}
-                className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
-              >
-                Add Workers
-              </button>
-              <button
-                onClick={() => {
-                  setShowContractWorkerModal(false)
-                  setNewContractWorker({ contractorName: '', workerCount: 0 })
-                }}
-                className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-xs"
-              >
-                Cancel
-              </button>
-            </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddContractWorker}
+                    className="flex-1 px-3 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-xs"
+                  >
+                    Add Workers
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowContractWorkerModal(false)
+                      setNewContractWorker({ contractorName: '', workerCount: 0 })
+                    }}
+                    className="flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* BUG FIX A: Show "Assign to Sites" section when ANY contractor entry exists
                 (including those fully assigned to buildings with 0 in the unassigned pool).

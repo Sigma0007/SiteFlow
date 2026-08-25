@@ -417,7 +417,7 @@ const AppContent = () => {
 
       {/* Main Content Area - Full Width */}
       <div className="flex-1 overflow-auto w-full relative">
-        
+
         {/* Fixed Notification Bell in top right */}
         <div className="fixed top-4 right-4 z-50">
           <NotificationBell />
@@ -450,7 +450,7 @@ const AppContent = () => {
               <Route
                 path="/attendance"
                 element={
-                  <ProtectedRoute userRole={userRole} allowedRoles={['admin']}>
+                  <ProtectedRoute userRole={userRole} allowedRoles={['admin', 'supervisor']}>
                     <AttendanceSimple userRole={userRole} />
                   </ProtectedRoute>
                 }
