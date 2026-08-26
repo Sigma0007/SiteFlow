@@ -43,6 +43,79 @@ const PORequests = ({ userRole = 'admin' }) => {
     items: [{ id: Date.now(), materialName: '', quantity: '', unit: '' }]
   })
 
+  // Review Modal State for editing/approving/arriving
+  const [reviewModal, setReviewModal] = useState({
+    visible: false,
+    mode: '', // 'approve' or 'arrive'
+    request: null,
+    formData: null
+  })
+
+  const openReviewModal = (mode, request) => {
+    const currentItems = request.items || [{
+      id: Date.now(),
+      materialName: request.materialName || '',
+      quantity: request.quantity || '',
+      unit: request.unit || '',
+      arrivedQuantity: request.arrivedQuantity || ''
+    }]
+
+    const initialFormData = {
+      siteId: request.siteId || '',
+      buildingId: request.buildingId || '',
+      urgency: request.urgency || 'normal',
+      reason: request.reason || '',
+      expectedDate: request.expectedDate || '',
+      items: currentItems.map(item => ({
+        ...item,
+        id: item.id || Date.now() + Math.random(),
+        arrivedQuantity: item.arrivedQuantity !== undefined && item.arrivedQuantity !== null ? item.arrivedQuantity : item.quantity
+      }))
+    }
+
+    setReviewModal({ visible: true, mode, request, formData: initialFormData })
+  }
+
+  const closeReviewModal = () => {
+    setReviewModal({ visible: false, mode: '', request: null, formData: null })
+  }
+
+  const updateReviewItem = (itemId, field, value) => {
+    setReviewModal(prev => ({
+      ...prev,
+      formData: {
+        ...prev.formData,
+        items: prev.formData.items.map(item =>
+          item.id === itemId ? { ...item, [field]: value } : item
+        )
+      }
+    }))
+  }
+
+  const addReviewItem = () => {
+    setReviewModal(prev => ({
+      ...prev,
+      formData: {
+        ...prev.formData,
+        items: [...prev.formData.items, { id: Date.now(), materialName: '', quantity: '', arrivedQuantity: '', unit: '' }]
+      }
+    }))
+  }
+
+  const removeReviewItem = (itemId) => {
+    if (reviewModal.formData.items.length === 1) {
+      showAlert('Warning', 'At least one item is required.', 'warning')
+      return
+    }
+    setReviewModal(prev => ({
+      ...prev,
+      formData: {
+        ...prev.formData,
+        items: prev.formData.items.filter(item => item.id !== itemId)
+      }
+    }))
+  }
+
   // Helper functions for managing items
   const addItem = () => {
     setFormData(prev => ({
@@ -195,36 +268,53 @@ const PORequests = ({ userRole = 'admin' }) => {
       showAlert('Error', 'Error creating PO request. Please try again.', 'error')
     }
   }
-  const handleApprove = async (requestId) => {
+  const submitApprove = async () => {
     try {
+      const { request, formData: reviewForm } = reviewModal
+      const validItems = reviewForm.items.filter(item => item.materialName && item.quantity)
+      if (validItems.length === 0) {
+        showAlert('Required', 'Please add at least one material item.', 'warning')
+        return
+      }
+
+      let totalAmount = 0
+      validItems.forEach(item => {
+        const selectedMaterial = materials.find(m => m.name === item.materialName)
+        const unitPrice = selectedMaterial ? Number(selectedMaterial.unitPrice || 0) : 0
+        totalAmount += unitPrice * Number(item.quantity || 1)
+      })
+
       const updateData = {
         status: 'approved',
         approvedBy: user?.email || 'admin',
-        approvedDate: new Date().toISOString().split('T')[0]
+        approvedDate: new Date().toISOString().split('T')[0],
+        siteId: reviewForm.siteId,
+        buildingId: reviewForm.buildingId || null,
+        reason: reviewForm.reason,
+        items: validItems,
+        totalAmount
       }
-      await supervisorServices.updatePORequest(requestId, updateData)
 
-      // Notify the supervisor who made this request.
-      // recipientEmail targets their personal bell listener directly.
-      const request = poRequests.find(r => r.id === requestId)
+      await supervisorServices.updatePORequest(request.id, updateData)
+
+      const targetSite = sites.find(s => s.id === reviewForm.siteId)
+      const siteName = targetSite ? targetSite.name : 'Site'
+      const materialList = validItems.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ')
+
       if (request?.requestedBy) {
-        const targetSite = sites.find(s => s.id === request.siteId)
-        const siteName = targetSite ? targetSite.name : 'Site'
-        const materialList = request.items
-          ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ')
-          : (request.materialName || 'Materials')
         notificationServices.addNotificationWithPush({
           recipientEmail: request.requestedBy,
           type: 'po_approved',
-          poId: requestId,
+          poId: request.id,
           message: `Your PO request has been approved!\nMaterials: ${materialList}\nSite: ${siteName}`,
           materialName: materialList,
-          siteId: request.siteId,
+          siteId: reviewForm.siteId,
           siteName: siteName,
         }).catch(err => console.log('Approval notification failed (non-critical):', err))
       }
 
       await reloadRequests()
+      closeReviewModal()
       showAlert('Approved', 'PO request has been approved successfully!')
     } catch (error) {
       console.error('Error approving PO request:', error)
@@ -232,68 +322,64 @@ const PORequests = ({ userRole = 'admin' }) => {
     }
   }
 
-  const handleArrived = async (request) => {
+  const submitArrive = async () => {
     try {
-      // 1. Update PO status
+      const { request, formData: reviewForm } = reviewModal
+      const validItems = reviewForm.items.filter(item => item.materialName && item.arrivedQuantity !== '')
+
       const updateData = {
         status: 'arrived',
-        arrivedDate: new Date().toISOString().split('T')[0]
+        arrivedDate: new Date().toISOString().split('T')[0],
+        items: validItems
       }
+
       await supervisorServices.updatePORequest(request.id, updateData)
 
-      // 2. Add materials directly to site (handle multiple items)
       const siteDoc = await siteServices.getSiteById(request.siteId)
       if (siteDoc.exists()) {
         const siteData = siteDoc.data()
         let assignedMaterials = siteData.assignedMaterials || []
 
-        const itemsToAdd = request.items || [{
-          materialName: request.materialName,
-          quantity: request.quantity,
-          unit: request.unit
-        }]
-
-        itemsToAdd.forEach(item => {
+        validItems.forEach(item => {
           const existingMatIndex = assignedMaterials.findIndex(m => m.name.toLowerCase() === item.materialName.toLowerCase())
-          const quantityNum = parseFloat(item.quantity) || 1
+          const quantityNum = parseFloat(item.arrivedQuantity) || 0
 
-          if (existingMatIndex >= 0) {
-            assignedMaterials[existingMatIndex].quantity += quantityNum
-          } else {
-            assignedMaterials.push({
-              materialId: `direct_po_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              name: item.materialName,
-              category: 'PO Directed',
-              quantity: quantityNum,
-              unit: item.unit || ''
-            })
+          if (quantityNum > 0) {
+            if (existingMatIndex >= 0) {
+              assignedMaterials[existingMatIndex].quantity += quantityNum
+            } else {
+              assignedMaterials.push({
+                materialId: `direct_po_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                name: item.materialName,
+                category: 'PO Directed',
+                quantity: quantityNum,
+                unit: item.unit || ''
+              })
+            }
           }
         })
-
         await siteServices.updateSite(request.siteId, { assignedMaterials })
       }
 
-      const targetSite = sites.find(s => s.id === request?.siteId)
+      const targetSite = sites.find(s => s.id === request.siteId)
       const siteName = targetSite ? targetSite.name : 'Site'
       const requesterName = formatDisplayName(request.requestedBy)
+      const itemsList = validItems.map(i => `${i.materialName} (${i.arrivedQuantity} ${i.unit})`).join(', ')
 
-      // 3. Notify admin that PO has arrived
-      const itemsList = request.items ? request.items.map(i => `${i.materialName} (${i.quantity} ${i.unit})`).join(', ') : `${request.materialName} (${request.quantity} ${request.unit})`
-
-      // Send notification to all admins using role-based targeting.
       notificationServices.addNotificationWithPush({
         recipientRole: 'admin',
         type: 'po_arrived',
         poId: request.id,
         message: `Material Arrived: ${itemsList}\nSite: ${siteName}\nRequested by: ${requesterName}`,
         materialName: itemsList,
-        quantity: request.items ? request.items.length : request.quantity,
+        quantity: validItems.length,
         siteId: request.siteId,
         siteName: siteName,
         requestedBy: request.requestedBy
       }).catch(err => console.log('Notification failed:', err))
 
       await reloadRequests()
+      closeReviewModal()
       showAlert('Arrived & Allocated', 'PO material has arrived and stock was allocated to the site!')
     } catch (error) {
       console.error('Error marking PO arrived:', error)
@@ -611,13 +697,21 @@ const PORequests = ({ userRole = 'admin' }) => {
                           <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
                           <span className="font-semibold text-gray-900">{item.materialName}</span>
                           <span className="text-gray-500">—</span>
-                          <span className="font-medium text-blue-700">{item.quantity} {item.unit || ''}</span>
+                          <span className="font-medium text-blue-700">
+                            {item.quantity} {item.unit || ''}
+                            {request.status === 'arrived' && item.arrivedQuantity !== undefined && (
+                              <span className="text-green-600 ml-1.5 bg-green-100 px-1.5 py-0.5 rounded-md text-xs">(Arrived: {item.arrivedQuantity})</span>
+                            )}
+                          </span>
                         </div>
                       ))}
                     </div>
                   ) : (
                     <p className="font-semibold text-gray-900 text-sm">
                       {request.materialName} — {request.quantity} {request.unit || ''}
+                      {request.status === 'arrived' && request.arrivedQuantity !== undefined && (
+                        <span className="text-green-600 ml-1.5 bg-green-100 px-1.5 py-0.5 rounded-md text-xs">(Arrived: {request.arrivedQuantity})</span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -671,11 +765,11 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => handleApprove(request.id)}
+                    onClick={() => openReviewModal('approve', request)}
                     className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
                   >
                     <CheckCircle className="w-4 h-4 inline mr-2" />
-                    Approve
+                    Review & Approve
                   </motion.button>
                   {userRole === 'admin' && (
                     <motion.button
@@ -696,7 +790,7 @@ const PORequests = ({ userRole = 'admin' }) => {
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => handleArrived(request)}
+                    onClick={() => openReviewModal('arrive', request)}
                     className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium"
                   >
                     <Package className="w-4 h-4 inline mr-2" />
@@ -905,6 +999,229 @@ const PORequests = ({ userRole = 'admin' }) => {
                   className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium"
                 >
                   Submit Request
+                </motion.button>
+              </div>
+            </form>
+          </motion.div>
+        </motion.div>
+      )}
+
+      {/* Review/Edit Modal */}
+      {reviewModal.visible && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={closeReviewModal}
+        >
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  {reviewModal.mode === 'approve' ? 'Review & Approve PO Request' : 'Review & Confirm Arrival'}
+                </h2>
+                <p className="text-gray-600 mt-0.5 text-sm">
+                  {reviewModal.mode === 'approve'
+                    ? 'Edit quantities or items before approving.'
+                    : 'Verify and update the actual quantities received.'}
+                </p>
+              </div>
+              <button
+                onClick={closeReviewModal}
+                className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex-shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); reviewModal.mode === 'approve' ? submitApprove() : submitArrive(); }} className="p-6 space-y-4">
+
+              {reviewModal.mode === 'approve' ? (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Site *</label>
+                    <select
+                      required
+                      value={reviewModal.formData.siteId}
+                      onChange={(e) => setReviewModal(prev => ({ ...prev, formData: { ...prev.formData, siteId: e.target.value } }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select site</option>
+                      {sites.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(site => (
+                        <option key={site.id} value={site.id}>{site.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {reviewModal.formData.siteId && buildings.filter(b => b.siteId === reviewModal.formData.siteId).length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Building (Optional)</label>
+                      <select
+                        value={reviewModal.formData.buildingId}
+                        onChange={(e) => setReviewModal(prev => ({ ...prev, formData: { ...prev.formData, buildingId: e.target.value } }))}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Select building</option>
+                        {buildings.filter(b => b.siteId === reviewModal.formData.siteId).map(building => (
+                          <option key={building.id} value={building.id}>{building.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mb-4">
+                  <p className="text-sm text-gray-600">Site: <span className="font-semibold text-gray-900">{sites.find(s => s.id === reviewModal.formData.siteId)?.name || 'Unknown Site'}</span></p>
+                </div>
+              )}
+
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">Material Items *</label>
+                  {reviewModal.mode === 'approve' && (
+                    <button
+                      type="button"
+                      onClick={addReviewItem}
+                      className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Item
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {reviewModal.formData.items.map((item, index) => (
+                    <div key={item.id} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-gray-700">Item {index + 1}</span>
+                        {reviewModal.mode === 'approve' && reviewModal.formData.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeReviewItem(item.id)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Material Name *</label>
+                          {reviewModal.mode === 'approve' ? (
+                            <select
+                              required
+                              value={item.materialName}
+                              onChange={(e) => {
+                                const selectedMat = materials.find(m => m.name === e.target.value);
+                                updateReviewItem(item.id, 'materialName', e.target.value);
+                                if (selectedMat) updateReviewItem(item.id, 'unit', selectedMat.unit || '');
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            >
+                              <option value="">Select item</option>
+                              {materials.sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(m => (
+                                <option key={m.id} value={m.name}>
+                                  {m.name} ({m.category === 'tool' ? 'Tool' : 'Material'})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              disabled
+                              value={item.materialName}
+                              className="w-full px-3 py-2 border border-gray-200 bg-gray-100 rounded-lg text-sm text-gray-700"
+                            />
+                          )}
+                        </div>
+
+                        {reviewModal.mode === 'approve' ? (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Quantity *</label>
+                            <input
+                              type="number"
+                              required
+                              value={item.quantity}
+                              onChange={(e) => updateReviewItem(item.id, 'quantity', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            />
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Requested Qty</label>
+                              <input
+                                type="text"
+                                disabled
+                                value={item.quantity}
+                                className="w-full px-3 py-2 border border-gray-200 bg-gray-100 rounded-lg text-sm text-gray-700"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1 text-green-700">Arrived Qty *</label>
+                              <input
+                                type="number"
+                                required
+                                value={item.arrivedQuantity}
+                                onChange={(e) => updateReviewItem(item.id, 'arrivedQuantity', e.target.value)}
+                                className="w-full px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm bg-green-50"
+                              />
+                            </div>
+                          </>
+                        )}
+
+                        {reviewModal.mode === 'approve' && (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                            <input
+                              type="text"
+                              value={item.unit}
+                              onChange={(e) => updateReviewItem(item.id, 'unit', e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {reviewModal.mode === 'approve' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Reason</label>
+                  <textarea
+                    rows={3}
+                    value={reviewModal.formData.reason}
+                    onChange={(e) => setReviewModal(prev => ({ ...prev, formData: { ...prev.formData, reason: e.target.value } }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4 border-t border-gray-200">
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={closeReviewModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={`flex-1 px-4 py-2 text-white rounded-lg font-medium ${reviewModal.mode === 'approve' ? 'bg-blue-500 hover:bg-blue-600' : 'bg-green-500 hover:bg-green-600'}`}
+                >
+                  {reviewModal.mode === 'approve' ? 'Approve PO' : 'Confirm Arrival'}
                 </motion.button>
               </div>
             </form>
