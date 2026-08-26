@@ -237,10 +237,10 @@ const DPRSiteDetails = ({ userRole }) => {
     const timer = setTimeout(async () => {
       syncAttemptedRef.current.add(syncKey);
 
-      const contractorsToSync = persistentContractors.filter(c => 
+      const contractorsToSync = persistentContractors.filter(c =>
         (c.siteId === siteId && (buildingId ? c.buildingId === buildingId : c.buildingId === null))
       );
-      
+
       const unassignedToSync = persistentContractors.filter(c => c.siteId === 'unassigned');
       const allToSync = [...contractorsToSync, ...unassignedToSync];
 
@@ -315,10 +315,8 @@ const DPRSiteDetails = ({ userRole }) => {
   const getAssignedContractWorkers = () => persistentContractors
     .filter(c => {
       if (c.siteId !== siteId) return false;
-      // Building-level DPR: only count this specific building
       if (buildingId) return c.buildingId === buildingId;
-      // Site-level DPR: count all buildings + direct site assignments
-      return true;
+      return !c.buildingId;
     })
     .reduce((sum, c) => sum + (c.workerCount || 0), 0);
 
@@ -330,10 +328,11 @@ const DPRSiteDetails = ({ userRole }) => {
       );
       return c ? c.workerCount : 0;
     }
-    // Site-level: sum across all buildings for this contractor + site
-    return persistentContractors
-      .filter(c => c.contractorName === contractorName && c.siteId === siteId)
-      .reduce((sum, c) => sum + (c.workerCount || 0), 0);
+    // Site-level: only site-level assignment (no building)
+    const c = persistentContractors.find(c =>
+      c.contractorName === contractorName && c.siteId === siteId && !c.buildingId
+    );
+    return c ? c.workerCount : 0;
   };
 
   const getPoolCountForContractor = (contractorName) => {
@@ -346,10 +345,8 @@ const DPRSiteDetails = ({ userRole }) => {
       .filter(c => {
         if (c.siteId === 'unassigned' && c.workerCount > 0) return true;
         if (c.siteId !== siteId || c.workerCount <= 0) return false;
-        // Building-level DPR: only show this building's contractors
         if (buildingId) return c.buildingId === buildingId;
-        // Site-level DPR: show ALL contractors for this site (any building)
-        return true;
+        return !c.buildingId;
       })
       .map(c => c.contractorName)
   )).sort();
@@ -739,23 +736,38 @@ const DPRSiteDetails = ({ userRole }) => {
   };
 
   // --- TAB: ATTENDANCE ---
+  // --- TAB: ATTENDANCE ---
+  // ENTERPRISE FIX 1: Create a strictly isolated attendance pool for the Stats Cards
+  const scopedAttendance = useMemo(() => {
+    return todayAttendance.filter(a => {
+      if (a.siteId !== siteId) return false;
+      if (buildingId) {
+        return a.buildingId === buildingId ||
+          ((a.isContractWorker || a.isDailyWorker) && a.employeeId?.includes(buildingId));
+      }
+      return !a.buildingId || a.buildingId === "";
+    });
+  }, [todayAttendance, siteId, buildingId]);
+
+  // ENTERPRISE FIX 2: Strict Scope Isolation for the Table
   const visibleEmployees = allLabour.filter(emp => {
     const empAtt = todayAttendance.filter(a => a.employeeId === emp.id);
 
     const markedElsewhere = empAtt.some(a => {
-      // If marked at a different site
       if (a.siteId !== siteId) return a.status === 'present' || a.status === 'absent';
-      // If we are in a specific building, and they are marked in a different building
       if (buildingId && a.buildingId && a.buildingId !== buildingId) return a.status === 'present' || a.status === 'absent';
+      // Prevent cross-contamination: If viewing Site-level, hide if they are marked in ANY building
+      if (!buildingId && a.buildingId) return a.status === 'present' || a.status === 'absent';
       return false;
     });
 
     const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
 
-    // Only show employees assigned to this building, or unassigned (no building)
-    const assignedToOtherBuilding = buildingId && emp.buildingId && emp.buildingId !== buildingId;
+    const assignedToOtherScope = buildingId
+      ? (emp.buildingId && emp.buildingId !== buildingId) // In Building DPR: Hide if assigned to another building
+      : (!!emp.buildingId); // In Site DPR: Hide if assigned to ANY building (forces them into their specific building DPR)
 
-    return !markedElsewhere && !isOnLeave && !assignedToOtherBuilding;
+    return !markedElsewhere && !isOnLeave && !assignedToOtherScope;
   }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   const handleMarkAttendance = async (employeeId, status) => {
@@ -1192,19 +1204,19 @@ const DPRSiteDetails = ({ userRole }) => {
 
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-4">
                 <div className="bg-white rounded-lg p-4 border border-gray-200 text-center">
-                  <div className="text-2xl font-bold text-gray-800">{todayAttendance.filter(a => (a.status === 'present' || a.status === 'absent') && a.siteId === siteId).length}</div>
+                  <div className="text-2xl font-bold text-gray-800">{scopedAttendance.filter(a => a.status === 'present' || a.status === 'absent').length}</div>
                   <div className="text-xs font-medium text-gray-500 uppercase tracking-wider">Total Marked</div>
                 </div>
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200 text-center">
-                  <div className="text-2xl font-bold text-green-600">{todayAttendance.filter(a => a.status === 'present' && a.siteId === siteId).length}</div>
+                  <div className="text-2xl font-bold text-green-600">{scopedAttendance.filter(a => a.status === 'present').length}</div>
                   <div className="text-xs font-medium text-green-500 uppercase tracking-wider">Present</div>
                 </div>
                 <div className="bg-red-50 rounded-lg p-4 border border-red-200 text-center">
-                  <div className="text-2xl font-bold text-red-600">{todayAttendance.filter(a => a.status === 'absent' && a.siteId === siteId).length}</div>
+                  <div className="text-2xl font-bold text-red-600">{scopedAttendance.filter(a => a.status === 'absent').length}</div>
                   <div className="text-xs font-medium text-red-500 uppercase tracking-wider">Absent</div>
                 </div>
                 <div className="bg-purple-50 rounded-lg p-4 border border-purple-200 text-center">
-                  <div className="text-2xl font-bold text-purple-600">{todayAttendance.filter(a => a.isDailyWorker && a.siteId === siteId).reduce((sum, a) => sum + (a.dailyWorkerCount || 0), 0)}</div>
+                  <div className="text-2xl font-bold text-purple-600">{scopedAttendance.filter(a => a.isDailyWorker).reduce((sum, a) => sum + (a.dailyWorkerCount || 0), 0)}</div>
                   <div className="text-xs font-medium text-purple-500 uppercase tracking-wider">Daily Workers</div>
                 </div>
                 <div className="bg-orange-50 rounded-lg p-4 border border-orange-200 text-center">
@@ -1350,7 +1362,7 @@ const DPRSiteDetails = ({ userRole }) => {
               Next Step
             </button>
           ) : (
-            <button onClick={() => navigate(`/dpr/${siteId}/report/${todayDate}`)} className="px-8 py-2.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">
+            <button onClick={() => navigate(buildingId ? `/dpr/${siteId}/${buildingId}/report/${todayDate}` : `/dpr/${siteId}/report/${todayDate}`)} className="px-8 py-2.5 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-md">
               Finish & View Report
             </button>
           )}

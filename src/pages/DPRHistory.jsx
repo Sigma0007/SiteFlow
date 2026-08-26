@@ -261,7 +261,10 @@ const DPRHistory = () => {
                                 : `/dpr/${siteId}`;
                               navigate(url);
                             } else {
-                              navigate(`/dpr/${siteId}/report/${report.date}`);
+                              const url = report.buildingId
+                                ? `/dpr/${siteId}/${report.buildingId}/report/${report.date}`
+                                : `/dpr/${siteId}/report/${report.date}`;
+                              navigate(url);
                             }
                           }}
                           className="w-full flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all"
@@ -314,7 +317,10 @@ const DPRHistory = () => {
                               : `/dpr/${siteId}`;
                             navigate(url);
                           } else {
-                            navigate(`/dpr/${siteId}/report/${report.date}`);
+                            const url = report.buildingId
+                              ? `/dpr/${siteId}/${report.buildingId}/report/${report.date}`
+                              : `/dpr/${siteId}/report/${report.date}`;
+                            navigate(url);
                           }
                         }}
                         className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:border-blue-100 transition-all flex items-center justify-between group"

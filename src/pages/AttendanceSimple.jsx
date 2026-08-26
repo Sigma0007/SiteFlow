@@ -740,6 +740,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
   // --- STAFF ADD/EDIT/DELETE ---
   const handleAddStaff = async () => {
     try {
+      if (newStaff.siteId) {
+        const siteBuildings = buildings.filter(b => b.siteId === newStaff.siteId);
+        if (siteBuildings.length > 0 && !newStaff.buildingId) {
+          showToast('Please select a building for this site', 'error');
+          return;
+        }
+      }
+
       if (newStaff.employmentType === 'daily' && newStaff.dailyWorkerCount > 0) {
         const targetSiteId = newStaff.siteId || 'unassigned'
         setDailyWorkerCounts(prev => {
@@ -806,6 +814,14 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
   const handleEditStaff = async () => {
     try {
+      if (editStaff.siteId) {
+        const siteBuildings = buildings.filter(b => b.siteId === editStaff.siteId);
+        if (siteBuildings.length > 0 && !editStaff.buildingId) {
+          showToast('Please select a building for this site', 'error');
+          return;
+        }
+      }
+
       const staffData = {
         ...editStaff,
         dailyWage: editStaff.dailyWage ? parseFloat(editStaff.dailyWage) : 0,
@@ -836,18 +852,31 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     }
   }
 
-  const handleInlineSiteChange = async (employeeId, newSiteId) => {
+  const handleCombinedInlineLocationChange = async (employeeId, combinedValue) => {
     try {
-      await labourServices.updateLabour(employeeId, {
-        siteId: newSiteId || '',
-        buildingId: '',
+      const [siteId, buildingId] = combinedValue.split('|');
+      const updates = {
+        siteId: siteId || '',
+        buildingId: buildingId || '',
         updatedAt: new Date().toISOString(),
         updatedBy: userRole
-      })
-      showToast(newSiteId ? 'Site assigned!' : 'Site removed.')
+      };
+
+      await labourServices.updateLabour(employeeId, updates);
+
+      const existingAtt = attendance.find(a => a.employeeId === employeeId && a.date === selectedDate);
+      if (existingAtt) {
+        await attendanceServices.updateAttendance(existingAtt.id, {
+          siteId: siteId || null,
+          buildingId: buildingId || null,
+          updatedAt: new Date().toISOString()
+        });
+      }
+
+      showToast(siteId ? 'Location assigned!' : 'Location removed.')
     } catch (error) {
-      console.error('Error updating site:', error)
-      showToast('Failed to update site.', 'error')
+      console.error('Error updating location:', error)
+      showToast('Failed to update location.', 'error')
     }
   }
 
@@ -910,7 +939,9 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
     const employmentType = employee.employmentType || 'permanent'
     const isDailyWorker = employee.isDailyWorker || employee.temporary
 
-    const siteName = sites.find(site => site.id === employee.siteId)?.name || 'Unassigned'
+    const site = sites.find(site => site.id === employee.siteId)
+    const building = buildings.find(b => b.id === employee.buildingId)
+    const siteName = site ? (building ? `${site.name} - ${building.name}` : site.name) : 'Unassigned'
 
     const matchesSearch = employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       siteName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1459,10 +1490,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                           </div>
                         </div>
                       </div>
-                      <div className="sm:hidden mt-1">
+                      <div className="sm:hidden mt-1 flex flex-col gap-1">
                         <select
-                          value={employee.siteId || ''}
-                          onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
+                          value={`${employee.siteId || ''}|${employee.buildingId || ''}`}
+                          onChange={(e) => handleCombinedInlineLocationChange(employee.id, e.target.value)}
                           className={`px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[130px] focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
                             ? 'border-purple-200 bg-purple-50 text-purple-700'
                             : employee.employmentType === 'contract'
@@ -1470,31 +1501,55 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                               : 'border-blue-200 bg-blue-50 text-blue-700'
                             }`}
                         >
-                          <option value="">No Site</option>
-                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
-                            <option key={site.id} value={site.id}>{site.name}</option>
-                          ))}
+                          <option value="|">No Site</option>
+                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
+                            const siteBuildings = buildings.filter(b => b.siteId === site.id);
+                            if (siteBuildings.length === 0) {
+                              return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
+                            } else {
+                              return (
+                                <optgroup key={site.id} label={site.name}>
+                                  {siteBuildings.map(b => (
+                                    <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
+                                  ))}
+                                </optgroup>
+                              );
+                            }
+                          })}
                         </select>
                       </div>
                     </td>
                     <td className={`py-2 px-2 hidden sm:table-cell ${employee.employmentType === 'daily' ? 'bg-purple-50' :
                       employee.employmentType === 'contract' ? 'bg-orange-50' : ''
                       }`}>
-                      <select
-                        value={employee.siteId || ''}
-                        onChange={(e) => handleInlineSiteChange(employee.id, e.target.value)}
-                        className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
-                          ? 'border-purple-200 bg-purple-50 text-purple-700'
-                          : employee.employmentType === 'contract'
-                            ? 'border-orange-200 bg-orange-50 text-orange-700'
-                            : 'border-gray-200 bg-white text-gray-700'
-                          }`}
-                      >
-                        <option value="">No Site</option>
-                        {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
-                          <option key={site.id} value={site.id}>{site.name}</option>
-                        ))}
-                      </select>
+                      <div className="flex flex-col gap-1">
+                        <select
+                          value={`${employee.siteId || ''}|${employee.buildingId || ''}`}
+                          onChange={(e) => handleCombinedInlineLocationChange(employee.id, e.target.value)}
+                          className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
+                            ? 'border-purple-200 bg-purple-50 text-purple-700'
+                            : employee.employmentType === 'contract'
+                              ? 'border-orange-200 bg-orange-50 text-orange-700'
+                              : 'border-gray-200 bg-white text-gray-700'
+                            }`}
+                        >
+                          <option value="|">No Site</option>
+                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
+                            const siteBuildings = buildings.filter(b => b.siteId === site.id);
+                            if (siteBuildings.length === 0) {
+                              return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
+                            } else {
+                              return (
+                                <optgroup key={site.id} label={site.name}>
+                                  {siteBuildings.map(b => (
+                                    <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
+                                  ))}
+                                </optgroup>
+                              );
+                            }
+                          })}
+                        </select>
+                      </div>
                     </td>
                     <td className="py-2 px-2">
                       <div className="flex gap-0.5 sm:gap-1 items-center justify-end sm:justify-center">
@@ -1918,26 +1973,32 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               <input type="text" placeholder="Phone" value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Site (Optional)</label>
-                <select value={newStaff.siteId} onChange={(e) => setNewStaff({ ...newStaff, siteId: e.target.value, buildingId: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">No Site (Unassigned)</option>
-                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Location</label>
+                <select
+                  value={`${newStaff.siteId || ''}|${newStaff.buildingId || ''}`}
+                  onChange={(e) => {
+                    const [sId, bId] = e.target.value.split('|');
+                    setNewStaff({ ...newStaff, siteId: sId, buildingId: bId });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="|">No Site (Unassigned)</option>
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
+                    const siteBuildings = buildings.filter(b => b.siteId === site.id);
+                    if (siteBuildings.length === 0) {
+                      return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
+                    } else {
+                      return (
+                        <optgroup key={site.id} label={site.name}>
+                          {siteBuildings.map(b => (
+                            <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    }
+                  })}
                 </select>
               </div>
-
-              {newStaff.employmentType !== 'daily' && newStaff.siteId && (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Select Building (Optional)</label>
-                  <select value={newStaff.buildingId} onChange={(e) => setNewStaff({ ...newStaff, buildingId: e.target.value })} disabled={!newStaff.siteId} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50">
-                    <option value="">Select Building</option>
-                    {buildings.filter(b => b.siteId === newStaff.siteId).map(b => (
-                      <option key={b.id} value={b.id}>{b.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -1963,12 +2024,30 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               </select>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Site (Optional)</label>
-                <select value={editStaff.siteId} onChange={(e) => setEditStaff({ ...editStaff, siteId: e.target.value, buildingId: '' })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-                  <option value="">No Site (Unassigned)</option>
-                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => (
-                    <option key={site.id} value={site.id}>{site.name}</option>
-                  ))}
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Select Location</label>
+                <select
+                  value={`${editStaff.siteId || ''}|${editStaff.buildingId || ''}`}
+                  onChange={(e) => {
+                    const [sId, bId] = e.target.value.split('|');
+                    setEditStaff({ ...editStaff, siteId: sId, buildingId: bId });
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                >
+                  <option value="|">No Site (Unassigned)</option>
+                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
+                    const siteBuildings = buildings.filter(b => b.siteId === site.id);
+                    if (siteBuildings.length === 0) {
+                      return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
+                    } else {
+                      return (
+                        <optgroup key={site.id} label={site.name}>
+                          {siteBuildings.map(b => (
+                            <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    }
+                  })}
                 </select>
               </div>
             </div>

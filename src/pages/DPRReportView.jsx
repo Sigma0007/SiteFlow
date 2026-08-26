@@ -52,6 +52,7 @@ const DPRReportView = () => {
               a.employeeId &&
               a.employeeId.includes(siteId));
           if (!siteMatch) return false;
+
           if (buildingId) {
             // Building-level report: match buildingId directly or via employeeId
             return a.buildingId === buildingId ||
@@ -59,7 +60,8 @@ const DPRReportView = () => {
                 a.employeeId &&
                 a.employeeId.includes(buildingId));
           }
-          return true;
+          // Site-level report: exclude building assignments (handle both null and empty strings safely)
+          return !a.buildingId || a.buildingId === "";
         }));
 
         // Fetch DPR for square footage process

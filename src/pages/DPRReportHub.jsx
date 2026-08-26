@@ -122,7 +122,10 @@ const DPRReportHub = ({ userRole }) => {
   };
 
   const openReport = (report) => {
-    navigate(`/dpr/${report.siteId}/report/${report.date}`);
+    const url = report.buildingId
+      ? `/dpr/${report.siteId}/${report.buildingId}/report/${report.date}`
+      : `/dpr/${report.siteId}/report/${report.date}`;
+    navigate(url);
   };
 
   const formatDateLabel = (dateStr) =>
