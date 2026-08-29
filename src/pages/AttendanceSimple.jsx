@@ -17,12 +17,136 @@ import {
   Plus,
   Save,
   UserPlus,
-  ArrowLeft
+  ArrowLeft,
+  ChevronDown,
+  MapPin
 } from 'lucide-react'
 import { labourServices, attendanceServices, siteServices, buildingServices, contractorServices, convertDocsToArray, query, where, getDocs, labourCollection, attendanceCollection, buildingsCollection } from '../services/firebaseServices'
 import { onSnapshot } from 'firebase/firestore'
 import { useSupervisor } from '../contexts/SupervisorContext.jsx'
 import Footer from '../components/Footer'
+
+// ─── Custom Site/Building Hierarchy Dropdown ────────────────────────────────
+const SiteLocationSelect = ({ value, onChange, sites, buildings, placeholder = 'No Site (Unassigned)', className = '', compact = false }) => {
+  const [open, setOpen] = useState(false)
+  const ref = React.useRef(null)
+
+  // Parse composite value  "siteId|buildingId"
+  const [selSiteId, selBldgId] = (value || '|').split('|')
+
+  // Compute display label
+  const getLabel = () => {
+    if (!selSiteId) return placeholder
+    const site = sites.find(s => s.id === selSiteId)
+    if (!site) return placeholder
+    if (selBldgId) {
+      const bldg = buildings.find(b => b.id === selBldgId)
+      return bldg ? `${site.name}  ›  ${bldg.name}` : site.name
+    }
+    return site.name
+  }
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    document.addEventListener('touchstart', handler)
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler) }
+  }, [])
+
+  const activeSites = sites
+    .filter(s => s.status !== 'On Hold' && s.status !== 'Completed')
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const select = (val) => { onChange(val); setOpen(false) }
+
+  const triggerBase = compact
+    ? 'px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[160px] focus:outline-none focus:ring-1'
+    : 'px-2 py-1.5 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1'
+
+  return (
+    <div ref={ref} className="relative" style={{ zIndex: open ? 9999 : 'auto' }}>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`${triggerBase} ${className} flex items-center justify-between gap-1 text-left`}
+      >
+        <span className="truncate flex-1">{getLabel()}</span>
+        <ChevronDown className={`flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''} ${compact ? 'w-3 h-3' : 'w-3.5 h-3.5'}`} />
+      </button>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div
+          className="absolute left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden"
+          style={{ minWidth: '220px', maxHeight: '280px', overflowY: 'auto', zIndex: 9999 }}
+        >
+          {/* No site option */}
+          <button
+            type="button"
+            onClick={() => select('|')}
+            className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors border-b border-gray-100 ${!selSiteId ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-500'
+              }`}
+          >
+            {placeholder}
+          </button>
+
+          {activeSites.map(site => {
+            const siteBuildings = buildings
+              .filter(b => b.siteId === site.id)
+              .sort((a, b) => a.name.localeCompare(b.name))
+
+            const isSiteSelected = selSiteId === site.id && !selBldgId
+
+            return (
+              <div key={site.id}>
+                {/* Site header row — selectable only when site has NO buildings */}
+                <button
+                  type="button"
+                  onClick={() => siteBuildings.length === 0 ? select(`${site.id}|`) : undefined}
+                  className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors ${siteBuildings.length === 0
+                    ? isSiteSelected
+                      ? 'bg-blue-50 text-blue-700 font-bold cursor-pointer hover:bg-blue-100'
+                      : 'cursor-pointer hover:bg-orange-50 text-gray-800 font-semibold text-xs'
+                    : 'cursor-default bg-gray-50 text-gray-500 text-[10px] font-bold uppercase tracking-wider'
+                    }`}
+                >
+                  <MapPin className={`flex-shrink-0 ${siteBuildings.length === 0 ? 'w-3 h-3 text-orange-500' : 'w-2.5 h-2.5 text-gray-400'}`} />
+                  <span>{site.name}</span>
+                  {siteBuildings.length > 0 && (
+                    <span className="ml-auto text-[9px] text-gray-400">{siteBuildings.length} bldg</span>
+                  )}
+                </button>
+
+                {/* Building rows — indented */}
+                {siteBuildings.map(bldg => {
+                  const val = `${site.id}|${bldg.id}`
+                  const isSelected = selSiteId === site.id && selBldgId === bldg.id
+                  return (
+                    <button
+                      key={bldg.id}
+                      type="button"
+                      onClick={() => select(val)}
+                      className={`w-full text-left pl-8 pr-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors border-l-2 ml-3 ${isSelected
+                        ? 'bg-orange-50 text-orange-700 font-semibold border-orange-400'
+                        : 'text-gray-700 hover:bg-gray-50 border-transparent hover:border-orange-200'
+                        }`}
+                    >
+                      <span className="text-gray-300 text-[10px]">↳</span>
+                      {bldg.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const AttendanceSimple = ({ userRole = 'admin' }) => {
   const navigate = useNavigate()
@@ -1104,7 +1228,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             <p className="text-gray-600">Track daily attendance - Present or Absent</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pr-12 sm:pr-16">
           <input
             type="date"
             value={selectedDate}
@@ -1140,8 +1264,8 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
           <p className="text-xs sm:text-lg font-bold text-blue-600">{Object.values(dailyWorkerCounts).reduce((a, b) => a + (typeof b === 'object' ? (Number(b?.count) || 0) : (Number(b) || 0)), 0)}</p>
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-blue-500 mt-0.5" />
         </motion.div>
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200">
-          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight">Subcontractors</p>
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 }} className="bg-white rounded-lg shadow-sm p-1 sm:p-2 border border-gray-200 overflow-hidden">
+          <p className="text-[8px] sm:text-[10px] text-gray-500 leading-tight truncate">Subcontractors</p>
           <p className="text-xs sm:text-lg font-bold text-orange-600">{Object.values(contractWorkerCounts).reduce((a, b) => a + (b?.count || 0), 0)}</p>
           <Users className="w-2 h-2 sm:w-4 sm:h-4 text-orange-500 mt-0.5" />
         </motion.div>
@@ -1292,7 +1416,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     placeholder="Workers"
                     value={quickDailyWorkerCount || ''}
                     onChange={(e) => setQuickDailyWorkerCount(parseInt(e.target.value) || 0)}
-                    className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                    className="flex-1 w-full min-w-0 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
                     min="1"
                   />
                   <input
@@ -1300,7 +1424,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                     placeholder="₹/Worker/Day"
                     value={quickLabourCharge || ''}
                     onChange={(e) => setQuickLabourCharge(parseFloat(e.target.value) || 0)}
-                    className="flex-1 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
+                    className="flex-1 w-full min-w-0 px-2 py-1.5 border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs sm:text-sm"
                     min="0"
                   />
                 </div>
@@ -1491,64 +1615,39 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
                         </div>
                       </div>
                       <div className="sm:hidden mt-1 flex flex-col gap-1">
-                        <select
+                        <SiteLocationSelect
                           value={`${employee.siteId || ''}|${employee.buildingId || ''}`}
-                          onChange={(e) => handleCombinedInlineLocationChange(employee.id, e.target.value)}
-                          className={`px-2 py-0.5 text-[10px] font-semibold rounded border cursor-pointer w-auto max-w-[130px] focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
+                          onChange={(val) => handleCombinedInlineLocationChange(employee.id, val)}
+                          sites={sites}
+                          buildings={buildings}
+                          placeholder="No Site"
+                          compact
+                          className={employee.employmentType === 'daily'
                             ? 'border-purple-200 bg-purple-50 text-purple-700'
                             : employee.employmentType === 'contract'
                               ? 'border-orange-200 bg-orange-50 text-orange-700'
                               : 'border-blue-200 bg-blue-50 text-blue-700'
-                            }`}
-                        >
-                          <option value="|">No Site</option>
-                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
-                            const siteBuildings = buildings.filter(b => b.siteId === site.id);
-                            if (siteBuildings.length === 0) {
-                              return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
-                            } else {
-                              return (
-                                <optgroup key={site.id} label={site.name}>
-                                  {siteBuildings.map(b => (
-                                    <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
-                                  ))}
-                                </optgroup>
-                              );
-                            }
-                          })}
-                        </select>
+                          }
+                        />
                       </div>
                     </td>
                     <td className={`py-2 px-2 hidden sm:table-cell ${employee.employmentType === 'daily' ? 'bg-purple-50' :
                       employee.employmentType === 'contract' ? 'bg-orange-50' : ''
                       }`}>
                       <div className="flex flex-col gap-1">
-                        <select
+                        <SiteLocationSelect
                           value={`${employee.siteId || ''}|${employee.buildingId || ''}`}
-                          onChange={(e) => handleCombinedInlineLocationChange(employee.id, e.target.value)}
-                          className={`px-2 py-1 text-xs rounded-lg border cursor-pointer w-full focus:outline-none focus:ring-1 ${employee.employmentType === 'daily'
+                          onChange={(val) => handleCombinedInlineLocationChange(employee.id, val)}
+                          sites={sites}
+                          buildings={buildings}
+                          placeholder="No Site"
+                          className={employee.employmentType === 'daily'
                             ? 'border-purple-200 bg-purple-50 text-purple-700'
                             : employee.employmentType === 'contract'
                               ? 'border-orange-200 bg-orange-50 text-orange-700'
                               : 'border-gray-200 bg-white text-gray-700'
-                            }`}
-                        >
-                          <option value="|">No Site</option>
-                          {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
-                            const siteBuildings = buildings.filter(b => b.siteId === site.id);
-                            if (siteBuildings.length === 0) {
-                              return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
-                            } else {
-                              return (
-                                <optgroup key={site.id} label={site.name}>
-                                  {siteBuildings.map(b => (
-                                    <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
-                                  ))}
-                                </optgroup>
-                              );
-                            }
-                          })}
-                        </select>
+                          }
+                        />
                       </div>
                     </td>
                     <td className="py-2 px-2">
@@ -1974,30 +2073,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Select Location</label>
-                <select
+                <SiteLocationSelect
                   value={`${newStaff.siteId || ''}|${newStaff.buildingId || ''}`}
-                  onChange={(e) => {
-                    const [sId, bId] = e.target.value.split('|');
+                  onChange={(val) => {
+                    const [sId, bId] = val.split('|');
                     setNewStaff({ ...newStaff, siteId: sId, buildingId: bId });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="|">No Site (Unassigned)</option>
-                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
-                    const siteBuildings = buildings.filter(b => b.siteId === site.id);
-                    if (siteBuildings.length === 0) {
-                      return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
-                    } else {
-                      return (
-                        <optgroup key={site.id} label={site.name}>
-                          {siteBuildings.map(b => (
-                            <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
-                          ))}
-                        </optgroup>
-                      );
-                    }
-                  })}
-                </select>
+                  sites={sites}
+                  buildings={buildings}
+                  className="w-full border-gray-300 bg-white text-gray-800"
+                />
               </div>
             </div>
 
@@ -2025,30 +2110,16 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Select Location</label>
-                <select
+                <SiteLocationSelect
                   value={`${editStaff.siteId || ''}|${editStaff.buildingId || ''}`}
-                  onChange={(e) => {
-                    const [sId, bId] = e.target.value.split('|');
+                  onChange={(val) => {
+                    const [sId, bId] = val.split('|');
                     setEditStaff({ ...editStaff, siteId: sId, buildingId: bId });
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                >
-                  <option value="|">No Site (Unassigned)</option>
-                  {sites.filter(site => site.status !== 'On Hold' && site.status !== 'Completed').map(site => {
-                    const siteBuildings = buildings.filter(b => b.siteId === site.id);
-                    if (siteBuildings.length === 0) {
-                      return <option key={site.id} value={`${site.id}|`}>{site.name}</option>;
-                    } else {
-                      return (
-                        <optgroup key={site.id} label={site.name}>
-                          {siteBuildings.map(b => (
-                            <option key={b.id} value={`${site.id}|${b.id}`}>{site.name} - {b.name}</option>
-                          ))}
-                        </optgroup>
-                      );
-                    }
-                  })}
-                </select>
+                  sites={sites}
+                  buildings={buildings}
+                  className="w-full border-gray-300 bg-white text-gray-800"
+                />
               </div>
             </div>
 

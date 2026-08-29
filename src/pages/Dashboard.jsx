@@ -479,9 +479,9 @@ const Dashboard = ({ userRole }) => {
             ...(userRole === 'admin' ? [
               { icon: TrendingUp, label: 'Monthly Report', path: '/reports', color: 'bg-purple-500', desc: 'ANALYSIS' }
             ] : []),
-            ...(userRole === 'admin' ? [
-              { icon: UserCog, label: 'Supervisors', path: '/supervisor-management', color: 'bg-indigo-500', desc: 'TEAM' }
-            ] : []),
+            // ...(userRole === 'admin' ? [
+            //   { icon: UserCog, label: 'Supervisors', path: '/supervisor-management', color: 'bg-indigo-500', desc: 'TEAM' }
+            // ] : []),
             {
               icon: LogOut,
               label: 'Logout',

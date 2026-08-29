@@ -72,7 +72,7 @@ const Sidebar = ({ isOpen, onToggle, onLogout, userRole }) => {
     { path: '/po-requests', icon: FileText, label: 'PO Requests' },
     { path: '/daily-process', icon: ListChecks, label: 'Daily Process' },
     { path: '/reports', icon: Download, label: 'Monthly Report' },
-    { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
+    // { path: '/supervisor-management', icon: Users, label: 'Supervisor Management' }
   ];
 
   const menuItems = userRole === 'supervisor' ? getSupervisorMenuItems() : getAdminMenuItems();

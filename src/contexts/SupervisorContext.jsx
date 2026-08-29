@@ -66,6 +66,7 @@ export const SupervisorProvider = ({ children }) => {
 
         // STRATEGY 1 — Query sites where assignedSupervisors contains any of
         // the supervisor's known identifiers (UID, email, or Firestore doc ID).
+        /*
         const identifiers = [user.uid, user.email, supervisor.id].filter(Boolean)
         await Promise.all(identifiers.map(async (value) => {
           try {
@@ -79,6 +80,15 @@ export const SupervisorProvider = ({ children }) => {
             console.warn('🔧 SupervisorContext: array-contains query failed for', value, '–', e.message)
           }
         }))
+        */
+
+        // SHOW ALL SITES (Permission check bypassed for now)
+        try {
+          const snap = await getDocs(collection(db, 'sites'));
+          snap.docs.forEach(d => addSite({ id: d.id, ...d.data() }));
+        } catch (e) {
+          console.warn('🔧 SupervisorContext: fetch all sites failed –', e.message);
+        }
 
         console.log(
           '🔧 SupervisorContext: Resolved assigned sites:',
