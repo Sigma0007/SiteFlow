@@ -750,25 +750,47 @@ const DPRSiteDetails = ({ userRole }) => {
   }, [todayAttendance, siteId, buildingId]);
 
   // ENTERPRISE FIX 2: Strict Scope Isolation for the Table
-  const visibleEmployees = allLabour.filter(emp => {
-    const empAtt = todayAttendance.filter(a => a.employeeId === emp.id);
+  // Rules:
+  //   - Unassigned employees (siteId empty / 'unassigned') → visible in ALL sites/buildings
+  //   - Assigned employees → visible ONLY in their exact assigned site/building
+  //   - Already marked elsewhere today → hidden
+  //   - On leave → hidden
+  const visibleEmployees = useMemo(() => {
+    return allLabour.filter(emp => {
+      // 1. Skip employees on leave
+      const empAtt = todayAttendance.filter(a => a.employeeId === emp.id);
+      const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
+      if (isOnLeave) return false;
 
-    const markedElsewhere = empAtt.some(a => {
-      if (a.siteId !== siteId) return a.status === 'present' || a.status === 'absent';
-      if (buildingId && a.buildingId && a.buildingId !== buildingId) return a.status === 'present' || a.status === 'absent';
-      // Prevent cross-contamination: If viewing Site-level, hide if they are marked in ANY building
-      if (!buildingId && a.buildingId) return a.status === 'present' || a.status === 'absent';
-      return false;
-    });
+      // 2. Already marked at a DIFFERENT scope today — hide to prevent double-marking
+      const markedElsewhere = empAtt.some(a => {
+        if (a.siteId !== siteId) return a.status === 'present' || a.status === 'absent';
+        if (buildingId && a.buildingId && a.buildingId !== buildingId) return a.status === 'present' || a.status === 'absent';
+        // Prevent cross-contamination: If viewing Site-level, hide if they are marked in ANY building
+        if (!buildingId && a.buildingId) return a.status === 'present' || a.status === 'absent';
+        return false;
+      });
+      if (markedElsewhere) return false;
 
-    const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
+      // 3. UNASSIGNED employees (siteId is empty, 'unassigned', or missing)
+      //    → Visible in ALL sites/buildings in DPR so admin/supervisor can assign them
+      const isUnassigned = !emp.siteId || emp.siteId === '' || emp.siteId === 'unassigned';
+      if (isUnassigned) return true;
 
-    const assignedToOtherScope = buildingId
-      ? (emp.buildingId && emp.buildingId !== buildingId) // In Building DPR: Hide if assigned to another building
-      : (!!emp.buildingId); // In Site DPR: Hide if assigned to ANY building (forces them into their specific building DPR)
+      // 4. ASSIGNED employees — strict scope enforcement
+      //    Only show in their exact assigned site/building
+      if (emp.siteId !== siteId) return false;
 
-    return !markedElsewhere && !isOnLeave && !assignedToOtherScope;
-  }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      if (buildingId) {
+        // Building-level DPR: show if assigned to THIS building, or if employee has no building constraint
+        return !emp.buildingId || emp.buildingId === buildingId;
+      } else {
+        // Site-level DPR (no building selected): hide employees assigned to specific buildings
+        //   (forces them into their specific building DPR)
+        return !emp.buildingId;
+      }
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [allLabour, todayAttendance, siteId, buildingId]);
 
   const handleMarkAttendance = async (employeeId, status) => {
     try {

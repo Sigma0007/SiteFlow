@@ -2068,7 +2068,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               {newStaff.employmentType !== 'daily' && (
                 <input type="text" placeholder="Role" value={newStaff.role} onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               )}
-              <input type="number" placeholder="Salary" value={newStaff.dailyWage} onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="number" placeholder="Daily Wage (₹/day)" value={newStaff.dailyWage} onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <input type="text" placeholder="Phone" value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
 
               <div>
@@ -2101,7 +2101,7 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
             <h3 className="text-lg font-bold text-gray-900 mb-4">Edit Staff</h3>
             <div className="space-y-4">
               <input type="text" placeholder="Name" value={editStaff.name} onChange={(e) => setEditStaff({ ...editStaff, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              <input type="number" placeholder="Salary" value={editStaff.dailyWage} onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input type="number" placeholder="Daily Wage (₹/day)" value={editStaff.dailyWage} onChange={(e) => setEditStaff({ ...editStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <input type="text" placeholder="Phone" value={editStaff.phone} onChange={(e) => setEditStaff({ ...editStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <select value={editStaff.employmentType} onChange={(e) => setEditStaff({ ...editStaff, employmentType: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
                 <option value="permanent">Permanent Staff (Direct)</option>

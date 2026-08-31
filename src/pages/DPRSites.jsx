@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, Search, MapPin, ChevronRight, FileText, ArrowLeft, IndianRupee, X, Plus, Trash2 } from 'lucide-react';
-import { siteServices, convertDocsToArray } from '../services/firebaseServices';
+import { Building2, Search, MapPin, ChevronRight, FileText, ArrowLeft, IndianRupee, X, Plus, Trash2, Download } from 'lucide-react';
+import { siteServices, convertDocsToArray, dprServices, attendanceServices, labourServices } from '../services/firebaseServices';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useSupervisor } from '../contexts/SupervisorContext.jsx';
 import { useAuth } from '../components/Auth';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +17,8 @@ const DPRSites = ({ userRole }) => {
   const [sites, setSites] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [bulkDate, setBulkDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isGeneratingBulk, setIsGeneratingBulk] = useState(false);
 
   // Expense modal state
   const [expenseModal, setExpenseModal] = useState({ open: false, siteId: '', siteName: '' });
@@ -26,12 +30,8 @@ const DPRSites = ({ userRole }) => {
 
   useEffect(() => {
     setLoading(true);
-    // Use real-time listener (same as SiteManagement) so newly created sites
-    // appear immediately without requiring a page refresh.
     const unsubscribe = siteServices.onSitesChange((snapshot) => {
       const allSites = convertDocsToArray(snapshot);
-      // Show all non-deleted sites (not restricted to 'Active' only,
-      // so sites that were just created always appear).
       setSites(allSites.filter(s => !s.is_deleted && s.status !== 'On Hold' && s.status !== 'Completed'));
       setLoading(false);
     });
@@ -39,7 +39,6 @@ const DPRSites = ({ userRole }) => {
     return () => unsubscribe();
   }, []);
 
-  // Load expenses when modal opens
   useEffect(() => {
     if (!expenseModal.open || !expenseModal.siteId) return;
 
@@ -101,6 +100,189 @@ const DPRSites = ({ userRole }) => {
 
   const expenseTotal = siteExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
 
+  const handleBulkDownload = async (targetSiteId = null) => {
+    setIsGeneratingBulk(true);
+    try {
+      const targetSites = targetSiteId ? sites.filter(s => s.id === targetSiteId) : filteredSites;
+
+      const [labSnap, attSnap, dprSnap] = await Promise.all([
+        labourServices.getAllLabour(),
+        attendanceServices.getAttendanceByDate(bulkDate),
+        dprServices.getDPRByDate(bulkDate)
+      ]);
+
+      const labourList = convertDocsToArray(labSnap);
+      const allAtt = convertDocsToArray(attSnap);
+      const allDprs = convertDocsToArray(dprSnap);
+
+      const expQ = query(collection(db, 'expenses'), where('date', '==', bulkDate));
+      const expSnap = await getDocs(expQ);
+      const allExpenses = convertDocsToArray(expSnap);
+
+      const reportsToGenerate = [];
+
+      for (const site of targetSites) {
+        const siteDprs = allDprs.filter(d => d.siteId === site.id && !d.is_deleted);
+        if (siteDprs.length === 0) continue;
+
+        for (const dpr of siteDprs) {
+          const buildingId = dpr.buildingId;
+          const siteAtt = allAtt.filter(a => {
+            const siteMatch = a.siteId === site.id || ((a.isContractWorker || a.isDailyWorker) && a.employeeId && a.employeeId.includes(site.id));
+            if (!siteMatch) return false;
+            if (buildingId) {
+              return a.buildingId === buildingId || ((a.isContractWorker || a.isDailyWorker) && a.employeeId && a.employeeId.includes(buildingId));
+            }
+            return !a.buildingId || a.buildingId === "";
+          });
+          const siteExp = allExpenses.filter(e => e.siteId === site.id);
+
+          reportsToGenerate.push({
+            site,
+            buildingId,
+            dpr,
+            attendance: siteAtt,
+            expenses: siteExp
+          });
+        }
+      }
+
+      if (reportsToGenerate.length === 0) {
+        alert(`No DPR data found for ${targetSiteId ? 'this site' : 'the selected date'}.`);
+        setIsGeneratingBulk(false);
+        return;
+      }
+
+      // Native Data-Driven PDF Generation
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+      reportsToGenerate.forEach((report, index) => {
+        if (index > 0) doc.addPage();
+        const { site, dpr, attendance, expenses } = report;
+        const bldgName = dpr.buildingName ? ` - ${dpr.buildingName}` : '';
+
+        doc.setFontSize(16);
+        doc.setTextColor(20, 20, 20);
+        doc.text('DAILY PROGRESS REPORT', 14, 20);
+
+        doc.setFontSize(10);
+        doc.setTextColor(80, 80, 80);
+        doc.text(`Site: ${site.name}${bldgName}`, 14, 28);
+        doc.text(`Date: ${bulkDate}`, 196, 28, { align: 'right' });
+
+        let finalY = 35;
+
+        // 1. Process Work
+        if (dpr.processEntries && dpr.processEntries.length > 0) {
+          doc.setFontSize(12);
+          doc.setTextColor(40, 40, 40);
+          doc.text('Today\'s Process Work', 14, finalY);
+
+          autoTable(doc, {
+            startY: finalY + 4,
+            head: [['Work Description', 'Quantity', 'Unit', 'Remark']],
+            body: dpr.processEntries.map(e => [e.work, e.quantity, e.unit, e.remark || '-']),
+            theme: 'grid',
+            headStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40] },
+            styles: { fontSize: 9 }
+          });
+          finalY = doc.lastAutoTable.finalY + 12;
+        }
+
+        // 2. Attendance
+        const presentCount = attendance.filter(a => a.status === 'present').length;
+        const absentCount = attendance.filter(a => a.status === 'absent').length;
+
+        doc.setFontSize(12);
+        doc.setTextColor(40, 40, 40);
+        doc.text(`Labour Attendance (Present: ${presentCount}, Absent: ${absentCount})`, 14, finalY);
+
+        if (attendance.length > 0) {
+          const rows = attendance.map(att => {
+            let name = 'Unknown';
+            if (att.isDailyWorker) name = `Daily Workers (${att.dailyWorkerCount || 0} Total)`;
+            else if (att.isContractWorker) name = `Subcontractor - ${att.contractorName} (${att.contractWorkerCount || 0} Total)`;
+            else {
+              const l = labourList.find(lab => lab.id === att.employeeId);
+              name = l ? l.name : att.employeeId;
+            }
+            return [name, att.status === 'present' ? 'P' : 'A'];
+          }).sort((a, b) => a[0].localeCompare(b[0]));
+
+          autoTable(doc, {
+            startY: finalY + 4,
+            head: [['Employee / Group', 'Status']],
+            body: rows,
+            theme: 'grid',
+            headStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40] },
+            styles: { fontSize: 9 },
+            didParseCell: function (data) {
+              if (data.section === 'body' && data.column.index === 1) {
+                if (data.cell.raw === 'P') data.cell.styles.textColor = [34, 197, 94];
+                else if (data.cell.raw === 'A') data.cell.styles.textColor = [239, 68, 68];
+                data.cell.styles.halign = 'center';
+              }
+            }
+          });
+          finalY = doc.lastAutoTable.finalY + 12;
+        }
+
+        // 3. Materials
+        if (dpr.materialUsage && dpr.materialUsage.length > 0) {
+          doc.setFontSize(12);
+          doc.setTextColor(40, 40, 40);
+          doc.text('Material Usage Today', 14, finalY);
+
+          autoTable(doc, {
+            startY: finalY + 4,
+            head: [['Material / Item', 'Used Qty']],
+            body: dpr.materialUsage.map(m => [m.name, `${m.quantity} ${m.unit || ''}`]),
+            theme: 'grid',
+            headStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40] },
+            styles: { fontSize: 9 }
+          });
+          finalY = doc.lastAutoTable.finalY + 12;
+        }
+
+        // 4. Expenses
+        if (expenses && expenses.length > 0) {
+          doc.setFontSize(12);
+          doc.setTextColor(40, 40, 40);
+          doc.text('Daily Expenses', 14, finalY);
+
+          const totalExp = expenses.reduce((sum, e) => sum + e.amount, 0);
+          const expBody = expenses.map(e => [e.description, e.category || '-', `Rs ${e.amount.toLocaleString('en-IN')}`]);
+          expBody.push(['', 'TOTAL:', `Rs ${totalExp.toLocaleString('en-IN')}`]);
+
+          autoTable(doc, {
+            startY: finalY + 4,
+            head: [['Description', 'Category', 'Amount']],
+            body: expBody,
+            theme: 'grid',
+            headStyles: { fillColor: [240, 240, 240], textColor: [40, 40, 40] },
+            styles: { fontSize: 9 },
+            didParseCell: function (data) {
+              if (data.section === 'body' && data.row.index === expBody.length - 1) {
+                data.cell.styles.fontStyle = 'bold';
+              }
+              if (data.column.index === 2) {
+                data.cell.styles.halign = 'right';
+              }
+            }
+          });
+        }
+      });
+
+      const fileName = targetSiteId ? `DPR-${targetSites[0].name.replace(/\s+/g, '-')}-${bulkDate}.pdf` : `Bulk-DPR-${bulkDate}.pdf`;
+      doc.save(fileName);
+      setIsGeneratingBulk(false);
+
+    } catch (err) {
+      console.error("Error bulk generating:", err);
+      setIsGeneratingBulk(false);
+    }
+  };
+
   return (
     <div className="p-3 sm:p-4 lg:p-6 space-y-4 lg:space-y-6 min-h-screen bg-gray-50">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -122,15 +304,39 @@ const DPRSites = ({ userRole }) => {
           </div>
         </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search sites A-Z..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2 w-full sm:w-72 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm text-sm"
-          />
+        <div className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search sites A-Z..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 w-full sm:w-64 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-sm text-sm"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={bulkDate}
+              onChange={(e) => setBulkDate(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+            />
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => handleBulkDownload()}
+              disabled={isGeneratingBulk}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50 text-sm font-medium transition-colors whitespace-nowrap"
+            >
+              {isGeneratingBulk ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              Download All DPR
+            </motion.button>
+          </div>
         </div>
       </div>
 
@@ -171,6 +377,19 @@ const DPRSites = ({ userRole }) => {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBulkDownload(site.id);
+                    }}
+                    disabled={isGeneratingBulk}
+                    className="p-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors border border-gray-200 shadow-sm"
+                    title="Download PDF"
+                  >
+                    <Download className="w-5 h-5" />
+                  </motion.button>
                   <motion.button
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
@@ -220,7 +439,6 @@ const DPRSites = ({ userRole }) => {
               className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
               onClick={e => e.stopPropagation()}
             >
-              {/* Modal Header */}
               <div className="bg-green-50 border-b border-green-100 px-6 py-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -236,7 +454,6 @@ const DPRSites = ({ userRole }) => {
                 </button>
               </div>
 
-              {/* Input Fields */}
               <div className="px-6 py-4 space-y-3">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Description</label>
@@ -268,7 +485,6 @@ const DPRSites = ({ userRole }) => {
                 </button>
               </div>
 
-              {/* Today's Expenses List */}
               <div className="border-t border-gray-100 px-6 py-4 max-h-60 overflow-y-auto">
                 {siteExpenses.length === 0 ? (
                   <p className="text-gray-400 text-sm text-center py-4">No expenses recorded today.</p>
@@ -291,7 +507,6 @@ const DPRSites = ({ userRole }) => {
                 )}
               </div>
 
-              {/* Total */}
               {siteExpenses.length > 0 && (
                 <div className="border-t border-gray-200 px-6 py-3 bg-gray-50 flex items-center justify-between">
                   <span className="text-sm font-bold text-gray-600 uppercase tracking-wider">Total</span>
