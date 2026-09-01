@@ -755,6 +755,7 @@ const DPRSiteDetails = ({ userRole }) => {
   //   - Assigned employees → visible ONLY in their exact assigned site/building
   //   - Already marked elsewhere today → hidden
   //   - On leave → hidden
+  // ENTERPRISE PATTERN: Global Availability for Unmarked Employees
   const visibleEmployees = useMemo(() => {
     return allLabour.filter(emp => {
       // 1. Skip employees on leave
@@ -762,34 +763,40 @@ const DPRSiteDetails = ({ userRole }) => {
       const isOnLeave = emp.onLeave || empAtt.some(a => a.status === 'leave');
       if (isOnLeave) return false;
 
-      // 2. Already marked at a DIFFERENT scope today — hide to prevent double-marking
-      const markedElsewhere = empAtt.some(a => {
-        if (a.siteId !== siteId) return a.status === 'present' || a.status === 'absent';
-        if (buildingId && a.buildingId && a.buildingId !== buildingId) return a.status === 'present' || a.status === 'absent';
-        // Prevent cross-contamination: If viewing Site-level, hide if they are marked in ANY building
-        if (!buildingId && a.buildingId) return a.status === 'present' || a.status === 'absent';
-        return false;
-      });
-      if (markedElsewhere) return false;
+      // 2. Check if marked ANYWHERE today
+      const markedToday = empAtt.find(a => a.status === 'present' || a.status === 'absent');
 
-      // 3. UNASSIGNED employees (siteId is empty, 'unassigned', or missing)
-      //    → Visible in ALL sites/buildings in DPR so admin/supervisor can assign them
-      const isUnassigned = !emp.siteId || emp.siteId === '' || emp.siteId === 'unassigned';
-      if (isUnassigned) return true;
-
-      // 4. ASSIGNED employees — strict scope enforcement
-      //    Only show in their exact assigned site/building
-      if (emp.siteId !== siteId) return false;
-
-      if (buildingId) {
-        // Building-level DPR: show if assigned to THIS building, or if employee has no building constraint
-        return !emp.buildingId || emp.buildingId === buildingId;
-      } else {
-        // Site-level DPR (no building selected): hide employees assigned to specific buildings
-        //   (forces them into their specific building DPR)
-        return !emp.buildingId;
+      if (markedToday) {
+        // If marked, they MUST belong to this exact scope to remain visible
+        if (markedToday.siteId !== siteId) return false;
+        if (buildingId) {
+          if (markedToday.buildingId && markedToday.buildingId !== buildingId) return false;
+        } else {
+          if (markedToday.buildingId) return false;
+        }
+        return true; // Marked exactly here -> Show
       }
-    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+      // 3. UNMARKED today -> Show EVERYWHERE so any supervisor can claim them
+      return true;
+
+    }).sort((a, b) => {
+      // Industry Standard UX: Sort employees who are actually assigned to this site/building FIRST.
+      // Other site's unmarked employees will naturally flow to the bottom.
+      const aAssignedHere = a.siteId === siteId && (!buildingId || a.buildingId === buildingId);
+      const bAssignedHere = b.siteId === siteId && (!buildingId || b.buildingId === buildingId);
+
+      if (aAssignedHere && !bAssignedHere) return -1;
+      if (!aAssignedHere && bAssignedHere) return 1;
+
+      const aUnassigned = !a.siteId || a.siteId === 'unassigned';
+      const bUnassigned = !b.siteId || b.siteId === 'unassigned';
+
+      if (aUnassigned && !bUnassigned) return -1;
+      if (!aUnassigned && bUnassigned) return 1;
+
+      return (a.name || '').localeCompare(b.name || '');
+    });
   }, [allLabour, todayAttendance, siteId, buildingId]);
 
   const handleMarkAttendance = async (employeeId, status) => {
@@ -1262,6 +1269,7 @@ const DPRSiteDetails = ({ userRole }) => {
                   ) : visibleEmployees.map(emp => {
                     const att = todayAttendance.find(a => a.employeeId === emp.id && a.siteId === siteId);
                     const status = att?.status || 'unmarked';
+                    const isGuest = emp.siteId && emp.siteId !== 'unassigned' && (emp.siteId !== siteId || (buildingId && emp.buildingId && emp.buildingId !== buildingId));
 
                     return (
                       <tr key={emp.id} className="hover:bg-gray-50">
@@ -1273,6 +1281,11 @@ const DPRSiteDetails = ({ userRole }) => {
                                 FTC
                               </span>
                             )}
+                            {/* {isGuest && (
+                              <span className="px-1.5 py-0.5 bg-gray-100 text-gray-500 text-[9px] font-bold rounded-sm border border-gray-200 uppercase tracking-wider" title="This worker is officially assigned to another site">
+                                Transfer
+                              </span>
+                            )} */}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right">
