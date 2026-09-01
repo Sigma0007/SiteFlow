@@ -2070,6 +2070,10 @@ const AttendanceSimple = ({ userRole = 'admin' }) => {
               )}
               <input type="number" placeholder="Daily Wage (₹/day)" value={newStaff.dailyWage} onChange={(e) => setNewStaff({ ...newStaff, dailyWage: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               <input type="text" placeholder="Phone" value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+              <select value={newStaff.employmentType} onChange={(e) => setNewStaff({ ...newStaff, employmentType: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="permanent">Permanent Staff (Direct)</option>
+                <option value="contract">Individual Contract (FTC)</option>
+              </select>
 
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1">Select Location</label>
